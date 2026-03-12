@@ -1107,6 +1107,23 @@ export default function App() {
 
       <div className="w-full max-w-md min-h-[100dvh] sm:min-h-0 sm:h-auto sm:border sm:border-border-base sm:rounded-[2.5rem] bg-bg-surface sm:shadow-2xl flex flex-col overflow-hidden relative z-10">
 
+        {/* Notification Toast for Copy */}
+        <AnimatePresence>
+          {copied && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, x: "-50%" }}
+              animate={{ opacity: 1, y: 0, x: "-50%" }}
+              exit={{ opacity: 0, y: 20, x: "-50%" }}
+              className="fixed bottom-24 left-1/2 transform -translate-x-1/2 bg-gray-900/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-2xl z-[100] flex items-center gap-3 border border-white/10"
+            >
+              <div className="bg-green-500 rounded-full p-1">
+                <CheckCircle2 className="w-4 h-4 text-white" />
+              </div>
+              Copiado com sucesso!
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Main Content Area */}
         <div className="flex-1 overflow-y-auto pb-24 sm:pb-6 scroll-smooth">
           <AnimatePresence mode="wait">
