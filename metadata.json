@@ -1,0 +1,5 @@
+{
+  "name": "Gestor VS Plus",
+  "description": "Aplicativo de gestão de assinaturas VS Plus com suporte a PWA.",
+  "requestFramePermissions": []
+}

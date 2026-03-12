@@ -1,0 +1,137 @@
+10:type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help";
+38:interface Ticket {
+47:interface TicketMessage {
+49:  ticket_id: string;
+116:  // Tickets state
+117:  const [tickets, setTickets] = useState<Ticket[]>([]);
+118:  const [currentTicket, setCurrentTicket] = useState<Ticket | null>(null);
+119:  const [messages, setMessages] = useState<TicketMessage[]>([]);
+121:  const [ticketForm, setTicketForm] = useState({ category: "Suporte Técnico", subject: "", message: "" });
+123:  // Admin Tickets state
+124:  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+125:  const [adminTicketUserDetails, setAdminTicketUserDetails] = useState<any>(null);
+127:  const fetchAdminTicketUserDetails = async (username: string) => {
+132:        setAdminTicketUserDetails(data);
+143:  const [adminTab, setAdminTab] = useState<"devices" | "tickets" | "payments" | "refunds" | "change_requests" | "reports">("devices");
+144:  const [adminTicketFilterStatus, setAdminTicketFilterStatus] = useState<string>("all");
+145:  const [adminTicketSearchUser, setAdminTicketSearchUser] = useState<string>("");
+496:  const fetchUserTickets = async () => {
+499:      const res = await fetch(`/api/tickets/${currentUser.login}`);
+501:      setTickets(data);
+507:  const fetchAdminTickets = async () => {
+509:      const res = await fetch("/api/admin/tickets");
+511:      setAllTickets(data);
+557:  const fetchMessages = async (ticketId: string) => {
+559:      const res = await fetch(`/api/tickets/${ticketId}/messages`);
+567:  const handleCreateTicket = async (e: React.FormEvent) => {
+569:    if (!ticketForm.subject || !ticketForm.message || !currentUser) return;
+572:      await fetch("/api/tickets", {
+577:          category: ticketForm.category,
+578:          subject: ticketForm.subject,
+579:          message: ticketForm.message
+582:      setTicketForm({ category: "Suporte Técnico", subject: "", message: "" });
+583:      fetchUserTickets();
+584:      setView("tickets");
+594:    if (!newMessage || !currentTicket) return;
+596:      await fetch(`/api/tickets/${currentTicket.id}/messages`, {
+602:      fetchMessages(currentTicket.id);
+603:      if (sender === "user") fetchUserTickets();
+604:      if (sender === "admin") fetchAdminTickets();
+610:  const handleCloseTicket = async () => {
+611:    if (!currentTicket) return;
+613:      await fetch(`/api/tickets/${currentTicket.id}/status`, {
+619:        fetchAdminTickets();
+621:        setAdminTab("tickets");
+623:        fetchUserTickets();
+624:        setView("tickets");
+1110:                        onClick={() => { fetchUserTickets(); setView("tickets"); }}
+1112:                        title="Meus Tickets"
+1208:                                  Sem UUID. Solicite no suporte via ticket se necessário.
+2148:                  <button onClick={() => { fetchUserTickets(); setView("tickets"); }} className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center font-medium">
+2150:                    Meus Tickets
+2239:                    onClick={() => { fetchUserTickets(); setView("tickets"); }}
+2243:                    Abrir Ticket de Suporte
+2564:                        fetchAdminTickets();
+2598:                          onClick={() => setAdminTab("tickets")}
+2599:                          className={`px-4 py-2.5 text-sm font-bold rounded-xl transition-all whitespace-nowrap active:scale-95 ${adminTab === "tickets" ? "bg-text-base text-bg-base shadow-md" : "bg-bg-surface hover:bg-bg-surface-hover text-text-muted border border-border-base"}`}
+2601:                          Tickets
+2670:                      ) : adminTab === "tickets" ? (
+2678:                                value={adminTicketSearchUser}
+2679:                                onChange={e => setAdminTicketSearchUser(e.target.value)}
+2684:                              value={adminTicketFilterStatus}
+2685:                              onChange={e => setAdminTicketFilterStatus(e.target.value)}
+2696:                            {allTickets
+2697:                              .filter(t => adminTicketFilterStatus === "all" || t.status === adminTicketFilterStatus)
+2698:                              .filter(t => t.username.toLowerCase().includes(adminTicketSearchUser.toLowerCase()))
+2701:                                <p className="text-sm font-medium text-text-muted">Nenhum ticket encontrado.</p>
+2704:                              allTickets
+2705:                                .filter(t => adminTicketFilterStatus === "all" || t.status === adminTicketFilterStatus)
+2706:                                .filter(t => t.username.toLowerCase().includes(adminTicketSearchUser.toLowerCase()))
+2711:                                      setCurrentTicket(t);
+2713:                                      fetchAdminTicketUserDetails(t.username);
+2714:                                      setView("admin_ticket_detail");
+3153:            {/* User Tickets List */}
+3154:            {view === "tickets" && (
+3156:                key="tickets"
+3167:                    <h1 className="text-lg font-semibold text-white">Meus Tickets</h1>
+3172:                  {tickets.length === 0 ? (
+3175:                      <p className="text-text-muted">Você não possui tickets abertos.</p>
+3179:                      {tickets.map(t => (
+3182:                          onClick={() => { setCurrentTicket(t); fetchMessages(t.id); setView("ticket_detail"); }}
+3213:                  <form onSubmit={handleCreateTicket} className="space-y-3">
+3215:                      value={ticketForm.category}
+3216:                      onChange={e => setTicketForm({ ...ticketForm, category: e.target.value })}
+3227:                      value={ticketForm.subject}
+3228:                      onChange={e => setTicketForm({ ...ticketForm, subject: e.target.value })}
+3234:                      value={ticketForm.message}
+3235:                      onChange={e => setTicketForm({ ...ticketForm, message: e.target.value })}
+3241:                      disabled={loading || !ticketForm.subject || !ticketForm.message}
+3244:                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" /> Novo Ticket</>}
+3251:            {/* Ticket Detail (User & Admin) */}
+3252:            {(view === "ticket_detail" || view === "admin_ticket_detail") && currentTicket && (
+3254:                key="ticket_detail"
+3258:                className={`w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden flex flex-col ${view === "admin_ticket_detail" ? "max-w-md md:max-w-6xl h-[90vh]" : "max-w-md h-[600px]"}`}
+3260:                <div className={`${view === "admin_ticket_detail" ? "bg-bg-surface-hover text-text-base" : "bg-primary-600 text-white"} p-4 flex justify-between items-center flex-shrink-0`}>
+3264:                        if (view === "admin_ticket_detail") {
+3266:                          setAdminTab("tickets");
+3268:                          setView("tickets");
+3271:                      className={`${view === "admin_ticket_detail" ? "text-text-muted hover:text-text-base bg-bg-base" : "text-white/80 hover:text-white bg-black/10"} mr-3 flex-shrink-0 flex items-center text-sm font-medium px-2 py-1.5 rounded-lg transition-colors`}
+3277:                      <h1 className={`text-sm font-semibold truncate ${view === "admin_ticket_detail" ? "text-text-base" : "text-white"}`}>{currentTicket.subject}</h1>
+3278:                      <p className={`text-xs ${view === "admin_ticket_detail" ? "text-text-muted" : "text-white/70"}`}>{currentTicket.category} {view === "admin_ticket_detail" && `• ${currentTicket.username}`}</p>
+3281:                  {currentTicket.status !== "closed" && (
+3284:                        confirmAction("Encerrar Ticket", "Tem certeza que deseja encerrar este ticket?", () => {
+3285:                          handleCloseTicket();
+3296:                {view === "admin_ticket_detail" && (
+3298:                    <span className="text-text-muted font-medium px-2">Outros Tickets:</span>
+3299:                    {allTickets.filter(t => t.username === currentTicket.username && t.id !== currentTicket.id).length === 0 ? (
+3300:                      <span className="text-text-muted py-1">Nenhum outro ticket.</span>
+3302:                      allTickets.filter(t => t.username === currentTicket.username && t.id !== currentTicket.id).map(t => (
+3306:                            setCurrentTicket(t);
+3308:                            fetchAdminTicketUserDetails(t.username);
+3319:                <div className={`flex flex-1 overflow-hidden ${view === "admin_ticket_detail" ? "flex-col md:flex-row" : "flex-col"}`}>
+3323:                        const isMe = (view === "admin_ticket_detail" && m.sender === "admin") || (view === "ticket_detail" && m.sender === "user");
+3327:                              ? (view === "admin_ticket_detail" ? "bg-bg-surface-hover text-text-base rounded-tr-sm" : "bg-primary-600 text-white rounded-tr-sm")
+3331:                              <p className={`text-[10px] mt-1 text-right ${isMe ? (view === "admin_ticket_detail" ? "text-text-muted" : "text-white/70") : "text-text-muted"}`}>
+3340:                    {currentTicket.status !== "closed" ? (
+3343:                          onSubmit={(e) => handleSendMessage(e, view === "admin_ticket_detail" ? "admin" : "user")}
+3356:                            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 ${view === "admin_ticket_detail" ? "bg-bg-surface-hover hover:bg-bg-base text-text-base" : "bg-primary-600 hover:bg-primary-700 text-white"
+3365:                        Este ticket foi fechado.
+3370:                  {view === "admin_ticket_detail" && adminTicketUserDetails && (
+3381:                              <span className="font-medium text-text-base">{adminTicketUserDetails.user?.login}</span>
+3385:                              <span className={`font-medium ${adminTicketUserDetails.user?.status === 'Online' ? 'text-green-600' : 'text-text-base'}`}>
+3386:                                {adminTicketUserDetails.user?.status}
+3391:                              <span className="font-medium text-text-base">{adminTicketUserDetails.user?.expira}</span>
+3395:                              <span className="font-medium text-text-base">{adminTicketUserDetails.user?.limite}</span>
+3400:                        {adminTicketUserDetails.plan && (
+3407:                              <p className="font-medium text-text-base">{adminTicketUserDetails.plan.name}</p>
+3409:                                {adminTicketUserDetails.plan.plan_type === 'period'
+3410:                                  ? `${adminTicketUserDetails.plan.plan_months} Mês(es) - 1 Celular`
+3411:                                  : `1 Mês - ${adminTicketUserDetails.plan.plan_devices} Celulares`}
+3413:                              <p className="font-bold text-text-base mt-1">R$ {adminTicketUserDetails.plan.plan_price},00</p>
+3421:                            Aparelhos Vinculados ({adminTicketUserDetails.devices?.length || 0})
+3424:                            {adminTicketUserDetails.devices?.map((d: any) => (
+3430:                            {(!adminTicketUserDetails.devices || adminTicketUserDetails.devices.length === 0) && (
+3442:                            {adminTicketUserDetails.payments?.slice(0, 3).map((p: any) => (
+3453:                            {(!adminTicketUserDetails.payments || adminTicketUserDetails.payments.length === 0) && (
+3465:                            {adminTicketUserDetails.refunds?.filter((r: any) => r.status === 'realizado').map((r: any) => (
+3471:                            {(!adminTicketUserDetails.refunds || adminTicketUserDetails.refunds.filter((r: any) => r.status === 'realizado').length === 0) && (
