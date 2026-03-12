@@ -1,15 +1,15 @@
 import express from "express";
 import http from "http";
-import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
-
 import crypto from "crypto";
 import path from "path";
 import os from "os";
+
+// Note: Removed static import of vite to keep production bundle small
 
 dotenv.config();
 
@@ -182,20 +182,22 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    message: "Server is alive",
+    time: new Date().toISOString(),
+    env_keys: Object.keys(process.env).filter(k => k.includes('VPN') || k.includes('SUPABASE') || k.includes('MP'))
+  });
+});
+
+app.get("/api/db-status", (req, res) => {
   try {
     const database = getDb();
-    const tableCheck = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payments'").get();
+    const tableCheck = database.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
     res.json({ 
       status: "ok", 
-      database: "connected", 
-      tables: !!tableCheck,
-      dbPath: DB_PATH,
-      env: {
-        VPN_API_URL: !!process.env.VPN_API_URL,
-        VPN_API_KEY: !!process.env.VPN_API_KEY,
-        MP_ACCESS_TOKEN: !!process.env.MP_ACCESS_TOKEN,
-        SUPABASE_URL: !!process.env.SUPABASE_URL
-      }
+      tables: tableCheck.map((t: any) => t.name),
+      dbPath: DB_PATH
     });
   } catch (e: any) {
     res.status(500).json({ status: "error", message: e.message, stack: e.stack });
@@ -1667,15 +1669,19 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: { server } },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true, hmr: { server } },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.error("Vite failed to start:", e);
+    }
   } else {
     app.use(express.static("dist"));
   }
-
 }
 
 // Global error handler
