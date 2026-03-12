@@ -20,6 +20,26 @@ const DB_PATH = path.join(os.tmpdir(), "database.sqlite");
 
 app.use(express.json());
 
+app.get("/api/health", (req, res) => {
+  try {
+    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payments'").get();
+    res.json({ 
+      status: "ok", 
+      database: "connected", 
+      tables: !!tableCheck,
+      dbPath: DB_PATH,
+      env: {
+        VPN_API_URL: !!process.env.VPN_API_URL,
+        VPN_API_KEY: !!process.env.VPN_API_KEY,
+        MP_ACCESS_TOKEN: !!process.env.MP_ACCESS_TOKEN,
+        SUPABASE_URL: !!process.env.SUPABASE_URL
+      }
+    });
+  } catch (e: any) {
+    res.status(500).json({ status: "error", message: e.message });
+  }
+});
+
 // --- Supabase Backup Logic ---
 if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
