@@ -22,7 +22,7 @@ app.use(express.json());
 
 app.get("/api/health", (req, res) => {
   try {
-    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payments'").get();
+    const tableCheck = getDb().prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payments'").get();
     res.json({ 
       status: "ok", 
       database: "connected", 
@@ -40,65 +40,167 @@ app.get("/api/health", (req, res) => {
   }
 });
 
-// --- Supabase Backup Logic ---
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-  try {
-    console.log("Downloading database from Supabase...");
-    const { data, error } = await supabase.storage.from('sqlite_backup').download('database.sqlite');
-    if (data) {
-      const buffer = await data.arrayBuffer();
-      fs.writeFileSync(DB_PATH, Buffer.from(buffer));
-      console.log("Database downloaded successfully.");
-    } else {
-      console.log("No existing database found in Supabase or error:", error?.message);
+// --- DB Setup & Singleton ---
+let db: Database.Database;
+
+function getDb() {
+  if (!db) {
+    db = new Database(DB_PATH);
+    // Create tables if first time
+    getDb().exec(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        status TEXT NOT NULL,
+        type TEXT DEFAULT 'renewal',
+        metadata TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS devices (
+        device_id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS trusted_devices (
+        device_id TEXT,
+        username TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (device_id, username)
+      );
+      CREATE TABLE IF NOT EXISTS tickets (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        category TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS ticket_messages (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL,
+        sender TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(ticket_id) REFERENCES tickets(id)
+      );
+      CREATE TABLE IF NOT EXISTS user_groups (
+        group_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        PRIMARY KEY (group_id, username)
+      );
+      CREATE TABLE IF NOT EXISTS group_plans (
+        group_id TEXT PRIMARY KEY,
+        plan_type TEXT NOT NULL,
+        plan_months INTEGER NOT NULL,
+        plan_devices INTEGER NOT NULL,
+        plan_price REAL NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS referrals (
+        id TEXT PRIMARY KEY,
+        referrer_username TEXT NOT NULL,
+        referred_username TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'testing',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS loyalty_points (
+        username TEXT PRIMARY KEY,
+        points INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS refund_requests (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        pix_type TEXT NOT NULL,
+        pix_key TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'aguardando',
+        refunded_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS change_requests (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        type TEXT NOT NULL,
+        requested_value TEXT NOT NULL,
+        approved_value TEXT,
+        status TEXT NOT NULL DEFAULT 'aguardando',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Supabase Sync Logic if enabled
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      
+      const scheduleUpload = () => {
+        // Debounce upload - in Lambda this might not work perfectly because the instance dies
+        setTimeout(async () => {
+          try {
+            console.log("Uploading database to Supabase...");
+            const buffer = fs.readFileSync(DB_PATH);
+            await supabase.storage.from('sqlite_backup').upload('database.sqlite', buffer, { upsert: true });
+          } catch (e) {
+            console.error("Failed to upload database:", e);
+          }
+        }, 1000);
+      };
+
+      const originalPrepare = getDb().prepare.bind(db);
+      getDb().prepare = (query: string) => {
+        const stmt = originalPrepare(query);
+        const originalRun = stmt.run.bind(stmt);
+        stmt.run = (...args: any[]) => {
+          const result = originalRun(...args);
+          scheduleUpload();
+          return result;
+        };
+        return stmt;
+      };
+
+      const originalExec = getDb().exec.bind(db);
+      getDb().exec = (query: string) => {
+        const result = originalExec(query);
+        scheduleUpload();
+        return result;
+      };
     }
-  } catch (e) {
-    console.error("Error downloading database:", e);
   }
+  return db;
 }
 
-// Database setup
-const db = new Database(DB_PATH);
-
+// Initial download (Async background - don't block start)
 if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-  let uploadTimeout: NodeJS.Timeout;
-
-  const scheduleUpload = () => {
-    clearTimeout(uploadTimeout);
-    uploadTimeout = setTimeout(async () => {
-      try {
-        console.log("Uploading database to Supabase...");
-        const buffer = fs.readFileSync(DB_PATH);
-        const { error } = await supabase.storage.from('sqlite_backup').upload('database.sqlite', buffer, { upsert: true });
-        if (error) console.error("Error uploading database:", error.message);
-        else console.log("Database uploaded successfully.");
-      } catch (e) {
-        console.error("Failed to upload database:", e);
-      }
-    }, 5000);
-  };
-
-  const originalPrepare = db.prepare.bind(db);
-  db.prepare = (query: string) => {
-    const stmt = originalPrepare(query);
-    const originalRun = stmt.run.bind(stmt);
-    stmt.run = (...args: any[]) => {
-      const result = originalRun(...args);
-      scheduleUpload();
-      return result;
-    };
-    return stmt;
-  };
-
-  const originalExec = db.exec.bind(db);
-  db.exec = (query: string) => {
-    const result = originalExec(query);
-    scheduleUpload();
-    return result;
-  };
+  supabase.storage.from('sqlite_backup').download('database.sqlite').then(({ data }) => {
+    if (data) {
+      data.arrayBuffer().then(buffer => {
+        fs.writeFileSync(DB_PATH, Buffer.from(buffer));
+        console.log("Database initialized from Supabase.");
+      });
+    }
+  }).catch(e => console.error("Initial DB download failed:", e));
 }
+
+app.get("/api/health", (req, res) => {
+  try {
+    const database = getDb();
+    const tableCheck = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payments'").get();
+    res.json({ 
+      status: "ok", 
+      database: "connected", 
+      tables: !!tableCheck,
+      dbPath: DB_PATH,
+      env: {
+        VPN_API_URL: !!process.env.VPN_API_URL,
+        VPN_API_KEY: !!process.env.VPN_API_KEY,
+        MP_ACCESS_TOKEN: !!process.env.MP_ACCESS_TOKEN,
+        SUPABASE_URL: !!process.env.SUPABASE_URL
+      }
+    });
+  } catch (e: any) {
+    res.status(500).json({ status: "error", message: e.message, stack: e.stack });
+  }
+});
 
 const VPN_API_URL = process.env.VPN_API_URL || "https://pweb.cloudbrasil.shop/core/apiatlas.php";
 const VPN_API_KEY = process.env.VPN_API_KEY || "LTm2H0TnZwKY560Vqj7gfbxeIL";
@@ -135,97 +237,10 @@ async function fetchVpnUsers() {
   }
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS payments (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    status TEXT NOT NULL,
-    type TEXT DEFAULT 'renewal',
-    metadata TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS devices (
-    device_id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS trusted_devices (
-    device_id TEXT,
-    username TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (device_id, username)
-  );
-  CREATE TABLE IF NOT EXISTS tickets (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    category TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'open',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS ticket_messages (
-    id TEXT PRIMARY KEY,
-    ticket_id TEXT NOT NULL,
-    sender TEXT NOT NULL,
-    message TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(ticket_id) REFERENCES tickets(id)
-  );
-  CREATE TABLE IF NOT EXISTS user_groups (
-    group_id TEXT NOT NULL,
-    username TEXT NOT NULL,
-    PRIMARY KEY (group_id, username)
-  );
-  CREATE TABLE IF NOT EXISTS group_plans (
-    group_id TEXT PRIMARY KEY,
-    plan_type TEXT NOT NULL,
-    plan_months INTEGER NOT NULL,
-    plan_devices INTEGER NOT NULL,
-    plan_price REAL NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS referrals (
-    id TEXT PRIMARY KEY,
-    referrer_username TEXT NOT NULL,
-    referred_username TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'testing', -- testing, paid, bonus_received
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS loyalty_points (
-    username TEXT PRIMARY KEY,
-    points INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS refund_requests (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    pix_type TEXT NOT NULL,
-    pix_key TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'aguardando',
-    refunded_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS date_change_requests (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    new_date TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'aguardando',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS change_requests (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    type TEXT NOT NULL,
-    requested_value TEXT NOT NULL,
-    approved_value TEXT,
-    status TEXT NOT NULL DEFAULT 'aguardando',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
+// Migração de pedidos antigos se existirem
 try {
-  const oldRequests = db.prepare("SELECT * FROM date_change_requests").all() as any[];
-  const insertReq = db.prepare("INSERT OR IGNORE INTO change_requests (id, username, type, requested_value, status, created_at) VALUES (?, ?, 'date', ?, ?, ?)");
+  const oldRequests = getDb().prepare("SELECT * FROM date_change_requests").all() as any[];
+  const insertReq = getDb().prepare("INSERT OR IGNORE INTO change_requests (id, username, type, requested_value, status, created_at) VALUES (?, ?, 'date', ?, ?, ?)");
   for (const req of oldRequests) {
     insertReq.run(req.id, req.username, req.new_date, req.status, req.created_at);
   }
@@ -249,10 +264,10 @@ async function approvePayment(paymentRecord: any) {
 
   // Update DB
   try {
-    db.prepare("ALTER TABLE payments ADD COLUMN paid_at DATETIME").run();
+    getDb().prepare("ALTER TABLE payments ADD COLUMN paid_at DATETIME").run();
   } catch (e) { }
 
-  const updateStmt = db.prepare("UPDATE payments SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?");
+  const updateStmt = getDb().prepare("UPDATE payments SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?");
   updateStmt.run("approved", paymentId);
 
   if (paymentRecord.type === "new_device") {
@@ -279,7 +294,7 @@ async function approvePayment(paymentRecord: any) {
       console.log(`VPN Create Response for ${newUsername}:`, vpnText);
 
       // Add to group
-      const insertGroupUser = db.prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)");
+      const insertGroupUser = getDb().prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)");
       insertGroupUser.run(groupId, newUsername);
     }
     return;
@@ -291,11 +306,11 @@ async function approvePayment(paymentRecord: any) {
   let monthsToRenew = 1;
 
   if (groupId) {
-    const plan = db.prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+    const plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
     if (plan) {
       monthsToRenew = plan.plan_months;
     }
-    const groupUsers = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
+    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
     if (groupUsers.length > 0) {
       usersToRenew = groupUsers.map(u => u.username);
     }
@@ -326,17 +341,17 @@ async function approvePayment(paymentRecord: any) {
   const metadata = paymentRecord.metadata ? JSON.parse(paymentRecord.metadata) : {};
   if (metadata.discountApplied) {
     // Reset points
-    db.prepare("UPDATE loyalty_points SET points = 0, updated_at = CURRENT_TIMESTAMP WHERE username = ?").run(paymentRecord.username);
+    getDb().prepare("UPDATE loyalty_points SET points = 0, updated_at = CURRENT_TIMESTAMP WHERE username = ?").run(paymentRecord.username);
   } else {
     // Add point if paid on time or in advance
     if (metadata.paidOnTime) {
-      db.prepare("INSERT INTO loyalty_points (username, points) VALUES (?, 1) ON CONFLICT(username) DO UPDATE SET points = points + 1, updated_at = CURRENT_TIMESTAMP").run(paymentRecord.username);
+      getDb().prepare("INSERT INTO loyalty_points (username, points) VALUES (?, 1) ON CONFLICT(username) DO UPDATE SET points = points + 1, updated_at = CURRENT_TIMESTAMP").run(paymentRecord.username);
     }
   }
 
   // Handle Referral Bonus
   // Check if this user was referred and the status is 'testing'
-  const referral = db.prepare("SELECT * FROM referrals WHERE referred_username = ? AND status = 'testing'").get(paymentRecord.username) as any;
+  const referral = getDb().prepare("SELECT * FROM referrals WHERE referred_username = ? AND status = 'testing'").get(paymentRecord.username) as any;
   if (referral) {
     // Give 1 month free to referrer
     const params = new URLSearchParams();
@@ -353,7 +368,7 @@ async function approvePayment(paymentRecord: any) {
     });
 
     // Update referral status
-    db.prepare("UPDATE referrals SET status = 'bonus_received' WHERE id = ?").run(referral.id);
+    getDb().prepare("UPDATE referrals SET status = 'bonus_received' WHERE id = ?").run(referral.id);
   }
 }
 
@@ -373,23 +388,23 @@ app.get("/api/group/:username", (req, res) => {
     const { username } = req.params;
 
     // Find if user is in a group
-    let stmt = db.prepare("SELECT group_id FROM user_groups WHERE username = ?");
+    let stmt = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?");
     let groupRecord = stmt.get(username) as any;
 
     let groupId;
     if (!groupRecord) {
       // Create new group for user
       groupId = crypto.randomUUID();
-      db.prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, username);
+      getDb().prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, username);
       // Default plan: 1 month, 1 device, R$ 15
-      db.prepare("INSERT INTO group_plans (group_id, plan_type, plan_months, plan_devices, plan_price) VALUES (?, ?, ?, ?, ?)").run(groupId, 'custom', 1, 1, 15);
+      getDb().prepare("INSERT INTO group_plans (group_id, plan_type, plan_months, plan_devices, plan_price) VALUES (?, ?, ?, ?, ?)").run(groupId, 'custom', 1, 1, 15);
     } else {
       groupId = groupRecord.group_id;
     }
 
     // Get all users in group
-    const users = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
-    const plan = db.prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+    const users = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
+    const plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
 
     res.json({
       groupId,
@@ -405,7 +420,7 @@ app.get("/api/group/:username", (req, res) => {
 app.get("/api/group/details/:groupId", async (req, res) => {
   try {
     const { groupId } = req.params;
-    const groupUsers = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
+    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
     const usernames = groupUsers.map(u => u.username);
 
     const allUsers = await fetchVpnUsers();
@@ -438,28 +453,28 @@ app.post("/api/group/add", async (req, res) => {
     }
 
     // Check if user is already in a group
-    const existingGroup = db.prepare("SELECT group_id FROM user_groups WHERE username = ?").get(newUsername) as any;
+    const existingGroup = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(newUsername) as any;
     if (existingGroup && existingGroup.group_id !== groupId) {
       // Remove from old group
-      db.prepare("DELETE FROM user_groups WHERE username = ?").run(newUsername);
+      getDb().prepare("DELETE FROM user_groups WHERE username = ?").run(newUsername);
       // If old group is empty, delete its plan
-      const oldGroupUsers = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(existingGroup.group_id);
+      const oldGroupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(existingGroup.group_id);
       if (oldGroupUsers.length === 0) {
-        db.prepare("DELETE FROM group_plans WHERE group_id = ?").run(existingGroup.group_id);
+        getDb().prepare("DELETE FROM group_plans WHERE group_id = ?").run(existingGroup.group_id);
       }
     }
 
     // Add to new group
-    db.prepare("INSERT OR IGNORE INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, newUsername);
+    getDb().prepare("INSERT OR IGNORE INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, newUsername);
 
     // Automatically update plan price based on new device count
-    const groupUsers2 = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
+    const groupUsers2 = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
     const numDevices = groupUsers2.length;
     if (numDevices >= 1) {
-      const currentPlan = db.prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+      const currentPlan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
       const months = currentPlan ? currentPlan.plan_months : 1;
       const newPrice = calculatePlanPrice(months, numDevices);
-      db.prepare("UPDATE group_plans SET plan_type = 'custom', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(numDevices, newPrice, groupId);
+      getDb().prepare("UPDATE group_plans SET plan_type = 'custom', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(numDevices, newPrice, groupId);
     }
 
     res.json({ success: true });
@@ -474,20 +489,20 @@ app.post("/api/group/remove", (req, res) => {
     const { groupId, usernameToRemove } = req.body;
 
     // Remove from group
-    db.prepare("DELETE FROM user_groups WHERE group_id = ? AND username = ?").run(groupId, usernameToRemove);
+    getDb().prepare("DELETE FROM user_groups WHERE group_id = ? AND username = ?").run(groupId, usernameToRemove);
 
     // Automatically update plan for remaining group members
-    const groupUsers = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
-    const plan2 = db.prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
+    const plan2 = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
     const remainingMonths = plan2 ? plan2.plan_months : 1;
     const newNumDevices = groupUsers.length;
     const newGroupPrice = calculatePlanPrice(remainingMonths, newNumDevices);
-    db.prepare("UPDATE group_plans SET plan_type = 'custom', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(newNumDevices, newGroupPrice, groupId);
+    getDb().prepare("UPDATE group_plans SET plan_type = 'custom', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(newNumDevices, newGroupPrice, groupId);
 
     // Create a new group for the removed user with default plan
     const newGroupId = crypto.randomUUID();
-    db.prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)").run(newGroupId, usernameToRemove);
-    db.prepare("INSERT INTO group_plans (group_id, plan_type, plan_months, plan_devices, plan_price) VALUES (?, ?, ?, ?, ?)").run(newGroupId, 'custom', 1, 1, 15);
+    getDb().prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)").run(newGroupId, usernameToRemove);
+    getDb().prepare("INSERT INTO group_plans (group_id, plan_type, plan_months, plan_devices, plan_price) VALUES (?, ?, ?, ?, ?)").run(newGroupId, 'custom', 1, 1, 15);
 
     res.json({ success: true });
   } catch (error: any) {
@@ -500,7 +515,7 @@ app.post("/api/group/plan", (req, res) => {
   try {
     const { groupId, plan_type, plan_months, plan_devices, plan_price } = req.body;
 
-    db.prepare("UPDATE group_plans SET plan_type = ?, plan_months = ?, plan_devices = ?, plan_price = ? WHERE group_id = ?")
+    getDb().prepare("UPDATE group_plans SET plan_type = ?, plan_months = ?, plan_devices = ?, plan_price = ? WHERE group_id = ?")
       .run(plan_type, plan_months, plan_devices, plan_price, groupId);
 
     res.json({ success: true });
@@ -528,7 +543,7 @@ app.post("/api/auth/verify", async (req, res) => {
     }
 
     // Add to trusted devices
-    db.prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)").run(deviceId, username);
+    getDb().prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)").run(deviceId, username);
 
     res.json({ success: true, isTrusted: true });
   } catch (error: any) {
@@ -554,46 +569,46 @@ app.post("/api/user", async (req, res) => {
     // Check if device is trusted
     let isTrusted = false;
     if (deviceId) {
-      const stmt = db.prepare("SELECT * FROM trusted_devices WHERE device_id = ? AND username = ?");
+      const stmt = getDb().prepare("SELECT * FROM trusted_devices WHERE device_id = ? AND username = ?");
       const trusted = stmt.get(deviceId, username);
       if (trusted) isTrusted = true;
     }
 
     // Get loyalty points
-    const loyaltyRecord = db.prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
+    const loyaltyRecord = getDb().prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     // Get referrals
-    const referrals = db.prepare("SELECT * FROM referrals WHERE referrer_username = ? ORDER BY created_at DESC").all(username);
+    const referrals = getDb().prepare("SELECT * FROM referrals WHERE referrer_username = ? ORDER BY created_at DESC").all(username);
 
     // Get group ID to fetch group-wide requests
-    const groupRecord = db.prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
+    const groupRecord = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
     const groupId = groupRecord ? groupRecord.group_id : null;
     const groupUsernames = groupId 
-      ? (db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[]).map(u => u.username)
+      ? (getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[]).map(u => u.username)
       : [username];
 
     // Get group-wide active refund request
     const refundRequest = groupId
-      ? db.prepare("SELECT * FROM refund_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND status = 'aguardando'").get(...groupUsernames)
-      : db.prepare("SELECT * FROM refund_requests WHERE username = ? AND status = 'aguardando'").get(username);
+      ? getDb().prepare("SELECT * FROM refund_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND status = 'aguardando'").get(...groupUsernames)
+      : getDb().prepare("SELECT * FROM refund_requests WHERE username = ? AND status = 'aguardando'").get(username);
 
     // Get group-wide active change requests
     const changeRequests = groupId
-      ? db.prepare("SELECT * FROM change_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND status = 'aguardando'").all(...groupUsernames)
-      : db.prepare("SELECT * FROM change_requests WHERE username = ? AND status = 'aguardando'").all(username);
+      ? getDb().prepare("SELECT * FROM change_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND status = 'aguardando'").all(...groupUsernames)
+      : getDb().prepare("SELECT * FROM change_requests WHERE username = ? AND status = 'aguardando'").all(username);
 
     // Get recent date change request (last 30 days) for the group
     const recentDateChangeRequest = groupId
-      ? db.prepare("SELECT * FROM change_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND type = 'date' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 1").get(...groupUsernames)
-      : db.prepare("SELECT * FROM change_requests WHERE username = ? AND type = 'date' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 1").get(username);
+      ? getDb().prepare("SELECT * FROM change_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND type = 'date' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 1").get(...groupUsernames)
+      : getDb().prepare("SELECT * FROM change_requests WHERE username = ? AND type = 'date' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 1").get(username);
 
     // Get last payment date to calculate 7 days
     try {
-      db.prepare("ALTER TABLE payments ADD COLUMN paid_at DATETIME").run();
+      getDb().prepare("ALTER TABLE payments ADD COLUMN paid_at DATETIME").run();
     } catch (e) { }
 
-    const lastPayment = db.prepare("SELECT created_at, paid_at FROM payments WHERE username = ? AND status = 'approved' ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 1").get(username) as any;
+    const lastPayment = getDb().prepare("SELECT created_at, paid_at FROM payments WHERE username = ? AND status = 'approved' ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 1").get(username) as any;
     let lastPaymentDate = null;
     if (lastPayment) {
       let dateStr = lastPayment.paid_at || lastPayment.created_at;
@@ -603,7 +618,7 @@ app.post("/api/user", async (req, res) => {
     }
 
     // Get payment history
-    const payments = db.prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC").all(username);
+    const payments = getDb().prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC").all(username);
 
     res.json({ ...user, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments });
   } catch (error: any) {
@@ -635,7 +650,7 @@ app.post("/api/verify-password", async (req, res) => {
     }
 
     // Trust device
-    const stmt = db.prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)");
+    const stmt = getDb().prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)");
     stmt.run(deviceId, username);
 
     res.json({ success: true });
@@ -660,7 +675,7 @@ app.post("/api/create-free", async (req, res) => {
     }
 
     // Check if device already created a user
-    const stmt = db.prepare("SELECT * FROM devices WHERE device_id = ?");
+    const stmt = getDb().prepare("SELECT * FROM devices WHERE device_id = ?");
     const existingDevice = stmt.get(deviceId);
     if (existingDevice) {
       return res.status(403).json({ error: "Este aparelho já gerou um teste gratuito." });
@@ -710,17 +725,17 @@ app.post("/api/create-free", async (req, res) => {
     }
 
     // Save device
-    const insertDevice = db.prepare("INSERT OR IGNORE INTO devices (device_id, username) VALUES (?, ?)");
+    const insertDevice = getDb().prepare("INSERT OR IGNORE INTO devices (device_id, username) VALUES (?, ?)");
     insertDevice.run(deviceId, username);
 
     // Trust device automatically
-    const insertTrusted = db.prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)");
+    const insertTrusted = getDb().prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)");
     insertTrusted.run(deviceId, username);
 
     // Save referral if exists
     if (referrer) {
       const referralId = crypto.randomUUID();
-      const insertReferral = db.prepare("INSERT INTO referrals (id, referrer_username, referred_username) VALUES (?, ?, ?)");
+      const insertReferral = getDb().prepare("INSERT INTO referrals (id, referrer_username, referred_username) VALUES (?, ?, ?)");
       insertReferral.run(referralId, referrer, username);
     }
 
@@ -756,7 +771,7 @@ app.post("/api/pix/new-device", async (req, res) => {
     const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     // Calculate price difference
-    const groupUsers = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
+    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
     const currentDevices = groupUsers.length;
 
     const getPrice = (devices: number) => {
@@ -799,16 +814,16 @@ app.post("/api/pix/new-device", async (req, res) => {
     }
 
     try {
-      db.prepare("ALTER TABLE payments ADD COLUMN group_id TEXT").run();
+      getDb().prepare("ALTER TABLE payments ADD COLUMN group_id TEXT").run();
     } catch (e) { }
     try {
-      db.prepare("ALTER TABLE payments ADD COLUMN type TEXT DEFAULT 'renewal'").run();
+      getDb().prepare("ALTER TABLE payments ADD COLUMN type TEXT DEFAULT 'renewal'").run();
     } catch (e) { }
     try {
-      db.prepare("ALTER TABLE payments ADD COLUMN metadata TEXT").run();
+      getDb().prepare("ALTER TABLE payments ADD COLUMN metadata TEXT").run();
     } catch (e) { }
 
-    const stmt = db.prepare("INSERT INTO payments (id, username, status, group_id, type, metadata) VALUES (?, ?, ?, ?, ?, ?)");
+    const stmt = getDb().prepare("INSERT INTO payments (id, username, status, group_id, type, metadata) VALUES (?, ?, ?, ?, ?, ?)");
     stmt.run(
       mpRes.id.toString(),
       mainUsername,
@@ -855,10 +870,10 @@ app.post("/api/group/add-free-device", async (req, res) => {
     });
 
     // Add to group
-    db.prepare("INSERT OR IGNORE INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, newUsername);
+    getDb().prepare("INSERT OR IGNORE INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, newUsername);
 
     // Update plan
-    const groupUsers = db.prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
+    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
     const numDevices = groupUsers.length;
     let newPrice = 20;
     if (numDevices === 2) newPrice = 35;
@@ -867,7 +882,7 @@ app.post("/api/group/add-free-device", async (req, res) => {
     else if (numDevices === 5) newPrice = 70;
     else if (numDevices >= 6) newPrice = 80;
 
-    db.prepare("UPDATE group_plans SET plan_type = 'devices', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(numDevices, newPrice, groupId);
+    getDb().prepare("UPDATE group_plans SET plan_type = 'devices', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(numDevices, newPrice, groupId);
 
     res.json({ success: true, password });
   } catch (error: any) {
@@ -892,17 +907,17 @@ app.post("/api/pix", async (req, res) => {
     }
 
     // Get group and plan
-    const groupRecord = db.prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
+    const groupRecord = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
     if (!groupRecord) {
       return res.status(404).json({ error: "Grupo não encontrado" });
     }
-    const plan = db.prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupRecord.group_id) as any;
+    const plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupRecord.group_id) as any;
     if (!plan) {
       return res.status(404).json({ error: "Plano não encontrado" });
     }
 
     // Check loyalty points
-    const loyaltyRecord = db.prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
+    const loyaltyRecord = getDb().prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     let transactionAmount = plan.plan_price;
@@ -944,17 +959,17 @@ app.post("/api/pix", async (req, res) => {
     }
 
     try {
-      db.prepare("ALTER TABLE payments ADD COLUMN group_id TEXT").run();
+      getDb().prepare("ALTER TABLE payments ADD COLUMN group_id TEXT").run();
     } catch (e) { }
     try {
-      db.prepare("ALTER TABLE payments ADD COLUMN type TEXT DEFAULT 'renewal'").run();
+      getDb().prepare("ALTER TABLE payments ADD COLUMN type TEXT DEFAULT 'renewal'").run();
     } catch (e) { }
     try {
-      db.prepare("ALTER TABLE payments ADD COLUMN metadata TEXT").run();
+      getDb().prepare("ALTER TABLE payments ADD COLUMN metadata TEXT").run();
     } catch (e) { }
 
     const metadata = JSON.stringify({ discountApplied, paidOnTime, amount: transactionAmount });
-    const stmt = db.prepare("INSERT INTO payments (id, username, status, group_id, type, metadata) VALUES (?, ?, ?, ?, ?, ?)");
+    const stmt = getDb().prepare("INSERT INTO payments (id, username, status, group_id, type, metadata) VALUES (?, ?, ?, ?, ?, ?)");
     stmt.run(mpRes.id.toString(), username, "pending", groupRecord.group_id, "renewal", metadata);
 
     res.json({
@@ -975,7 +990,7 @@ app.get("/api/status/:paymentId", async (req, res) => {
   try {
     const { paymentId } = req.params;
 
-    const stmt = db.prepare("SELECT * FROM payments WHERE id = ?");
+    const stmt = getDb().prepare("SELECT * FROM payments WHERE id = ?");
     const paymentRecord = stmt.get(paymentId) as any;
 
     if (!paymentRecord) {
@@ -1012,7 +1027,7 @@ app.post("/api/webhook", async (req, res) => {
     if (type === "payment" && data?.id) {
       const paymentId = data.id;
 
-      const stmt = db.prepare("SELECT * FROM payments WHERE id = ?");
+      const stmt = getDb().prepare("SELECT * FROM payments WHERE id = ?");
       const paymentRecord = stmt.get(paymentId) as any;
 
       if (paymentRecord && paymentRecord.status !== "approved") {
@@ -1036,7 +1051,7 @@ app.post("/api/webhook", async (req, res) => {
 // 3.5 Tickets API
 app.get("/api/tickets/:username", (req, res) => {
   try {
-    const stmt = db.prepare("SELECT * FROM tickets WHERE username = ? ORDER BY created_at DESC");
+    const stmt = getDb().prepare("SELECT * FROM tickets WHERE username = ? ORDER BY created_at DESC");
     const tickets = stmt.all(req.params.username);
     res.json(tickets);
   } catch (error: any) {
@@ -1051,12 +1066,12 @@ app.post("/api/refund", (req, res) => {
     const id = crypto.randomUUID();
 
     // Check if already requested
-    const existing = db.prepare("SELECT * FROM refund_requests WHERE username = ? AND status = 'aguardando'").get(username);
+    const existing = getDb().prepare("SELECT * FROM refund_requests WHERE username = ? AND status = 'aguardando'").get(username);
     if (existing) {
       return res.status(400).json({ error: "Já existe uma solicitação de reembolso em andamento." });
     }
 
-    const stmt = db.prepare("INSERT INTO refund_requests (id, username, pix_type, pix_key) VALUES (?, ?, ?, ?)");
+    const stmt = getDb().prepare("INSERT INTO refund_requests (id, username, pix_type, pix_key) VALUES (?, ?, ?, ?)");
     stmt.run(id, username, pixType, pixKey);
     res.json({ success: true });
   } catch (error: any) {
@@ -1082,7 +1097,7 @@ app.post("/api/user/update-access", async (req, res) => {
     }
 
     // Check if there is already a pending request of this type
-    const existingRequest = db.prepare("SELECT * FROM change_requests WHERE username = ? AND type = ? AND status = 'aguardando'").get(username, action);
+    const existingRequest = getDb().prepare("SELECT * FROM change_requests WHERE username = ? AND type = ? AND status = 'aguardando'").get(username, action);
     if (existingRequest) {
       return res.status(400).json({ error: "Você já tem uma solicitação pendente para esta alteração." });
     }
@@ -1099,7 +1114,7 @@ app.post("/api/user/update-access", async (req, res) => {
         return res.status(400).json({ error: "A nova data não pode ter mais de 15 dias de diferença da data atual." });
       }
 
-      const lastChange = db.prepare("SELECT created_at FROM change_requests WHERE username = ? AND type = 'date' AND status = 'aprovado' ORDER BY created_at DESC LIMIT 1").get(username) as any;
+      const lastChange = getDb().prepare("SELECT created_at FROM change_requests WHERE username = ? AND type = 'date' AND status = 'aprovado' ORDER BY created_at DESC LIMIT 1").get(username) as any;
       if (lastChange) {
         const lastChangeDate = new Date(lastChange.created_at);
         const daysSinceLastChange = Math.ceil((now.getTime() - lastChangeDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -1110,7 +1125,7 @@ app.post("/api/user/update-access", async (req, res) => {
     }
 
     const id = crypto.randomUUID();
-    db.prepare("INSERT INTO change_requests (id, username, type, requested_value, status) VALUES (?, ?, ?, ?, 'aguardando')").run(id, username, action, newValue);
+    getDb().prepare("INSERT INTO change_requests (id, username, type, requested_value, status) VALUES (?, ?, ?, ?, 'aguardando')").run(id, username, action, newValue);
 
     res.json({ success: true, message: "Solicitação enviada com sucesso. Aguarde a aprovação do administrador." });
   } catch (error: any) {
@@ -1123,7 +1138,7 @@ app.post("/api/user/update-access", async (req, res) => {
 app.delete("/api/user/change-requests/:id", (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare("DELETE FROM change_requests WHERE id = ? AND status = 'aguardando'").run(id);
+    getDb().prepare("DELETE FROM change_requests WHERE id = ? AND status = 'aguardando'").run(id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1134,7 +1149,7 @@ app.delete("/api/user/change-requests/:id", (req, res) => {
 app.delete("/api/user/refunds/:id", (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare("DELETE FROM refund_requests WHERE id = ? AND status = 'aguardando'").run(id);
+    getDb().prepare("DELETE FROM refund_requests WHERE id = ? AND status = 'aguardando'").run(id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1144,7 +1159,7 @@ app.delete("/api/user/refunds/:id", (req, res) => {
 // Admin endpoints for requests
 app.get("/api/admin/payments", (req, res) => {
   try {
-    const payments = db.prepare("SELECT * FROM payments ORDER BY created_at DESC").all();
+    const payments = getDb().prepare("SELECT * FROM payments ORDER BY created_at DESC").all();
     res.json(payments);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1153,7 +1168,7 @@ app.get("/api/admin/payments", (req, res) => {
 
 app.get("/api/admin/refunds", (req, res) => {
   try {
-    const refunds = db.prepare("SELECT * FROM refund_requests ORDER BY created_at DESC").all();
+    const refunds = getDb().prepare("SELECT * FROM refund_requests ORDER BY created_at DESC").all();
     res.json(refunds);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1166,10 +1181,10 @@ app.post("/api/admin/refunds/:id/approve", (req, res) => {
     const { refundedAt } = req.body;
 
     try {
-      db.prepare("ALTER TABLE refund_requests ADD COLUMN refunded_at DATETIME").run();
+      getDb().prepare("ALTER TABLE refund_requests ADD COLUMN refunded_at DATETIME").run();
     } catch (e) { }
 
-    db.prepare("UPDATE refund_requests SET status = 'realizado', refunded_at = ? WHERE id = ?").run(refundedAt || new Date().toISOString(), id);
+    getDb().prepare("UPDATE refund_requests SET status = 'realizado', refunded_at = ? WHERE id = ?").run(refundedAt || new Date().toISOString(), id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1179,7 +1194,7 @@ app.post("/api/admin/refunds/:id/approve", (req, res) => {
 app.post("/api/admin/refunds/:id/reject", (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare("UPDATE refund_requests SET status = 'rejeitado' WHERE id = ?").run(id);
+    getDb().prepare("UPDATE refund_requests SET status = 'rejeitado' WHERE id = ?").run(id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1188,7 +1203,7 @@ app.post("/api/admin/refunds/:id/reject", (req, res) => {
 
 app.get("/api/admin/change-requests", (req, res) => {
   try {
-    const requests = db.prepare("SELECT * FROM change_requests ORDER BY created_at DESC").all();
+    const requests = getDb().prepare("SELECT * FROM change_requests ORDER BY created_at DESC").all();
     res.json(requests);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1200,7 +1215,7 @@ app.post("/api/admin/change-requests/:id/approve", (req, res) => {
     const { id } = req.params;
     const { approvedValue } = req.body;
 
-    const request = db.prepare("SELECT * FROM change_requests WHERE id = ?").get(id) as any;
+    const request = getDb().prepare("SELECT * FROM change_requests WHERE id = ?").get(id) as any;
     if (!request) {
       return res.status(404).json({ error: "Solicitação não encontrada" });
     }
@@ -1211,23 +1226,23 @@ app.post("/api/admin/change-requests/:id/approve", (req, res) => {
       const oldUsername = request.username;
       const newUsername = finalValue;
 
-      const transaction = db.transaction(() => {
-        db.prepare("UPDATE payments SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE devices SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE tickets SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE ticket_messages SET sender = ? WHERE sender = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE loyalty_points SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE referrals SET referrer_username = ? WHERE referrer_username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE referrals SET referred_username = ? WHERE referred_username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE trusted_devices SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE user_groups SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE refund_requests SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        db.prepare("UPDATE change_requests SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+      const transaction = getDb().transaction(() => {
+        getDb().prepare("UPDATE payments SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE devices SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE tickets SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE ticket_messages SET sender = ? WHERE sender = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE loyalty_points SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE referrals SET referrer_username = ? WHERE referrer_username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE referrals SET referred_username = ? WHERE referred_username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE trusted_devices SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE user_groups SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE refund_requests SET username = ? WHERE username = ?").run(newUsername, oldUsername);
+        getDb().prepare("UPDATE change_requests SET username = ? WHERE username = ?").run(newUsername, oldUsername);
       });
       transaction();
     }
 
-    db.prepare("UPDATE change_requests SET status = 'aprovado', approved_value = ? WHERE id = ?").run(finalValue, id);
+    getDb().prepare("UPDATE change_requests SET status = 'aprovado', approved_value = ? WHERE id = ?").run(finalValue, id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1237,7 +1252,7 @@ app.post("/api/admin/change-requests/:id/approve", (req, res) => {
 app.post("/api/admin/change-requests/:id/reject", (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare("UPDATE change_requests SET status = 'rejeitado' WHERE id = ?").run(id);
+    getDb().prepare("UPDATE change_requests SET status = 'rejeitado' WHERE id = ?").run(id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1253,30 +1268,30 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
     const user = users.find((u: any) => u.login === username);
 
     // Get devices
-    const devices = db.prepare("SELECT * FROM devices WHERE username = ?").all(username);
+    const devices = getDb().prepare("SELECT * FROM devices WHERE username = ?").all(username);
 
     // Get payments
-    const payments = db.prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC").all(username);
+    const payments = getDb().prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC").all(username);
 
     // Get refunds
-    const refunds = db.prepare("SELECT * FROM refund_requests WHERE username = ? ORDER BY created_at DESC").all(username);
+    const refunds = getDb().prepare("SELECT * FROM refund_requests WHERE username = ? ORDER BY created_at DESC").all(username);
 
     // Get change requests
-    const changeRequests = db.prepare("SELECT * FROM change_requests WHERE username = ? ORDER BY created_at DESC").all(username);
+    const changeRequests = getDb().prepare("SELECT * FROM change_requests WHERE username = ? ORDER BY created_at DESC").all(username);
 
     // Get plan info
-    const group = db.prepare("SELECT * FROM user_groups WHERE username = ?").get(username) as any;
+    const group = getDb().prepare("SELECT * FROM user_groups WHERE username = ?").get(username) as any;
     let plan = null;
     if (group) {
-      plan = db.prepare("SELECT * FROM group_plans WHERE group_id = ?").get(group.group_id);
+      plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(group.group_id);
     }
 
     // Get loyalty points
-    const loyaltyRecord = db.prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
+    const loyaltyRecord = getDb().prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     // Get referrals
-    const referrals = db.prepare("SELECT * FROM referrals WHERE referrer_username = ? ORDER BY created_at DESC").all(username);
+    const referrals = getDb().prepare("SELECT * FROM referrals WHERE referrer_username = ? ORDER BY created_at DESC").all(username);
 
     res.json({
       user,
@@ -1299,7 +1314,7 @@ app.get("/api/admin/reports", (req, res) => {
     const days = Number(period);
 
     // Get tests (devices)
-    const tests = db.prepare(`
+    const tests = getDb().prepare(`
       SELECT date(created_at) as date, count(*) as count 
       FROM devices 
       WHERE created_at >= date('now', '-' || ? || ' days')
@@ -1308,7 +1323,7 @@ app.get("/api/admin/reports", (req, res) => {
     `).all(days);
 
     // Get sales (payments)
-    const sales = db.prepare(`
+    const sales = getDb().prepare(`
       SELECT date(COALESCE(paid_at, created_at)) as date, count(*) as count, metadata
       FROM payments 
       WHERE status = 'approved' AND COALESCE(paid_at, created_at) >= date('now', '-' || ? || ' days')
@@ -1346,7 +1361,7 @@ app.get("/api/admin/reports", (req, res) => {
       revenue: salesByDate[date].revenue
     })).sort((a, b) => a.date.localeCompare(b.date));
 
-    const totalTests = db.prepare("SELECT count(*) as count FROM devices WHERE created_at >= date('now', '-' || ? || ' days')").get(days) as any;
+    const totalTests = getDb().prepare("SELECT count(*) as count FROM devices WHERE created_at >= date('now', '-' || ? || ' days')").get(days) as any;
 
     res.json({
       totalRevenue,
@@ -1367,10 +1382,10 @@ app.post("/api/tickets", (req, res) => {
     const ticketId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
 
-    const insertTicket = db.prepare("INSERT INTO tickets (id, username, category, subject) VALUES (?, ?, ?, ?)");
+    const insertTicket = getDb().prepare("INSERT INTO tickets (id, username, category, subject) VALUES (?, ?, ?, ?)");
     insertTicket.run(ticketId, username, category, subject);
 
-    const insertMessage = db.prepare("INSERT INTO ticket_messages (id, ticket_id, sender, message) VALUES (?, ?, ?, ?)");
+    const insertMessage = getDb().prepare("INSERT INTO ticket_messages (id, ticket_id, sender, message) VALUES (?, ?, ?, ?)");
     insertMessage.run(messageId, ticketId, "user", message);
 
     res.json({ success: true, ticketId });
@@ -1381,7 +1396,7 @@ app.post("/api/tickets", (req, res) => {
 
 app.get("/api/tickets/:username", (req, res) => {
   try {
-    const stmt = db.prepare("SELECT * FROM tickets WHERE username = ? ORDER BY created_at DESC");
+    const stmt = getDb().prepare("SELECT * FROM tickets WHERE username = ? ORDER BY created_at DESC");
     const tickets = stmt.all(req.params.username);
     res.json(tickets);
   } catch (error: any) {
@@ -1391,7 +1406,7 @@ app.get("/api/tickets/:username", (req, res) => {
 
 app.get("/api/tickets/:id/messages", (req, res) => {
   try {
-    const stmt = db.prepare("SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC");
+    const stmt = getDb().prepare("SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC");
     const messages = stmt.all(req.params.id);
     res.json(messages);
   } catch (error: any) {
@@ -1405,11 +1420,11 @@ app.post("/api/tickets/:id/messages", (req, res) => {
     const { sender, message } = req.body;
     const messageId = crypto.randomUUID();
 
-    const insertMessage = db.prepare("INSERT INTO ticket_messages (id, ticket_id, sender, message) VALUES (?, ?, ?, ?)");
+    const insertMessage = getDb().prepare("INSERT INTO ticket_messages (id, ticket_id, sender, message) VALUES (?, ?, ?, ?)");
     insertMessage.run(messageId, id, sender, message);
 
     const status = sender === "admin" ? "answered" : "open";
-    db.prepare("UPDATE tickets SET status = ? WHERE id = ?").run(status, id);
+    getDb().prepare("UPDATE tickets SET status = ? WHERE id = ?").run(status, id);
 
     res.json({ success: true, messageId });
   } catch (error: any) {
@@ -1421,7 +1436,7 @@ app.patch("/api/tickets/:id/status", (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    db.prepare("UPDATE tickets SET status = ? WHERE id = ?").run(status, id);
+    getDb().prepare("UPDATE tickets SET status = ? WHERE id = ?").run(status, id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1432,7 +1447,7 @@ app.patch("/api/tickets/:id/status", (req, res) => {
 
 app.get("/api/admin/tickets", (req, res) => {
   try {
-    const allTickets = db.prepare("SELECT * FROM tickets ORDER BY created_at DESC").all();
+    const allTickets = getDb().prepare("SELECT * FROM tickets ORDER BY created_at DESC").all();
     res.json(allTickets);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1441,7 +1456,7 @@ app.get("/api/admin/tickets", (req, res) => {
 
 app.get("/api/admin/payments", (req, res) => {
   try {
-    const allPayments = db.prepare("SELECT * FROM payments ORDER BY created_at DESC").all();
+    const allPayments = getDb().prepare("SELECT * FROM payments ORDER BY created_at DESC").all();
     res.json(allPayments);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1450,7 +1465,7 @@ app.get("/api/admin/payments", (req, res) => {
 
 app.get("/api/admin/refunds", (req, res) => {
   try {
-    const allRefunds = db.prepare("SELECT * FROM refund_requests ORDER BY created_at DESC").all();
+    const allRefunds = getDb().prepare("SELECT * FROM refund_requests ORDER BY created_at DESC").all();
     res.json(allRefunds);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1463,12 +1478,12 @@ app.post("/api/admin/refunds/:id/approve", (req, res) => {
     const { refundedAt } = req.body;
 
     try {
-      db.prepare("ALTER TABLE refund_requests ADD COLUMN refunded_at DATETIME").run();
+      getDb().prepare("ALTER TABLE refund_requests ADD COLUMN refunded_at DATETIME").run();
     } catch (e) { }
 
     const refundedDate = refundedAt ? new Date(refundedAt).toISOString().replace('T', ' ').substring(0, 19) : new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-    db.prepare("UPDATE refund_requests SET status = 'realizado', refunded_at = ? WHERE id = ?").run(refundedDate, id);
+    getDb().prepare("UPDATE refund_requests SET status = 'realizado', refunded_at = ? WHERE id = ?").run(refundedDate, id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1478,7 +1493,7 @@ app.post("/api/admin/refunds/:id/approve", (req, res) => {
 app.post("/api/admin/refunds/:id/reject", (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare("UPDATE refund_requests SET status = 'rejeitado' WHERE id = ?").run(id);
+    getDb().prepare("UPDATE refund_requests SET status = 'rejeitado' WHERE id = ?").run(id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1487,7 +1502,7 @@ app.post("/api/admin/refunds/:id/reject", (req, res) => {
 
 app.get("/api/admin/change-requests", (req, res) => {
   try {
-    const allRequests = db.prepare("SELECT * FROM change_requests ORDER BY created_at DESC").all();
+    const allRequests = getDb().prepare("SELECT * FROM change_requests ORDER BY created_at DESC").all();
     res.json(allRequests);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1498,7 +1513,7 @@ app.post("/api/admin/change-requests/:id/approve", (req, res) => {
   try {
     const { id } = req.params;
     const { approvedValue } = req.body;
-    db.prepare("UPDATE change_requests SET status = 'aprovado', approved_value = ? WHERE id = ?").run(approvedValue, id);
+    getDb().prepare("UPDATE change_requests SET status = 'aprovado', approved_value = ? WHERE id = ?").run(approvedValue, id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1508,7 +1523,7 @@ app.post("/api/admin/change-requests/:id/approve", (req, res) => {
 app.post("/api/admin/change-requests/:id/reject", (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare("UPDATE change_requests SET status = 'rejeitado' WHERE id = ?").run(id);
+    getDb().prepare("UPDATE change_requests SET status = 'rejeitado' WHERE id = ?").run(id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1526,7 +1541,7 @@ app.get("/api/admin/reports", (req, res) => {
       dates.push(d.toISOString().split('T')[0]);
     }
 
-    const payments = db.prepare(`SELECT * FROM payments WHERE status = 'approved' AND created_at >= date('now', '-${period} days')`).all() as any[];
+    const payments = getDb().prepare(`SELECT * FROM payments WHERE status = 'approved' AND created_at >= date('now', '-${period} days')`).all() as any[];
 
     let totalRevenue = 0;
     let totalSales = payments.length;
@@ -1551,7 +1566,7 @@ app.get("/api/admin/reports", (req, res) => {
       }
     });
 
-    const users = db.prepare(`SELECT * FROM devices WHERE created_at >= date('now', '-${period} days')`).all() as any[];
+    const users = getDb().prepare(`SELECT * FROM devices WHERE created_at >= date('now', '-${period} days')`).all() as any[];
     const totalTests = users.length;
 
     const testsByDate: Record<string, number> = {};
@@ -1593,17 +1608,17 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
     const allUsers = await fetchVpnUsers();
     const user = allUsers.find((u: any) => u.login === username);
 
-    const groupRecord = db.prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
+    const groupRecord = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
     let plan = null;
     let devices = [];
 
     if (groupRecord) {
-      plan = db.prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupRecord.group_id);
-      devices = db.prepare("SELECT * FROM user_groups WHERE group_id = ? AND username != ?").all(groupRecord.group_id, username);
+      plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupRecord.group_id);
+      devices = getDb().prepare("SELECT * FROM user_groups WHERE group_id = ? AND username != ?").all(groupRecord.group_id, username);
     }
 
-    const payments = db.prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC LIMIT 10").all(username);
-    const refunds = db.prepare("SELECT * FROM refund_requests WHERE username = ? ORDER BY created_at DESC").all(username);
+    const payments = getDb().prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC LIMIT 10").all(username);
+    const refunds = getDb().prepare("SELECT * FROM refund_requests WHERE username = ? ORDER BY created_at DESC").all(username);
 
     res.json({
       user,
@@ -1619,7 +1634,7 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
 
 app.get("/api/admin/devices", (req, res) => {
   try {
-    const stmt = db.prepare("SELECT * FROM devices ORDER BY created_at DESC");
+    const stmt = getDb().prepare("SELECT * FROM devices ORDER BY created_at DESC");
     const devices = stmt.all();
     res.json(devices);
   } catch (error: any) {
@@ -1629,7 +1644,7 @@ app.get("/api/admin/devices", (req, res) => {
 
 app.delete("/api/admin/devices", (req, res) => {
   try {
-    const stmt = db.prepare("DELETE FROM devices");
+    const stmt = getDb().prepare("DELETE FROM devices");
     stmt.run();
     res.json({ success: true });
   } catch (error: any) {
@@ -1639,7 +1654,7 @@ app.delete("/api/admin/devices", (req, res) => {
 
 app.delete("/api/admin/devices/:id", (req, res) => {
   try {
-    const stmt = db.prepare("DELETE FROM devices WHERE device_id = ?");
+    const stmt = getDb().prepare("DELETE FROM devices WHERE device_id = ?");
     stmt.run(req.params.id);
     res.json({ success: true });
   } catch (error: any) {
@@ -1662,6 +1677,16 @@ async function startServer() {
   }
 
 }
+
+// Global error handler
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ 
+    error: "Erro interno do servidor", 
+    message: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined 
+  });
+});
 
 export default app;
 
