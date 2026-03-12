@@ -2920,7 +2920,7 @@ export default function App() {
                   {!isAdminAuth ? (
                     <form onSubmit={(e) => {
                       e.preventDefault();
-                      if (adminPass === "admin123") {
+                      if (adminPass === (import.meta.env.VITE_ADMIN_PASSWORD || "Savio@2023")) {
                         setIsAdminAuth(true);
                         fetchDevices();
                         fetchAdminTickets();

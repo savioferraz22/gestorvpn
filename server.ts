@@ -8,11 +8,15 @@ import { createClient } from "@supabase/supabase-js";
 import fs from "fs";
 
 import crypto from "crypto";
+import path from "path";
+import os from "os";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+const DB_PATH = path.join(os.tmpdir(), "database.sqlite");
 
 app.use(express.json());
 
@@ -24,7 +28,7 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     const { data, error } = await supabase.storage.from('sqlite_backup').download('database.sqlite');
     if (data) {
       const buffer = await data.arrayBuffer();
-      fs.writeFileSync('database.sqlite', Buffer.from(buffer));
+      fs.writeFileSync(DB_PATH, Buffer.from(buffer));
       console.log("Database downloaded successfully.");
     } else {
       console.log("No existing database found in Supabase or error:", error?.message);
@@ -35,7 +39,7 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 // Database setup
-const db = new Database("database.sqlite");
+const db = new Database(DB_PATH);
 
 if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -46,7 +50,7 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     uploadTimeout = setTimeout(async () => {
       try {
         console.log("Uploading database to Supabase...");
-        const buffer = fs.readFileSync('database.sqlite');
+        const buffer = fs.readFileSync(DB_PATH);
         const { error } = await supabase.storage.from('sqlite_backup').upload('database.sqlite', buffer, { upsert: true });
         if (error) console.error("Error uploading database:", error.message);
         else console.log("Database uploaded successfully.");
@@ -76,8 +80,8 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
   };
 }
 
-const VPN_API_URL = "https://pweb.cloudbrasil.shop/core/apiatlas.php";
-const VPN_API_KEY = "LTm2H0TnZwKY560Vqj7gfbxeIL";
+const VPN_API_URL = process.env.VPN_API_URL || "https://pweb.cloudbrasil.shop/core/apiatlas.php";
+const VPN_API_KEY = process.env.VPN_API_KEY || "LTm2H0TnZwKY560Vqj7gfbxeIL";
 
 async function fetchVpnUsers() {
   const params = new URLSearchParams();
@@ -763,7 +767,7 @@ app.post("/api/pix/new-device", async (req, res) => {
       description: `Novo Aparelho - ${newUsername} (${remainingDays} dias)`,
       payment_method_id: "pix",
       payer: {
-        email: "pagamento@cloudbrasil.shop",
+        email: process.env.MP_EMAIL || "pagamento@cloudbrasil.shop",
       },
       notification_url: `${process.env.APP_URL}/api/webhook`,
     };
@@ -1637,9 +1641,10 @@ async function startServer() {
     app.use(express.static("dist"));
   }
 
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
 }
 
-startServer();
+export default app;
+
+if (process.env.NODE_ENV !== "production") {
+  startServer();
+}
