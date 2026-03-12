@@ -1167,7 +1167,9 @@ app.get("/api/admin/reports", async (req, res) => {
     (payments || []).forEach(p => {
       let amount = 0;
       if (p.metadata) {
-        amount = Number(p.metadata.amount) || 0;
+        // Handle metadata as object or string (sometimes needed depending on driver/JSONB)
+        const metadata = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
+        amount = Number(metadata.amount) || Number(p.amount) || 0;
       }
       totalRevenue += amount;
 
@@ -1185,7 +1187,13 @@ app.get("/api/admin/reports", async (req, res) => {
       }
     });
 
-    const conversionRate = totalTests > 0 ? ((totalSales / totalTests) * 100).toFixed(1) : "0.0";
+    const convertedUsers = new Set((payments || [])
+      .filter(p => p.type === 'new_device')
+      .map(p => p.username)
+    );
+    const totalConverted = convertedUsers.size;
+
+    const conversionRate = totalTests > 0 ? ((totalConverted / totalTests) * 100).toFixed(1) : "0.0";
 
     res.json({
       totalRevenue,

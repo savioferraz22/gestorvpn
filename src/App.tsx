@@ -2842,7 +2842,7 @@ export default function App() {
                         Pagamento Aprovado!
                       </h2>
                       <p className="text-text-muted mb-6">
-                        Sua assinatura foi renovada com sucesso por mais 30 dias.
+                        Sua assinatura foi renovada com sucesso!
                       </p>
                       <button
                         onClick={() => setView("dashboard")}
@@ -2917,7 +2917,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="w-full max-w-md md:max-w-6xl bg-bg-surface rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh] border border-border-base/50"
+                className="w-full bg-bg-surface rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh] border border-border-base/50"
               >
                 <div className="bg-gradient-to-r from-bg-surface to-bg-surface-hover p-6 flex justify-between items-center shrink-0 border-b border-border-base/50">
                   <div className="flex items-center">
@@ -3687,7 +3687,7 @@ export default function App() {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className={`w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden flex flex-col ${view === "admin_ticket_detail" ? "max-w-md md:max-w-6xl h-[90vh]" : "max-w-md h-[600px]"}`}
+                className={`w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden flex flex-col ${view === "admin_ticket_detail" ? "h-[90vh]" : "max-w-md h-[600px]"}`}
               >
                 <div className={`${view === "admin_ticket_detail" ? "bg-bg-surface-hover text-text-base" : "bg-primary-600 text-white"} p-4 flex justify-between items-center flex-shrink-0`}>
                   <div className="flex items-center overflow-hidden">
