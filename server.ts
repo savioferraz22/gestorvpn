@@ -24,6 +24,50 @@ function getDb() {
   return supabase;
 }
 
+// ─── Admin Auth ────────────────────────────────────────────────────────────
+// Tokens are stored in memory with a TTL of 24h. Never exposed in client JS.
+const adminTokens = new Map<string, number>(); // token -> expiresAt (ms)
+
+const ADMIN_TOKEN_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+function purgeExpiredTokens() {
+  const now = Date.now();
+  for (const [token, exp] of adminTokens.entries()) {
+    if (now > exp) adminTokens.delete(token);
+  }
+}
+
+function requireAdminAuth(req: any, res: any, next: any) {
+  const auth = req.headers["authorization"] || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  purgeExpiredTokens();
+  if (!token || !adminTokens.has(token)) {
+    return res.status(401).json({ error: "Não autorizado. Faça login como administrador." });
+  }
+  next();
+}
+
+app.post("/api/admin/auth", (req, res) => {
+  const { password } = req.body;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminPassword) {
+    return res.status(500).json({ error: "Senha admin não configurada no servidor." });
+  }
+  if (password !== adminPassword) {
+    return res.status(401).json({ error: "Senha incorreta." });
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = Date.now() + ADMIN_TOKEN_TTL;
+  adminTokens.set(token, expiresAt);
+  res.json({ token, expiresAt: new Date(expiresAt).toISOString() });
+});
+
+// Protect all /api/admin/* routes (except /api/admin/auth itself)
+app.use("/api/admin", (req: any, res: any, next: any) => {
+  if (req.path === "/auth" && req.method === "POST") return next();
+  requireAdminAuth(req, res, next);
+});
+
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "ok", 
@@ -193,7 +237,7 @@ async function approvePayment(paymentRecord: any) {
   }
 
   // Handle Referral Bonus
-  const { data: referral } = await db.from("referrals").select("*").eq("referred_username", paymentRecord.username).eq("status", "testing").single();
+  const { data: referral } = await db.from("referrals").select("*").eq("referred_username", paymentRecord.username).eq("status", "testing").maybeSingle();
   
   if (referral) {
     // Give 1 month free to referrer
@@ -232,7 +276,7 @@ app.get("/api/group/:username", async (req, res) => {
     const { username } = req.params;
 
     // Find if user is in a group
-    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).single();
+    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).maybeSingle();
 
     let groupId;
     if (!groupRecord) {
@@ -247,7 +291,7 @@ app.get("/api/group/:username", async (req, res) => {
 
     // Get all users in group
     const { data: users } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
-    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).single();
+    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
 
     res.json({
       groupId,
@@ -296,7 +340,7 @@ app.post("/api/group/add", async (req, res) => {
     }
 
     // Check if user is already in a group
-    const { data: existingGroup } = await getDb().from("user_groups").select("group_id").eq("username", newUsername).single();
+    const { data: existingGroup } = await getDb().from("user_groups").select("group_id").eq("username", newUsername).maybeSingle();
     if (existingGroup && existingGroup.group_id !== groupId) {
       // Remove from old group
       await getDb().from("user_groups").delete().eq("username", newUsername);
@@ -314,7 +358,7 @@ app.post("/api/group/add", async (req, res) => {
     const { data: groupUsers2 } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
     const numDevices = (groupUsers2 || []).length;
     if (numDevices >= 1) {
-      const { data: currentPlan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).single();
+      const { data: currentPlan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
       const months = currentPlan ? currentPlan.plan_months : 1;
       const newPrice = calculatePlanPrice(months, numDevices);
       await getDb().from("group_plans").update({ plan_type: 'custom', plan_devices: numDevices, plan_price: newPrice }).eq("group_id", groupId);
@@ -336,7 +380,7 @@ app.post("/api/group/remove", async (req, res) => {
 
     // Automatically update plan for remaining group members
     const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
-    const { data: plan2 } = await getDb().from("group_plans").select("*").eq("group_id", groupId).single();
+    const { data: plan2 } = await getDb().from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
     const remainingMonths = plan2 ? plan2.plan_months : 1;
     const newNumDevices = (groupUsers || []).length;
     const newGroupPrice = calculatePlanPrice(remainingMonths, newNumDevices);
@@ -411,19 +455,19 @@ app.post("/api/user", async (req, res) => {
     // Check if device is trusted
     let isTrusted = false;
     if (deviceId) {
-      const { data: trusted } = await getDb().from("trusted_devices").select("*").eq("device_id", deviceId).eq("username", username).single();
+      const { data: trusted } = await getDb().from("trusted_devices").select("*").eq("device_id", deviceId).eq("username", username).maybeSingle();
       if (trusted) isTrusted = true;
     }
 
     // Get loyalty points
-    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).single();
+    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).maybeSingle();
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     // Get referrals
     const { data: referrals } = await getDb().from("referrals").select("*").eq("referrer_username", username).order("created_at", { ascending: false });
 
     // Get group ID to fetch group-wide requests
-    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).single();
+    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).maybeSingle();
     const groupId = groupRecord ? groupRecord.group_id : null;
     
     let groupUsernames = [username];
@@ -740,17 +784,17 @@ app.post("/api/pix", async (req, res) => {
     }
 
     // Get group and plan
-    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).single();
+    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).maybeSingle();
     if (!groupRecord) {
       return res.status(404).json({ error: "Grupo não encontrado" });
     }
-    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupRecord.group_id).single();
+    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupRecord.group_id).maybeSingle();
     if (!plan) {
       return res.status(404).json({ error: "Plano não encontrado" });
     }
 
     // Check loyalty points
-    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).single();
+    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).maybeSingle();
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     let transactionAmount = plan.plan_price;
@@ -1015,7 +1059,7 @@ app.post("/api/admin/refunds/:id/approve", async (req, res) => {
     const { refundedAt } = req.body;
 
     // Get username to reset points
-    const { data: refund } = await getDb().from("refund_requests").select("username").eq("id", id).single();
+    const { data: refund } = await getDb().from("refund_requests").select("username").eq("id", id).maybeSingle();
     if (refund) {
       await getDb().from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", refund.username);
     }
@@ -1055,7 +1099,7 @@ app.post("/api/admin/change-requests/:id/approve", async (req, res) => {
     const { id } = req.params;
     const { approvedValue } = req.body;
 
-    const { data: request } = await getDb().from("change_requests").select("*").eq("id", id).single();
+    const { data: request } = await getDb().from("change_requests").select("*").eq("id", id).maybeSingle();
     if (!request) {
       return res.status(404).json({ error: "Solicitação não encontrada" });
     }
