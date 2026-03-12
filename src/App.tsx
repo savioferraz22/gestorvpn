@@ -305,10 +305,10 @@ export default function App() {
 
   const maskText = (text: string) => {
     if (!text) return "";
-    // Show first 4 characters or 50%, whichever is more helpful
-    const visibleLen = Math.max(4, Math.ceil(text.length * 0.5));
-    if (visibleLen >= text.length) return text;
-    return text.substring(0, visibleLen) + "*".repeat(Math.max(3, text.length - visibleLen));
+    // Show exactly half the text, masked when blocked
+    const visibleLen = Math.floor(text.length / 2);
+    if (visibleLen === 0 && text.length > 0) return "*".repeat(text.length);
+    return text.substring(0, visibleLen) + "*".repeat(text.length - visibleLen);
   };
 
   // Device ID management
