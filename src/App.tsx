@@ -174,7 +174,7 @@ export default function App() {
   const [adminPayments, setAdminPayments] = useState<any[]>([]);
   const [adminRefunds, setAdminRefunds] = useState<any[]>([]);
   const [adminChangeRequests, setAdminChangeRequests] = useState<any[]>([]);
-  const [adminReports, setAdminReports] = useState<any>(null);
+  const [adminReports, setAdminReports] = useState<any>({ testsHistory: [], salesHistory: [], totalRevenue: 0, totalSales: 0, totalTests: 0, conversionRate: 0 });
   const [adminReportPeriod, setAdminReportPeriod] = useState<number>(30);
   const [adminTab, setAdminTab] = useState<"devices" | "tickets" | "payments" | "refunds" | "change_requests" | "reports">("devices");
   const [adminTicketFilterStatus, setAdminTicketFilterStatus] = useState<string>("all");
@@ -3508,7 +3508,7 @@ export default function App() {
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {adminReports.testsHistory.map((t: any) => (
+                                        {(adminReports?.testsHistory || []).map((t: any) => (
                                           <tr key={t.date} className="border-b border-border-base/50 last:border-0 hover:bg-bg-surface-hover transition-colors">
                                             <td className="px-5 py-3.5 text-text-base font-medium">{t.date.split('-').reverse().join('/')}</td>
                                             <td className="px-5 py-3.5 text-right font-bold text-text-base bg-bg-base/30">{t.count}</td>

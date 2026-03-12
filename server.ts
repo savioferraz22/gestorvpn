@@ -53,7 +53,9 @@ function getDb() {
         username TEXT NOT NULL,
         status TEXT NOT NULL,
         type TEXT DEFAULT 'renewal',
+        group_id TEXT,
         metadata TEXT,
+        paid_at DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE IF NOT EXISTS devices (
@@ -265,10 +267,6 @@ async function approvePayment(paymentRecord: any) {
   const paymentId = paymentRecord.id;
 
   // Update DB
-  try {
-    getDb().prepare("ALTER TABLE payments ADD COLUMN paid_at DATETIME").run();
-  } catch (e) { }
-
   const updateStmt = getDb().prepare("UPDATE payments SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?");
   updateStmt.run("approved", paymentId);
 
@@ -959,16 +957,6 @@ app.post("/api/pix", async (req, res) => {
     if (!mpRes.id || !mpRes.point_of_interaction?.transaction_data?.qr_code) {
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
-
-    try {
-      getDb().prepare("ALTER TABLE payments ADD COLUMN group_id TEXT").run();
-    } catch (e) { }
-    try {
-      getDb().prepare("ALTER TABLE payments ADD COLUMN type TEXT DEFAULT 'renewal'").run();
-    } catch (e) { }
-    try {
-      getDb().prepare("ALTER TABLE payments ADD COLUMN metadata TEXT").run();
-    } catch (e) { }
 
     const metadata = JSON.stringify({ discountApplied, paidOnTime, amount: transactionAmount });
     const stmt = getDb().prepare("INSERT INTO payments (id, username, status, group_id, type, metadata) VALUES (?, ?, ?, ?, ?, ?)");
