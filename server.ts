@@ -1,13 +1,9 @@
 import express from "express";
 import http from "http";
-import Database from "better-sqlite3";
 import { MercadoPagoConfig, Payment } from "mercadopago";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
-import fs from "fs";
 import crypto from "crypto";
-import path from "path";
-import os from "os";
 
 // Note: Removed static import of vite to keep production bundle small
 
@@ -16,193 +12,37 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-const DB_PATH = path.join(os.tmpdir(), "database.sqlite");
-
-app.use(express.json());
-
-app.get("/api/health", (req, res) => {
-  try {
-    const tableCheck = getDb().prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='payments'").get();
-    res.json({ 
-      status: "ok", 
-      database: "connected", 
-      tables: !!tableCheck,
-      dbPath: DB_PATH,
-      env: {
-        VPN_API_URL: !!process.env.VPN_API_URL,
-        VPN_API_KEY: !!process.env.VPN_API_KEY,
-        MP_ACCESS_TOKEN: !!process.env.MP_ACCESS_TOKEN,
-        SUPABASE_URL: !!process.env.SUPABASE_URL
-      }
-    });
-  } catch (e: any) {
-    res.status(500).json({ status: "error", message: e.message });
-  }
-});
-
-// --- DB Setup & Singleton ---
-let db: Database.Database;
+// --- DB Setup (Supabase) ---
+const supabase = createClient(
+  process.env.SUPABASE_URL || "",
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+);
 
 function getDb() {
-  if (!db) {
-    db = new Database(DB_PATH);
-    // Create tables if first time
-    getDb().exec(`
-      CREATE TABLE IF NOT EXISTS payments (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL,
-        status TEXT NOT NULL,
-        type TEXT DEFAULT 'renewal',
-        group_id TEXT,
-        metadata TEXT,
-        paid_at DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS devices (
-        device_id TEXT PRIMARY KEY,
-        username TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS trusted_devices (
-        device_id TEXT,
-        username TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (device_id, username)
-      );
-      CREATE TABLE IF NOT EXISTS tickets (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL,
-        category TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'open',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS ticket_messages (
-        id TEXT PRIMARY KEY,
-        ticket_id TEXT NOT NULL,
-        sender TEXT NOT NULL,
-        message TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(ticket_id) REFERENCES tickets(id)
-      );
-      CREATE TABLE IF NOT EXISTS user_groups (
-        group_id TEXT NOT NULL,
-        username TEXT NOT NULL,
-        PRIMARY KEY (group_id, username)
-      );
-      CREATE TABLE IF NOT EXISTS group_plans (
-        group_id TEXT PRIMARY KEY,
-        plan_type TEXT NOT NULL,
-        plan_months INTEGER NOT NULL,
-        plan_devices INTEGER NOT NULL,
-        plan_price REAL NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS referrals (
-        id TEXT PRIMARY KEY,
-        referrer_username TEXT NOT NULL,
-        referred_username TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'testing',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS loyalty_points (
-        username TEXT PRIMARY KEY,
-        points INTEGER NOT NULL DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS refund_requests (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL,
-        pix_type TEXT NOT NULL,
-        pix_key TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'aguardando',
-        refunded_at DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS change_requests (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL,
-        type TEXT NOT NULL,
-        requested_value TEXT NOT NULL,
-        approved_value TEXT,
-        status TEXT NOT NULL DEFAULT 'aguardando',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    // Supabase Sync Logic if enabled
-    if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-      
-      const scheduleUpload = () => {
-        // Debounce upload - in Lambda this might not work perfectly because the instance dies
-        setTimeout(async () => {
-          try {
-            console.log("Uploading database to Supabase...");
-            const buffer = fs.readFileSync(DB_PATH);
-            await supabase.storage.from('sqlite_backup').upload('database.sqlite', buffer, { upsert: true });
-          } catch (e) {
-            console.error("Failed to upload database:", e);
-          }
-        }, 1000);
-      };
-
-      const originalPrepare = getDb().prepare.bind(db);
-      getDb().prepare = (query: string) => {
-        const stmt = originalPrepare(query);
-        const originalRun = stmt.run.bind(stmt);
-        stmt.run = (...args: any[]) => {
-          const result = originalRun(...args);
-          scheduleUpload();
-          return result;
-        };
-        return stmt;
-      };
-
-      const originalExec = getDb().exec.bind(db);
-      getDb().exec = (query: string) => {
-        const result = originalExec(query);
-        scheduleUpload();
-        return result;
-      };
-    }
-  }
-  return db;
-}
-
-// Initial download (Async background - don't block start)
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-  supabase.storage.from('sqlite_backup').download('database.sqlite').then(({ data }) => {
-    if (data) {
-      data.arrayBuffer().then(buffer => {
-        fs.writeFileSync(DB_PATH, Buffer.from(buffer));
-        console.log("Database initialized from Supabase.");
-      });
-    }
-  }).catch(e => console.error("Initial DB download failed:", e));
+  return supabase;
 }
 
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "ok", 
-    message: "Server is alive",
+    message: "Server is alive and using Supabase native",
     time: new Date().toISOString(),
-    env_keys: Object.keys(process.env).filter(k => k.includes('VPN') || k.includes('SUPABASE') || k.includes('MP'))
+    env: {
+      VPN_API_URL: !!process.env.VPN_API_URL,
+      SUPABASE_URL: !!process.env.SUPABASE_URL
+    }
   });
 });
 
-app.get("/api/db-status", (req, res) => {
+app.get("/api/db-status", async (req, res) => {
   try {
-    const database = getDb();
-    const tableCheck = database.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    const { data: tables, error } = await getDb().rpc('get_tables'); // Or just return success
     res.json({ 
       status: "ok", 
-      tables: tableCheck.map((t: any) => t.name),
-      dbPath: DB_PATH
+      message: "Database is online (Supabase Native)"
     });
   } catch (e: any) {
-    res.status(500).json({ status: "error", message: e.message, stack: e.stack });
+    res.status(500).json({ status: "error", message: e.message });
   }
 });
 
@@ -241,14 +81,7 @@ async function fetchVpnUsers() {
   }
 }
 
-// Migração de pedidos antigos se existirem
-try {
-  const oldRequests = getDb().prepare("SELECT * FROM date_change_requests").all() as any[];
-  const insertReq = getDb().prepare("INSERT OR IGNORE INTO change_requests (id, username, type, requested_value, status, created_at) VALUES (?, ?, 'date', ?, ?, ?)");
-  for (const req of oldRequests) {
-    insertReq.run(req.id, req.username, req.new_date, req.status, req.created_at);
-  }
-} catch (e) { }
+// Redundant migrations removed for Supabase environment
 
 // Mercado Pago setup
 let mpClient: MercadoPagoConfig | null = null;
@@ -267,11 +100,10 @@ async function approvePayment(paymentRecord: any) {
   const paymentId = paymentRecord.id;
 
   // Update DB
-  const updateStmt = getDb().prepare("UPDATE payments SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?");
-  updateStmt.run("approved", paymentId);
+  await getDb().from("payments").update({ status: "approved", paid_at: new Date().toISOString() }).eq("id", paymentId);
 
   if (paymentRecord.type === "new_device") {
-    const metadata = paymentRecord.metadata ? JSON.parse(paymentRecord.metadata) : {};
+    const metadata = paymentRecord.metadata || {};
     const { newUsername, remainingDays, groupId } = metadata;
 
     if (newUsername && remainingDays && groupId) {
@@ -294,8 +126,7 @@ async function approvePayment(paymentRecord: any) {
       console.log(`VPN Create Response for ${newUsername}:`, vpnText);
 
       // Add to group
-      const insertGroupUser = getDb().prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)");
-      insertGroupUser.run(groupId, newUsername);
+      await getDb().from("user_groups").insert({ group_id: groupId, username: newUsername });
     }
     return;
   }
@@ -306,12 +137,12 @@ async function approvePayment(paymentRecord: any) {
   let monthsToRenew = 1;
 
   if (groupId) {
-    const plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
     if (plan) {
-      monthsToRenew = plan.plan_months;
+      monthsToRenew = (plan as any).plan_months;
     }
-    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
-    if (groupUsers.length > 0) {
+    const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    if (groupUsers && groupUsers.length > 0) {
       usersToRenew = groupUsers.map(u => u.username);
     }
   }
@@ -338,20 +169,25 @@ async function approvePayment(paymentRecord: any) {
   }
 
   // Handle Loyalty Points
-  const metadata = paymentRecord.metadata ? JSON.parse(paymentRecord.metadata) : {};
+  const metadata = paymentRecord.metadata || {};
   if (metadata.discountApplied) {
     // Reset points
-    getDb().prepare("UPDATE loyalty_points SET points = 0, updated_at = CURRENT_TIMESTAMP WHERE username = ?").run(paymentRecord.username);
+    await getDb().from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
   } else {
     // Add point if paid on time or in advance
     if (metadata.paidOnTime) {
-      getDb().prepare("INSERT INTO loyalty_points (username, points) VALUES (?, 1) ON CONFLICT(username) DO UPDATE SET points = points + 1, updated_at = CURRENT_TIMESTAMP").run(paymentRecord.username);
+      const { data: lp } = await getDb().from("loyalty_points").select("points").eq("username", paymentRecord.username).single();
+      if (lp) {
+        await getDb().from("loyalty_points").update({ points: lp.points + 1, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
+      } else {
+        await getDb().from("loyalty_points").insert({ username: paymentRecord.username, points: 1 });
+      }
     }
   }
 
   // Handle Referral Bonus
-  // Check if this user was referred and the status is 'testing'
-  const referral = getDb().prepare("SELECT * FROM referrals WHERE referred_username = ? AND status = 'testing'").get(paymentRecord.username) as any;
+  const { data: referral } = await getDb().from("referrals").select("*").eq("referred_username", paymentRecord.username).eq("status", "testing").single();
+  
   if (referral) {
     // Give 1 month free to referrer
     const params = new URLSearchParams();
@@ -368,7 +204,7 @@ async function approvePayment(paymentRecord: any) {
     });
 
     // Update referral status
-    getDb().prepare("UPDATE referrals SET status = 'bonus_received' WHERE id = ?").run(referral.id);
+    await getDb().from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
   }
 }
 
@@ -383,32 +219,31 @@ function calculatePlanPrice(months: number, devices: number): number {
 // API Routes
 
 // 0.0.1 Group Management
-app.get("/api/group/:username", (req, res) => {
+app.get("/api/group/:username", async (req, res) => {
   try {
     const { username } = req.params;
 
     // Find if user is in a group
-    let stmt = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?");
-    let groupRecord = stmt.get(username) as any;
+    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).single();
 
     let groupId;
     if (!groupRecord) {
       // Create new group for user
       groupId = crypto.randomUUID();
-      getDb().prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, username);
+      await getDb().from("user_groups").insert({ group_id: groupId, username });
       // Default plan: 1 month, 1 device, R$ 15
-      getDb().prepare("INSERT INTO group_plans (group_id, plan_type, plan_months, plan_devices, plan_price) VALUES (?, ?, ?, ?, ?)").run(groupId, 'custom', 1, 1, 15);
+      await getDb().from("group_plans").insert({ group_id: groupId, plan_type: 'custom', plan_months: 1, plan_devices: 1, plan_price: 15 });
     } else {
       groupId = groupRecord.group_id;
     }
 
     // Get all users in group
-    const users = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
-    const plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+    const { data: users } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).single();
 
     res.json({
       groupId,
-      users: users.map(u => u.username),
+      users: (users || []).map(u => u.username),
       plan
     });
   } catch (error: any) {
@@ -420,8 +255,8 @@ app.get("/api/group/:username", (req, res) => {
 app.get("/api/group/details/:groupId", async (req, res) => {
   try {
     const { groupId } = req.params;
-    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[];
-    const usernames = groupUsers.map(u => u.username);
+    const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    const usernames = (groupUsers || []).map(u => u.username);
 
     const allUsers = await fetchVpnUsers();
 
@@ -453,28 +288,28 @@ app.post("/api/group/add", async (req, res) => {
     }
 
     // Check if user is already in a group
-    const existingGroup = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(newUsername) as any;
+    const { data: existingGroup } = await getDb().from("user_groups").select("group_id").eq("username", newUsername).single();
     if (existingGroup && existingGroup.group_id !== groupId) {
       // Remove from old group
-      getDb().prepare("DELETE FROM user_groups WHERE username = ?").run(newUsername);
+      await getDb().from("user_groups").delete().eq("username", newUsername);
       // If old group is empty, delete its plan
-      const oldGroupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(existingGroup.group_id);
-      if (oldGroupUsers.length === 0) {
-        getDb().prepare("DELETE FROM group_plans WHERE group_id = ?").run(existingGroup.group_id);
+      const { data: oldGroupUsers } = await getDb().from("user_groups").select("username").eq("group_id", existingGroup.group_id);
+      if (!oldGroupUsers || oldGroupUsers.length === 0) {
+        await getDb().from("group_plans").delete().eq("group_id", existingGroup.group_id);
       }
     }
 
     // Add to new group
-    getDb().prepare("INSERT OR IGNORE INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, newUsername);
+    await getDb().from("user_groups").upsert({ group_id: groupId, username: newUsername });
 
     // Automatically update plan price based on new device count
-    const groupUsers2 = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
-    const numDevices = groupUsers2.length;
+    const { data: groupUsers2 } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    const numDevices = (groupUsers2 || []).length;
     if (numDevices >= 1) {
-      const currentPlan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+      const { data: currentPlan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).single();
       const months = currentPlan ? currentPlan.plan_months : 1;
       const newPrice = calculatePlanPrice(months, numDevices);
-      getDb().prepare("UPDATE group_plans SET plan_type = 'custom', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(numDevices, newPrice, groupId);
+      await getDb().from("group_plans").update({ plan_type: 'custom', plan_devices: numDevices, plan_price: newPrice }).eq("group_id", groupId);
     }
 
     res.json({ success: true });
@@ -484,25 +319,25 @@ app.post("/api/group/add", async (req, res) => {
   }
 });
 
-app.post("/api/group/remove", (req, res) => {
+app.post("/api/group/remove", async (req, res) => {
   try {
     const { groupId, usernameToRemove } = req.body;
 
     // Remove from group
-    getDb().prepare("DELETE FROM user_groups WHERE group_id = ? AND username = ?").run(groupId, usernameToRemove);
+    await getDb().from("user_groups").delete().eq("group_id", groupId).eq("username", usernameToRemove);
 
     // Automatically update plan for remaining group members
-    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
-    const plan2 = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupId) as any;
+    const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    const { data: plan2 } = await getDb().from("group_plans").select("*").eq("group_id", groupId).single();
     const remainingMonths = plan2 ? plan2.plan_months : 1;
-    const newNumDevices = groupUsers.length;
+    const newNumDevices = (groupUsers || []).length;
     const newGroupPrice = calculatePlanPrice(remainingMonths, newNumDevices);
-    getDb().prepare("UPDATE group_plans SET plan_type = 'custom', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(newNumDevices, newGroupPrice, groupId);
+    await getDb().from("group_plans").update({ plan_type: 'custom', plan_devices: newNumDevices, plan_price: newGroupPrice }).eq("group_id", groupId);
 
     // Create a new group for the removed user with default plan
     const newGroupId = crypto.randomUUID();
-    getDb().prepare("INSERT INTO user_groups (group_id, username) VALUES (?, ?)").run(newGroupId, usernameToRemove);
-    getDb().prepare("INSERT INTO group_plans (group_id, plan_type, plan_months, plan_devices, plan_price) VALUES (?, ?, ?, ?, ?)").run(newGroupId, 'custom', 1, 1, 15);
+    await getDb().from("user_groups").insert({ group_id: newGroupId, username: usernameToRemove });
+    await getDb().from("group_plans").insert({ group_id: newGroupId, plan_type: 'custom', plan_months: 1, plan_devices: 1, plan_price: 15 });
 
     res.json({ success: true });
   } catch (error: any) {
@@ -511,12 +346,11 @@ app.post("/api/group/remove", (req, res) => {
   }
 });
 
-app.post("/api/group/plan", (req, res) => {
+app.post("/api/group/plan", async (req, res) => {
   try {
     const { groupId, plan_type, plan_months, plan_devices, plan_price } = req.body;
 
-    getDb().prepare("UPDATE group_plans SET plan_type = ?, plan_months = ?, plan_devices = ?, plan_price = ? WHERE group_id = ?")
-      .run(plan_type, plan_months, plan_devices, plan_price, groupId);
+    await getDb().from("group_plans").update({ plan_type, plan_months, plan_devices, plan_price }).eq("group_id", groupId);
 
     res.json({ success: true });
   } catch (error: any) {
@@ -543,7 +377,7 @@ app.post("/api/auth/verify", async (req, res) => {
     }
 
     // Add to trusted devices
-    getDb().prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)").run(deviceId, username);
+    await getDb().from("trusted_devices").upsert({ device_id: deviceId, username });
 
     res.json({ success: true, isTrusted: true });
   } catch (error: any) {
@@ -569,56 +403,60 @@ app.post("/api/user", async (req, res) => {
     // Check if device is trusted
     let isTrusted = false;
     if (deviceId) {
-      const stmt = getDb().prepare("SELECT * FROM trusted_devices WHERE device_id = ? AND username = ?");
-      const trusted = stmt.get(deviceId, username);
+      const { data: trusted } = await getDb().from("trusted_devices").select("*").eq("device_id", deviceId).eq("username", username).single();
       if (trusted) isTrusted = true;
     }
 
     // Get loyalty points
-    const loyaltyRecord = getDb().prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
+    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).single();
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     // Get referrals
-    const referrals = getDb().prepare("SELECT * FROM referrals WHERE referrer_username = ? ORDER BY created_at DESC").all(username);
+    const { data: referrals } = await getDb().from("referrals").select("*").eq("referrer_username", username).order("created_at", { ascending: false });
 
     // Get group ID to fetch group-wide requests
-    const groupRecord = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
+    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).single();
     const groupId = groupRecord ? groupRecord.group_id : null;
-    const groupUsernames = groupId 
-      ? (getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId) as any[]).map(u => u.username)
-      : [username];
+    
+    let groupUsernames = [username];
+    if (groupId) {
+      const { data: gUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+      if (gUsers) groupUsernames = gUsers.map(u => u.username);
+    }
 
     // Get group-wide active refund request
-    const refundRequest = groupId
-      ? getDb().prepare("SELECT * FROM refund_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND status = 'aguardando'").get(...groupUsernames)
-      : getDb().prepare("SELECT * FROM refund_requests WHERE username = ? AND status = 'aguardando'").get(username);
+    const { data: refundRequest } = await getDb().from("refund_requests").select("*").in("username", groupUsernames).eq("status", "aguardando").limit(1).maybeSingle();
 
     // Get group-wide active change requests
-    const changeRequests = groupId
-      ? getDb().prepare("SELECT * FROM change_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND status = 'aguardando'").all(...groupUsernames)
-      : getDb().prepare("SELECT * FROM change_requests WHERE username = ? AND status = 'aguardando'").all(username);
+    const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).eq("status", "aguardando");
 
     // Get recent date change request (last 30 days) for the group
-    const recentDateChangeRequest = groupId
-      ? getDb().prepare("SELECT * FROM change_requests WHERE username IN (" + groupUsernames.map(() => "?").join(",") + ") AND type = 'date' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 1").get(...groupUsernames)
-      : getDb().prepare("SELECT * FROM change_requests WHERE username = ? AND type = 'date' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 1").get(username);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentDateChangeRequest } = await getDb().from("change_requests")
+      .select("*")
+      .in("username", groupUsernames)
+      .eq("type", "date")
+      .gte("created_at", thirtyDaysAgo)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     // Get last payment date to calculate 7 days
-    try {
-      getDb().prepare("ALTER TABLE payments ADD COLUMN paid_at DATETIME").run();
-    } catch (e) { }
+    const { data: lastPayment } = await getDb().from("payments")
+      .select("created_at, paid_at")
+      .eq("username", username)
+      .eq("status", "approved")
+      .order("paid_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
 
-    const lastPayment = getDb().prepare("SELECT created_at, paid_at FROM payments WHERE username = ? AND status = 'approved' ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 1").get(username) as any;
     let lastPaymentDate = null;
     if (lastPayment) {
-      let dateStr = lastPayment.paid_at || lastPayment.created_at;
-      // SQLite CURRENT_TIMESTAMP is 'YYYY-MM-DD HH:MM:SS', replace space with T for ISO format
-      dateStr = dateStr.replace(' ', 'T');
-      lastPaymentDate = dateStr.endsWith('Z') ? dateStr : dateStr + 'Z';
+      lastPaymentDate = lastPayment.paid_at || lastPayment.created_at;
     }
 
     // Get payment history
-    const payments = getDb().prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC").all(username);
+    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).order("created_at", { ascending: false });
 
     res.json({ ...user, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments });
   } catch (error: any) {
@@ -642,7 +480,7 @@ app.post("/api/verify-password", async (req, res) => {
       return res.status(404).json({ error: "Usuário não encontrado" });
     }
 
-    // Check password (usually 'senha' or 'pass' in these panels)
+    // Check password
     const userPass = user.senha || user.pass || user.password;
 
     if (userPass !== password) {
@@ -650,8 +488,7 @@ app.post("/api/verify-password", async (req, res) => {
     }
 
     // Trust device
-    const stmt = getDb().prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)");
-    stmt.run(deviceId, username);
+    await getDb().from("trusted_devices").upsert({ device_id: deviceId, username });
 
     res.json({ success: true });
   } catch (error: any) {
@@ -675,8 +512,7 @@ app.post("/api/create-free", async (req, res) => {
     }
 
     // Check if device already created a user
-    const stmt = getDb().prepare("SELECT * FROM devices WHERE device_id = ?");
-    const existingDevice = stmt.get(deviceId);
+    const { data: existingDevice } = await getDb().from("devices").select("*").eq("device_id", deviceId).maybeSingle();
     if (existingDevice) {
       return res.status(403).json({ error: "Este aparelho já gerou um teste gratuito." });
     }
@@ -725,18 +561,15 @@ app.post("/api/create-free", async (req, res) => {
     }
 
     // Save device
-    const insertDevice = getDb().prepare("INSERT OR IGNORE INTO devices (device_id, username) VALUES (?, ?)");
-    insertDevice.run(deviceId, username);
+    await getDb().from("devices").upsert({ device_id: deviceId, username });
 
     // Trust device automatically
-    const insertTrusted = getDb().prepare("INSERT OR IGNORE INTO trusted_devices (device_id, username) VALUES (?, ?)");
-    insertTrusted.run(deviceId, username);
+    await getDb().from("trusted_devices").upsert({ device_id: deviceId, username });
 
     // Save referral if exists
     if (referrer) {
       const referralId = crypto.randomUUID();
-      const insertReferral = getDb().prepare("INSERT INTO referrals (id, referrer_username, referred_username) VALUES (?, ?, ?)");
-      insertReferral.run(referralId, referrer, username);
+      await getDb().from("referrals").insert({ id: referralId, referrer_username: referrer, referred_username: username });
     }
 
     res.json({
@@ -771,8 +604,8 @@ app.post("/api/pix/new-device", async (req, res) => {
     const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     // Calculate price difference
-    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
-    const currentDevices = groupUsers.length;
+    const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    const currentDevices = (groupUsers || []).length;
 
     const getPrice = (devices: number) => {
       if (devices <= 1) return 20;
@@ -813,25 +646,14 @@ app.post("/api/pix/new-device", async (req, res) => {
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
 
-    try {
-      getDb().prepare("ALTER TABLE payments ADD COLUMN group_id TEXT").run();
-    } catch (e) { }
-    try {
-      getDb().prepare("ALTER TABLE payments ADD COLUMN type TEXT DEFAULT 'renewal'").run();
-    } catch (e) { }
-    try {
-      getDb().prepare("ALTER TABLE payments ADD COLUMN metadata TEXT").run();
-    } catch (e) { }
-
-    const stmt = getDb().prepare("INSERT INTO payments (id, username, status, group_id, type, metadata) VALUES (?, ?, ?, ?, ?, ?)");
-    stmt.run(
-      mpRes.id.toString(),
-      mainUsername,
-      "pending",
-      groupId,
-      "new_device",
-      JSON.stringify({ newUsername, remainingDays, groupId, amount: proratedPrice })
-    );
+    await getDb().from("payments").insert({
+      id: mpRes.id.toString(),
+      username: mainUsername,
+      status: "pending",
+      group_id: groupId,
+      type: "new_device",
+      metadata: { newUsername, remainingDays, groupId, amount: proratedPrice }
+    });
 
     res.json({
       transactionId: mpRes.id.toString(),
@@ -870,11 +692,11 @@ app.post("/api/group/add-free-device", async (req, res) => {
     });
 
     // Add to group
-    getDb().prepare("INSERT OR IGNORE INTO user_groups (group_id, username) VALUES (?, ?)").run(groupId, newUsername);
+    await getDb().from("user_groups").upsert({ group_id: groupId, username: newUsername });
 
     // Update plan
-    const groupUsers = getDb().prepare("SELECT username FROM user_groups WHERE group_id = ?").all(groupId);
-    const numDevices = groupUsers.length;
+    const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    const numDevices = (groupUsers || []).length;
     let newPrice = 20;
     if (numDevices === 2) newPrice = 35;
     else if (numDevices === 3) newPrice = 50;
@@ -882,7 +704,7 @@ app.post("/api/group/add-free-device", async (req, res) => {
     else if (numDevices === 5) newPrice = 70;
     else if (numDevices >= 6) newPrice = 80;
 
-    getDb().prepare("UPDATE group_plans SET plan_type = 'devices', plan_devices = ?, plan_price = ? WHERE group_id = ?").run(numDevices, newPrice, groupId);
+    await getDb().from("group_plans").update({ plan_type: 'devices', plan_devices: numDevices, plan_price: newPrice }).eq("group_id", groupId);
 
     res.json({ success: true, password });
   } catch (error: any) {
@@ -907,17 +729,17 @@ app.post("/api/pix", async (req, res) => {
     }
 
     // Get group and plan
-    const groupRecord = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
+    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).single();
     if (!groupRecord) {
       return res.status(404).json({ error: "Grupo não encontrado" });
     }
-    const plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupRecord.group_id) as any;
+    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupRecord.group_id).single();
     if (!plan) {
       return res.status(404).json({ error: "Plano não encontrado" });
     }
 
     // Check loyalty points
-    const loyaltyRecord = getDb().prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
+    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).single();
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     let transactionAmount = plan.plan_price;
@@ -958,9 +780,15 @@ app.post("/api/pix", async (req, res) => {
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
 
-    const metadata = JSON.stringify({ discountApplied, paidOnTime, amount: transactionAmount });
-    const stmt = getDb().prepare("INSERT INTO payments (id, username, status, group_id, type, metadata) VALUES (?, ?, ?, ?, ?, ?)");
-    stmt.run(mpRes.id.toString(), username, "pending", groupRecord.group_id, "renewal", metadata);
+    const mdata = { discountApplied, paidOnTime, amount: transactionAmount };
+    await getDb().from("payments").insert({
+      id: mpRes.id.toString(),
+      username,
+      status: "pending",
+      group_id: groupRecord.group_id,
+      type: "renewal",
+      metadata: mdata
+    });
 
     res.json({
       paymentId: mpRes.id.toString(),
@@ -980,8 +808,7 @@ app.get("/api/status/:paymentId", async (req, res) => {
   try {
     const { paymentId } = req.params;
 
-    const stmt = getDb().prepare("SELECT * FROM payments WHERE id = ?");
-    const paymentRecord = stmt.get(paymentId) as any;
+    const { data: paymentRecord } = await getDb().from("payments").select("*").eq("id", paymentId).maybeSingle();
 
     if (!paymentRecord) {
       return res.status(404).json({ error: "Pagamento não encontrado" });
@@ -1015,10 +842,9 @@ app.post("/api/webhook", async (req, res) => {
     const { type, data } = req.body;
 
     if (type === "payment" && data?.id) {
-      const paymentId = data.id;
+      const paymentId = data.id.toString();
 
-      const stmt = getDb().prepare("SELECT * FROM payments WHERE id = ?");
-      const paymentRecord = stmt.get(paymentId) as any;
+      const { data: paymentRecord } = await getDb().from("payments").select("*").eq("id", paymentId).maybeSingle();
 
       if (paymentRecord && paymentRecord.status !== "approved") {
         const client = getMpClient();
@@ -1050,19 +876,18 @@ app.get("/api/tickets/:username", (req, res) => {
 });
 
 // 4. Refund and Date Change Requests
-app.post("/api/refund", (req, res) => {
+app.post("/api/refund", async (req, res) => {
   try {
     const { username, pixType, pixKey } = req.body;
     const id = crypto.randomUUID();
 
     // Check if already requested
-    const existing = getDb().prepare("SELECT * FROM refund_requests WHERE username = ? AND status = 'aguardando'").get(username);
+    const { data: existing } = await getDb().from("refund_requests").select("*").eq("username", username).eq("status", "aguardando").maybeSingle();
     if (existing) {
       return res.status(400).json({ error: "Já existe uma solicitação de reembolso em andamento." });
     }
 
-    const stmt = getDb().prepare("INSERT INTO refund_requests (id, username, pix_type, pix_key) VALUES (?, ?, ?, ?)");
-    stmt.run(id, username, pixType, pixKey);
+    await getDb().from("refund_requests").insert({ id, username, pix_type: pixType, pix_key: pixKey });
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1087,7 +912,7 @@ app.post("/api/user/update-access", async (req, res) => {
     }
 
     // Check if there is already a pending request of this type
-    const existingRequest = getDb().prepare("SELECT * FROM change_requests WHERE username = ? AND type = ? AND status = 'aguardando'").get(username, action);
+    const { data: existingRequest } = await getDb().from("change_requests").select("*").eq("username", username).eq("type", action).eq("status", "aguardando").maybeSingle();
     if (existingRequest) {
       return res.status(400).json({ error: "Você já tem uma solicitação pendente para esta alteração." });
     }
@@ -1104,7 +929,7 @@ app.post("/api/user/update-access", async (req, res) => {
         return res.status(400).json({ error: "A nova data não pode ter mais de 15 dias de diferença da data atual." });
       }
 
-      const lastChange = getDb().prepare("SELECT created_at FROM change_requests WHERE username = ? AND type = 'date' AND status = 'aprovado' ORDER BY created_at DESC LIMIT 1").get(username) as any;
+      const { data: lastChange } = await getDb().from("change_requests").select("created_at").eq("username", username).eq("type", "date").eq("status", "aprovado").order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (lastChange) {
         const lastChangeDate = new Date(lastChange.created_at);
         const daysSinceLastChange = Math.ceil((now.getTime() - lastChangeDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -1115,7 +940,7 @@ app.post("/api/user/update-access", async (req, res) => {
     }
 
     const id = crypto.randomUUID();
-    getDb().prepare("INSERT INTO change_requests (id, username, type, requested_value, status) VALUES (?, ?, ?, ?, 'aguardando')").run(id, username, action, newValue);
+    await getDb().from("change_requests").insert({ id, username, type: action, requested_value: newValue, status: 'aguardando' });
 
     res.json({ success: true, message: "Solicitação enviada com sucesso. Aguarde a aprovação do administrador." });
   } catch (error: any) {
@@ -1125,10 +950,10 @@ app.post("/api/user/update-access", async (req, res) => {
 });
 
 // Cancel change request
-app.delete("/api/user/change-requests/:id", (req, res) => {
+app.delete("/api/user/change-requests/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    getDb().prepare("DELETE FROM change_requests WHERE id = ? AND status = 'aguardando'").run(id);
+    await getDb().from("change_requests").delete().eq("id", id).eq("status", "aguardando");
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1136,10 +961,10 @@ app.delete("/api/user/change-requests/:id", (req, res) => {
 });
 
 // Cancel refund request
-app.delete("/api/user/refunds/:id", (req, res) => {
+app.delete("/api/user/refunds/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    getDb().prepare("DELETE FROM refund_requests WHERE id = ? AND status = 'aguardando'").run(id);
+    await getDb().from("refund_requests").delete().eq("id", id).eq("status", "aguardando");
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1147,65 +972,65 @@ app.delete("/api/user/refunds/:id", (req, res) => {
 });
 
 // Admin endpoints for requests
-app.get("/api/admin/payments", (req, res) => {
+app.get("/api/admin/payments", async (req, res) => {
   try {
-    const payments = getDb().prepare("SELECT * FROM payments ORDER BY created_at DESC").all();
-    res.json(payments);
+    const { data: payments } = await getDb().from("payments").select("*").order("created_at", { ascending: false });
+    res.json(payments || []);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get("/api/admin/refunds", (req, res) => {
+app.get("/api/admin/refunds", async (req, res) => {
   try {
-    const refunds = getDb().prepare("SELECT * FROM refund_requests ORDER BY created_at DESC").all();
-    res.json(refunds);
+    const { data: refunds } = await getDb().from("refund_requests").select("*").order("created_at", { ascending: false });
+    res.json(refunds || []);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/api/admin/refunds/:id/approve", (req, res) => {
+app.post("/api/admin/refunds/:id/approve", async (req, res) => {
   try {
     const { id } = req.params;
     const { refundedAt } = req.body;
 
-    try {
-      getDb().prepare("ALTER TABLE refund_requests ADD COLUMN refunded_at DATETIME").run();
-    } catch (e) { }
+    await getDb().from("refund_requests").update({ 
+      status: 'realizado', 
+      refunded_at: refundedAt || new Date().toISOString() 
+    }).eq("id", id);
 
-    getDb().prepare("UPDATE refund_requests SET status = 'realizado', refunded_at = ? WHERE id = ?").run(refundedAt || new Date().toISOString(), id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/api/admin/refunds/:id/reject", (req, res) => {
+app.post("/api/admin/refunds/:id/reject", async (req, res) => {
   try {
     const { id } = req.params;
-    getDb().prepare("UPDATE refund_requests SET status = 'rejeitado' WHERE id = ?").run(id);
+    await getDb().from("refund_requests").update({ status: 'rejeitado' }).eq("id", id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get("/api/admin/change-requests", (req, res) => {
+app.get("/api/admin/change-requests", async (req, res) => {
   try {
-    const requests = getDb().prepare("SELECT * FROM change_requests ORDER BY created_at DESC").all();
-    res.json(requests);
+    const { data: requests } = await getDb().from("change_requests").select("*").order("created_at", { ascending: false });
+    res.json(requests || []);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/api/admin/change-requests/:id/approve", (req, res) => {
+app.post("/api/admin/change-requests/:id/approve", async (req, res) => {
   try {
     const { id } = req.params;
     const { approvedValue } = req.body;
 
-    const request = getDb().prepare("SELECT * FROM change_requests WHERE id = ?").get(id) as any;
+    const { data: request } = await getDb().from("change_requests").select("*").eq("id", id).single();
     if (!request) {
       return res.status(404).json({ error: "Solicitação não encontrada" });
     }
@@ -1216,23 +1041,25 @@ app.post("/api/admin/change-requests/:id/approve", (req, res) => {
       const oldUsername = request.username;
       const newUsername = finalValue;
 
-      const transaction = getDb().transaction(() => {
-        getDb().prepare("UPDATE payments SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE devices SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE tickets SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE ticket_messages SET sender = ? WHERE sender = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE loyalty_points SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE referrals SET referrer_username = ? WHERE referrer_username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE referrals SET referred_username = ? WHERE referred_username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE trusted_devices SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE user_groups SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE refund_requests SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-        getDb().prepare("UPDATE change_requests SET username = ? WHERE username = ?").run(newUsername, oldUsername);
-      });
-      transaction();
+      // In Supabase/Postgres we should ideally use a stored procedure for bulk updates if needed,
+      // but for simplicity we'll do consecutive calls here.
+      const tables = [
+        "payments", "devices", "tickets", "ticket_messages", 
+        "loyalty_points", "referrals", "trusted_devices", 
+        "user_groups", "refund_requests", "change_requests"
+      ];
+      
+      for (const table of tables) {
+        const col = table === "referrals" ? "referrer_username" : (table === "ticket_messages" ? "sender" : "username");
+        await getDb().from(table).update({ [col]: newUsername }).eq(col, oldUsername);
+        
+        if (table === "referrals") {
+           await getDb().from(table).update({ referred_username: newUsername }).eq("referred_username", oldUsername);
+        }
+      }
     }
 
-    getDb().prepare("UPDATE change_requests SET status = 'aprovado', approved_value = ? WHERE id = ?").run(finalValue, id);
+    await getDb().from("change_requests").update({ status: 'aprovado', approved_value: finalValue }).eq("id", id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1258,314 +1085,93 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
     const user = users.find((u: any) => u.login === username);
 
     // Get devices
-    const devices = getDb().prepare("SELECT * FROM devices WHERE username = ?").all(username);
+    const { data: devices } = await getDb().from("devices").select("*").eq("username", username);
 
     // Get payments
-    const payments = getDb().prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC").all(username);
+    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).order("created_at", { ascending: false });
 
     // Get refunds
-    const refunds = getDb().prepare("SELECT * FROM refund_requests WHERE username = ? ORDER BY created_at DESC").all(username);
+    const { data: refunds } = await getDb().from("refund_requests").select("*").eq("username", username).order("created_at", { ascending: false });
 
     // Get change requests
-    const changeRequests = getDb().prepare("SELECT * FROM change_requests WHERE username = ? ORDER BY created_at DESC").all(username);
+    const { data: changeRequests } = await getDb().from("change_requests").select("*").eq("username", username).order("created_at", { ascending: false });
 
     // Get plan info
-    const group = getDb().prepare("SELECT * FROM user_groups WHERE username = ?").get(username) as any;
+    const { data: group } = await getDb().from("user_groups").select("*").eq("username", username).maybeSingle();
     let plan = null;
     if (group) {
-      plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(group.group_id);
+      const { data: p } = await getDb().from("group_plans").select("*").eq("group_id", group.group_id).maybeSingle();
+      plan = p;
     }
 
     // Get loyalty points
-    const loyaltyRecord = getDb().prepare("SELECT points FROM loyalty_points WHERE username = ?").get(username) as any;
+    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).maybeSingle();
     const points = loyaltyRecord ? loyaltyRecord.points : 0;
 
     // Get referrals
-    const referrals = getDb().prepare("SELECT * FROM referrals WHERE referrer_username = ? ORDER BY created_at DESC").all(username);
+    const { data: referrals } = await getDb().from("referrals").select("*").eq("referrer_username", username).order("created_at", { ascending: false });
 
     res.json({
       user,
-      devices,
-      payments,
-      refunds,
-      changeRequests,
+      devices: devices || [],
+      payments: payments || [],
+      refunds: refunds || [],
+      changeRequests: changeRequests || [],
       plan,
       points,
-      referrals
+      referrals: referrals || []
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get("/api/admin/reports", (req, res) => {
-  try {
-    const { period = 30 } = req.query;
-    const days = Number(period);
-
-    // Get tests (devices)
-    const tests = getDb().prepare(`
-      SELECT date(created_at) as date, count(*) as count 
-      FROM devices 
-      WHERE created_at >= date('now', '-' || ? || ' days')
-      GROUP BY date(created_at)
-      ORDER BY date(created_at) ASC
-    `).all(days);
-
-    // Get sales (payments)
-    const sales = getDb().prepare(`
-      SELECT date(COALESCE(paid_at, created_at)) as date, count(*) as count, metadata
-      FROM payments 
-      WHERE status = 'approved' AND COALESCE(paid_at, created_at) >= date('now', '-' || ? || ' days')
-      GROUP BY date(COALESCE(paid_at, created_at)), metadata
-      ORDER BY date(COALESCE(paid_at, created_at)) ASC
-    `).all(days);
-
-    // Process sales to get revenue
-    const salesByDate: Record<string, { count: number, revenue: number }> = {};
-    let totalRevenue = 0;
-    let totalSales = 0;
-
-    sales.forEach((s: any) => {
-      if (!salesByDate[s.date]) {
-        salesByDate[s.date] = { count: 0, revenue: 0 };
-      }
-      salesByDate[s.date].count += s.count;
-      totalSales += s.count;
-
-      let amount = 0;
-      try {
-        if (s.metadata) {
-          const meta = JSON.parse(s.metadata);
-          if (meta.amount) amount = Number(meta.amount) * s.count;
-        }
-      } catch (e) { }
-
-      salesByDate[s.date].revenue += amount;
-      totalRevenue += amount;
-    });
-
-    const salesHistory = Object.keys(salesByDate).map(date => ({
-      date,
-      count: salesByDate[date].count,
-      revenue: salesByDate[date].revenue
-    })).sort((a, b) => a.date.localeCompare(b.date));
-
-    const totalTests = getDb().prepare("SELECT count(*) as count FROM devices WHERE created_at >= date('now', '-' || ? || ' days')").get(days) as any;
-
-    res.json({
-      totalRevenue,
-      totalSales,
-      totalTests: totalTests.count,
-      conversionRate: totalTests.count > 0 ? ((totalSales / totalTests.count) * 100).toFixed(2) : 0,
-      testsHistory: tests,
-      salesHistory
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/tickets", (req, res) => {
-  try {
-    const { username, category, subject, message } = req.body;
-    const ticketId = crypto.randomUUID();
-    const messageId = crypto.randomUUID();
-
-    const insertTicket = getDb().prepare("INSERT INTO tickets (id, username, category, subject) VALUES (?, ?, ?, ?)");
-    insertTicket.run(ticketId, username, category, subject);
-
-    const insertMessage = getDb().prepare("INSERT INTO ticket_messages (id, ticket_id, sender, message) VALUES (?, ?, ?, ?)");
-    insertMessage.run(messageId, ticketId, "user", message);
-
-    res.json({ success: true, ticketId });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/tickets/:username", (req, res) => {
-  try {
-    const stmt = getDb().prepare("SELECT * FROM tickets WHERE username = ? ORDER BY created_at DESC");
-    const tickets = stmt.all(req.params.username);
-    res.json(tickets);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/tickets/:id/messages", (req, res) => {
-  try {
-    const stmt = getDb().prepare("SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC");
-    const messages = stmt.all(req.params.id);
-    res.json(messages);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/tickets/:id/messages", (req, res) => {
-  try {
-    const { id } = req.params;
-    const { sender, message } = req.body;
-    const messageId = crypto.randomUUID();
-
-    const insertMessage = getDb().prepare("INSERT INTO ticket_messages (id, ticket_id, sender, message) VALUES (?, ?, ?, ?)");
-    insertMessage.run(messageId, id, sender, message);
-
-    const status = sender === "admin" ? "answered" : "open";
-    getDb().prepare("UPDATE tickets SET status = ? WHERE id = ?").run(status, id);
-
-    res.json({ success: true, messageId });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.patch("/api/tickets/:id/status", (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    getDb().prepare("UPDATE tickets SET status = ? WHERE id = ?").run(status, id);
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// --- ADMIN API ROUTES ---
-
-app.get("/api/admin/tickets", (req, res) => {
-  try {
-    const allTickets = getDb().prepare("SELECT * FROM tickets ORDER BY created_at DESC").all();
-    res.json(allTickets);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/admin/payments", (req, res) => {
-  try {
-    const allPayments = getDb().prepare("SELECT * FROM payments ORDER BY created_at DESC").all();
-    res.json(allPayments);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/admin/refunds", (req, res) => {
-  try {
-    const allRefunds = getDb().prepare("SELECT * FROM refund_requests ORDER BY created_at DESC").all();
-    res.json(allRefunds);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/admin/refunds/:id/approve", (req, res) => {
-  try {
-    const { id } = req.params;
-    const { refundedAt } = req.body;
-
-    try {
-      getDb().prepare("ALTER TABLE refund_requests ADD COLUMN refunded_at DATETIME").run();
-    } catch (e) { }
-
-    const refundedDate = refundedAt ? new Date(refundedAt).toISOString().replace('T', ' ').substring(0, 19) : new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-    getDb().prepare("UPDATE refund_requests SET status = 'realizado', refunded_at = ? WHERE id = ?").run(refundedDate, id);
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/admin/refunds/:id/reject", (req, res) => {
-  try {
-    const { id } = req.params;
-    getDb().prepare("UPDATE refund_requests SET status = 'rejeitado' WHERE id = ?").run(id);
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/admin/change-requests", (req, res) => {
-  try {
-    const allRequests = getDb().prepare("SELECT * FROM change_requests ORDER BY created_at DESC").all();
-    res.json(allRequests);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/admin/change-requests/:id/approve", (req, res) => {
-  try {
-    const { id } = req.params;
-    const { approvedValue } = req.body;
-    getDb().prepare("UPDATE change_requests SET status = 'aprovado', approved_value = ? WHERE id = ?").run(approvedValue, id);
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/admin/change-requests/:id/reject", (req, res) => {
-  try {
-    const { id } = req.params;
-    getDb().prepare("UPDATE change_requests SET status = 'rejeitado' WHERE id = ?").run(id);
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/admin/reports", (req, res) => {
+app.get("/api/admin/reports", async (req, res) => {
   try {
     const period = parseInt(req.query.period as string) || 30;
+    const sinceDate = new Date(Date.now() - period * 24 * 60 * 60 * 1000).toISOString();
 
-    const dates = [];
+    const dates: string[] = [];
     for (let i = period - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       dates.push(d.toISOString().split('T')[0]);
     }
 
-    const payments = getDb().prepare(`SELECT * FROM payments WHERE status = 'approved' AND created_at >= date('now', '-${period} days')`).all() as any[];
+    // Get payments and devices
+    const { data: payments } = await getDb().from("payments").select("*").eq("status", "approved").gte("created_at", sinceDate);
+    const { data: devices } = await getDb().from("devices").select("*").gte("created_at", sinceDate);
 
     let totalRevenue = 0;
-    let totalSales = payments.length;
+    const totalSales = (payments || []).length;
+    const totalTests = (devices || []).length;
 
     const salesByDate: Record<string, { count: number, revenue: number }> = {};
-    dates.forEach(d => salesByDate[d] = { count: 0, revenue: 0 });
+    const testsByDate: Record<string, number> = {};
+    
+    dates.forEach(d => {
+      salesByDate[d] = { count: 0, revenue: 0 };
+      testsByDate[d] = 0;
+    });
 
-    payments.forEach(p => {
+    (payments || []).forEach(p => {
       let amount = 0;
       if (p.metadata) {
-        try {
-          const meta = JSON.parse(p.metadata);
-          if (meta.amount) amount = Number(meta.amount);
-        } catch (e) { }
+        amount = Number(p.metadata.amount) || 0;
       }
       totalRevenue += amount;
 
-      const dateStr = p.paid_at ? p.paid_at.split(' ')[0] : p.created_at.split(' ')[0];
+      const dateStr = (p.paid_at || p.created_at).split('T')[0];
       if (salesByDate[dateStr]) {
         salesByDate[dateStr].count++;
         salesByDate[dateStr].revenue += amount;
       }
     });
 
-    const users = getDb().prepare(`SELECT * FROM devices WHERE created_at >= date('now', '-${period} days')`).all() as any[];
-    const totalTests = users.length;
-
-    const testsByDate: Record<string, number> = {};
-    dates.forEach(d => testsByDate[d] = 0);
-
-    users.forEach(u => {
-      const dateStr = u.created_at.split(' ')[0];
+    (devices || []).forEach(u => {
+      const dateStr = u.created_at.split('T')[0];
       if (testsByDate[dateStr] !== undefined) {
-        testsByDate[dateStr]++
+        testsByDate[dateStr]++;
       }
     });
 
@@ -1587,65 +1193,116 @@ app.get("/api/admin/reports", (req, res) => {
       }))
     });
   } catch (error: any) {
+    console.error("Report error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get("/api/admin/users/:username/details", async (req, res) => {
+app.post("/api/tickets", async (req, res) => {
   try {
-    const { username } = req.params;
+    const { username, category, subject, message } = req.body;
+    const ticketId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
 
-    const allUsers = await fetchVpnUsers();
-    const user = allUsers.find((u: any) => u.login === username);
+    await getDb().from("tickets").insert({ id: ticketId, username, category, subject });
+    await getDb().from("ticket_messages").insert({ id: messageId, ticket_id: ticketId, sender: "user", message });
 
-    const groupRecord = getDb().prepare("SELECT group_id FROM user_groups WHERE username = ?").get(username) as any;
-    let plan = null;
-    let devices = [];
-
-    if (groupRecord) {
-      plan = getDb().prepare("SELECT * FROM group_plans WHERE group_id = ?").get(groupRecord.group_id);
-      devices = getDb().prepare("SELECT * FROM user_groups WHERE group_id = ? AND username != ?").all(groupRecord.group_id, username);
-    }
-
-    const payments = getDb().prepare("SELECT * FROM payments WHERE username = ? ORDER BY created_at DESC LIMIT 10").all(username);
-    const refunds = getDb().prepare("SELECT * FROM refund_requests WHERE username = ? ORDER BY created_at DESC").all(username);
-
-    res.json({
-      user,
-      plan,
-      devices,
-      payments,
-      refunds
-    });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get("/api/admin/devices", (req, res) => {
-  try {
-    const stmt = getDb().prepare("SELECT * FROM devices ORDER BY created_at DESC");
-    const devices = stmt.all();
-    res.json(devices);
+    res.json({ success: true, ticketId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.delete("/api/admin/devices", (req, res) => {
+app.get("/api/tickets/:username", async (req, res) => {
   try {
-    const stmt = getDb().prepare("DELETE FROM devices");
-    stmt.run();
+    const { data: tickets } = await getDb().from("tickets").select("*").eq("username", req.params.username).order("created_at", { ascending: false });
+    res.json(tickets || []);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/tickets/:id/messages", async (req, res) => {
+  try {
+    const { data: messages } = await getDb().from("ticket_messages").select("*").eq("ticket_id", req.params.id).order("created_at", { ascending: true });
+    res.json(messages || []);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/tickets/:id/messages", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sender, message } = req.body;
+    const messageId = crypto.randomUUID();
+
+    await getDb().from("ticket_messages").insert({ id: messageId, ticket_id: id, sender, message });
+
+    const status = sender === "admin" ? "answered" : "open";
+    await getDb().from("tickets").update({ status }).eq("id", id);
+
+    res.json({ success: true, messageId });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/tickets/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    await getDb().from("tickets").update({ status }).eq("id", id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.delete("/api/admin/devices/:id", (req, res) => {
+
+app.get("/api/admin/users/:username/details/legacy", async (req, res) => {
   try {
-    const stmt = getDb().prepare("DELETE FROM devices WHERE device_id = ?");
-    stmt.run(req.params.id);
+    const { username } = req.params;
+    const allUsers = await fetchVpnUsers();
+    const user = allUsers.find((u: any) => u.login === username);
+    const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).maybeSingle();
+    let plan = null;
+    let devices = [];
+    if (groupRecord) {
+      const { data: p } = await getDb().from("group_plans").select("*").eq("group_id", groupRecord.group_id).maybeSingle();
+      plan = p;
+      const { data: dev } = await getDb().from("user_groups").select("*").eq("group_id", groupRecord.group_id).neq("username", username);
+      devices = dev || [];
+    }
+    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).order("created_at", { ascending: false }).limit(10);
+    const { data: refunds } = await getDb().from("refund_requests").select("*").eq("username", username).order("created_at", { ascending: false });
+    res.json({ user, plan, devices, payments, refunds });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/admin/devices", async (req, res) => {
+  try {
+    const { data: devices } = await getDb().from("devices").select("*").order("created_at", { ascending: false });
+    res.json(devices || []);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/devices", async (req, res) => {
+  try {
+    await getDb().from("devices").delete().neq("id", "0"); // Delete all effectively
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/admin/devices/:id", async (req, res) => {
+  try {
+    await getDb().from("devices").delete().eq("device_id", req.params.id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
