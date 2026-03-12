@@ -10,6 +10,8 @@ import crypto from "crypto";
 dotenv.config();
 
 const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 const PORT = 3000;
 
 // --- DB Setup (Supabase) ---
@@ -865,11 +867,19 @@ app.post("/api/webhook", async (req, res) => {
 });
 
 // 3.5 Tickets API
-app.get("/api/tickets/:username", (req, res) => {
+app.get("/api/tickets/:username", async (req, res) => {
   try {
-    const stmt = getDb().prepare("SELECT * FROM tickets WHERE username = ? ORDER BY created_at DESC");
-    const tickets = stmt.all(req.params.username);
-    res.json(tickets);
+    const { data: tickets } = await getDb().from("tickets").select("*").eq("username", req.params.username).order("created_at", { ascending: false });
+    res.json(tickets || []);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin/tickets", async (req, res) => {
+  try {
+    const { data: allTickets } = await getDb().from("tickets").select("*").order("created_at", { ascending: false });
+    res.json(allTickets || []);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1066,10 +1076,10 @@ app.post("/api/admin/change-requests/:id/approve", async (req, res) => {
   }
 });
 
-app.post("/api/admin/change-requests/:id/reject", (req, res) => {
+app.post("/api/admin/change-requests/:id/reject", async (req, res) => {
   try {
     const { id } = req.params;
-    getDb().prepare("UPDATE change_requests SET status = 'rejeitado' WHERE id = ?").run(id);
+    await getDb().from("change_requests").update({ status: 'rejeitado' }).eq("id", id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
