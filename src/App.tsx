@@ -1550,11 +1550,28 @@ export default function App() {
                               </div>
                             </button>
                             <button
-                              onClick={() => {
-                                if (currentUser.refundRequest?.status === 'aguardando') {
-                                  showAlertDialog("Você já possui uma solicitação de reembolso em andamento.");
-                                } else {
-                                  setShowRefundModal(true);
+                              onClick={async () => {
+                                if (!currentUser) return;
+                                setLoading(true);
+                                try {
+                                  const res = await fetch("/api/user", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ username: currentUser.login, deviceId: deviceId || localStorage.getItem("vpn_device_id") }),
+                                  });
+                                  if (res.ok) {
+                                    const data = await res.json();
+                                    setCurrentUser(data);
+                                    if (data.refundRequest?.status === 'aguardando') {
+                                      showAlertDialog("Você já possui uma solicitação de reembolso em andamento.");
+                                    } else {
+                                      setShowRefundModal(true);
+                                    }
+                                  }
+                                } catch (e) {
+                                  console.error(e);
+                                } finally {
+                                  setLoading(false);
                                 }
                               }}
                               className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
@@ -2475,7 +2492,7 @@ export default function App() {
                                   <div className="bg-bg-surface-hover p-4 rounded-2xl border border-border-base text-left space-y-3 shadow-inner">
                                     <div className="flex justify-between items-center text-xs">
                                       <span className="text-text-muted font-medium">Data/Hora:</span>
-                                      <span className="font-bold text-text-base">{new Date(currentUser.refundRequest.refunded_at).toLocaleString('pt-BR')}</span>
+                                      <span className="font-bold text-text-base">{formatDate(currentUser.refundRequest.refunded_at)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
                                       <span className="text-text-muted font-medium">Chave Pix:</span>
@@ -2491,6 +2508,13 @@ export default function App() {
                                       Os pontos de fidelidade foram revogados devido ao reembolso. Seu acesso permanecerá inativo após o vencimento atual.
                                     </p>
                                   </div>
+                                </div>
+                              ) : currentUser.refundRequest.status === 'rejeitado' ? (
+                                <div className="text-center py-4">
+                                  <XCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                                  <h3 className="text-lg font-medium text-text-base mb-2">Reembolso Rejeitado</h3>
+                                  <p className="text-text-muted text-sm px-4">Sua solicitação de reembolso foi analisada e não pôde ser atendida no momento.</p>
+                                  <p className="text-text-muted text-[11px] mt-4">Para mais informações, abra um ticket de suporte.</p>
                                 </div>
                               ) : (
                                 <>
