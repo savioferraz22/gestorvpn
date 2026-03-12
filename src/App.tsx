@@ -1300,6 +1300,43 @@ export default function App() {
 
 
                   <div className="space-y-4">
+                    {/* Loyalty Points Section */}
+                    {currentUser.points !== undefined && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden group"
+                      >
+                        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:scale-110 transition-transform">
+                          <Star className="w-16 h-16 fill-white" />
+                        </div>
+                        <div className="relative z-10">
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h3 className="text-sm font-bold opacity-90 uppercase tracking-widest text-amber-100">Progresso Fidelidade</h3>
+                              <p className="text-2xl font-black mt-1">
+                                {currentUser.points >= 3 ? "20% DE DESCONTO!" : `${currentUser.points} / 3 Pontos`}
+                              </p>
+                            </div>
+                            <div className="bg-white/20 p-2 rounded-2xl backdrop-blur-md">
+                              <Star className={`w-6 h-6 ${currentUser.points >= 3 ? 'fill-white' : ''}`} />
+                            </div>
+                          </div>
+                          <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden border border-white/10">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${Math.min((currentUser.points / 3) * 100, 100)}%` }}
+                              className={`h-full ${currentUser.points >= 3 ? 'bg-green-400' : 'bg-white'}`}
+                            />
+                          </div>
+                          <p className="text-[10px] mt-3 font-medium text-amber-50 leading-tight">
+                            {currentUser.points >= 3 
+                              ? "Sua próxima renovação terá 20% de desconto automático!" 
+                              : `Faltam ${3 - currentUser.points} pagamentos em dia para você ganhar 20% de desconto.`}
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
                     {(groupUsersDetails.length > 0
                       // Sort: current user first, then others
                       ? [...groupUsersDetails].sort((a, b) =>
@@ -1434,11 +1471,16 @@ export default function App() {
                           ) : (
                             <>
                               <QrCode className="w-5 h-5 mr-2" />
-                              <span className="text-[15px]">Renovar Plano Agora</span>
+                               <span className="text-[15px]">Renovar Plano Agora</span>
                               {groupData && (
-                                <span className="ml-2 bg-primary-800/50 px-2 py-0.5 rounded-lg text-primary-100 text-[13px] font-medium border border-primary-500/30">
-                                  R$ {calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices)},00
-                                </span>
+                                <div className="ml-2 flex flex-col items-end">
+                                  {currentUser.points >= 3 && (
+                                    <span className="text-[10px] text-green-300 font-bold -mb-1">Fidelidade -20%</span>
+                                  )}
+                                  <span className="bg-primary-800/50 px-2 py-0.5 rounded-lg text-primary-100 text-[13px] font-medium border border-primary-500/30">
+                                    R$ {Math.floor(calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices) * (currentUser.points >= 3 ? 0.8 : 1))},00
+                                  </span>
+                                </div>
                               )}
                             </>
                           )}
@@ -2423,9 +2465,40 @@ export default function App() {
                         <div className="p-6">
                           {currentUser?.refundRequest ? (
                             <div className="text-center py-4">
-                              <Clock className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-                              <h3 className="text-lg font-medium text-text-base mb-2">Reembolso em Andamento</h3>
-                              <p className="text-text-muted text-sm">Você já possui uma solicitação de reembolso aguardando processamento.</p>
+                              {currentUser.refundRequest.status === 'realizado' ? (
+                                <div className="space-y-4">
+                                  <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-1" />
+                                  <h3 className="text-lg font-bold text-text-base">Reembolso Concluído</h3>
+                                  <p className="text-text-muted text-xs">
+                                    O seu reembolso foi aprovado e processado com sucesso.
+                                  </p>
+                                  <div className="bg-bg-surface-hover p-4 rounded-2xl border border-border-base text-left space-y-3 shadow-inner">
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-text-muted font-medium">Data/Hora:</span>
+                                      <span className="font-bold text-text-base">{new Date(currentUser.refundRequest.refunded_at).toLocaleString('pt-BR')}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-text-muted font-medium">Chave Pix:</span>
+                                      <span className="font-bold text-text-base">{currentUser.refundRequest.pix_key}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className="text-text-muted font-medium">Tipo:</span>
+                                      <span className="font-bold text-text-base uppercase">{currentUser.refundRequest.pix_type}</span>
+                                    </div>
+                                  </div>
+                                  <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl">
+                                    <p className="text-[11px] text-amber-800 leading-tight">
+                                      Os pontos de fidelidade foram revogados devido ao reembolso. Seu acesso permanecerá inativo após o vencimento atual.
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <Clock className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                                  <h3 className="text-lg font-medium text-text-base mb-2">Reembolso em Andamento</h3>
+                                  <p className="text-text-muted text-sm px-4">Sua solicitação está aguardando revisão pelo administrador e será processada em breve.</p>
+                                </>
+                              )}
                             </div>
                           ) : (
                             <>

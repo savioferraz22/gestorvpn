@@ -178,7 +178,7 @@ async function approvePayment(paymentRecord: any) {
   } else {
     // Add point if paid on time or in advance
     if (metadata.paidOnTime) {
-      const { data: lp } = await getDb().from("loyalty_points").select("points").eq("username", paymentRecord.username).single();
+      const { data: lp } = await getDb().from("loyalty_points").select("points").eq("username", paymentRecord.username).maybeSingle();
       if (lp) {
         await getDb().from("loyalty_points").update({ points: lp.points + 1, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
       } else {
@@ -426,8 +426,8 @@ app.post("/api/user", async (req, res) => {
       if (gUsers) groupUsernames = gUsers.map(u => u.username);
     }
 
-    // Get group-wide active refund request
-    const { data: refundRequest } = await getDb().from("refund_requests").select("*").in("username", groupUsernames).eq("status", "aguardando").limit(1).maybeSingle();
+    // Get group-wide active or recent refund request
+    const { data: refundRequest } = await getDb().from("refund_requests").select("*").in("username", groupUsernames).order("created_at", { ascending: false }).limit(1).maybeSingle();
 
     // Get group-wide active change requests
     const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).eq("status", "aguardando");
@@ -1004,6 +1004,12 @@ app.post("/api/admin/refunds/:id/approve", async (req, res) => {
   try {
     const { id } = req.params;
     const { refundedAt } = req.body;
+
+    // Get username to reset points
+    const { data: refund } = await getDb().from("refund_requests").select("username").eq("id", id).single();
+    if (refund) {
+      await getDb().from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", refund.username);
+    }
 
     await getDb().from("refund_requests").update({ 
       status: 'realizado', 
