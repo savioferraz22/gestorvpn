@@ -100,9 +100,10 @@ const getMpClient = () => {
 
 async function approvePayment(paymentRecord: any) {
   const paymentId = paymentRecord.id;
+  const db = getDb();
 
-  // Update DB
-  await getDb().from("payments").update({ status: "approved", paid_at: new Date().toISOString() }).eq("id", paymentId);
+  // Update DB status
+  await db.from("payments").update({ status: "approved", paid_at: new Date().toISOString() }).eq("id", paymentId);
 
   if (paymentRecord.type === "new_device") {
     const metadata = paymentRecord.metadata || {};
@@ -119,54 +120,58 @@ async function approvePayment(paymentRecord: any) {
       params.append("limit", "1");
       params.append("days", remainingDays.toString());
 
-      const vpnRes = await fetch(VPN_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
-      });
-      const vpnText = await vpnRes.text();
-      console.log(`VPN Create Response for ${newUsername}:`, vpnText);
+      try {
+        const vpnRes = await fetch(VPN_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: params.toString(),
+        });
+        const vpnText = await vpnRes.text();
+        console.log(`VPN Create Response for ${newUsername}:`, vpnText);
+      } catch (e) {
+        console.error(`Failed to create VPN user ${newUsername}:`, e);
+      }
 
       // Add to group
-      await getDb().from("user_groups").insert({ group_id: groupId, username: newUsername });
+      await db.from("user_groups").insert({ group_id: groupId, username: newUsername });
     }
-    return;
-  }
+  } else {
+    // Renewal logic
+    const groupId = paymentRecord.group_id;
+    let usersToRenew = [paymentRecord.username];
+    let monthsToRenew = 1;
 
-  // Get group plan and users
-  const groupId = paymentRecord.group_id;
-  let usersToRenew = [paymentRecord.username];
-  let monthsToRenew = 1;
-
-  if (groupId) {
-    const { data: plan } = await getDb().from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
-    if (plan) {
-      monthsToRenew = (plan as any).plan_months;
+    if (groupId) {
+      const { data: plan } = await db.from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
+      if (plan) {
+        monthsToRenew = (plan as any).plan_months;
+      }
+      const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
+      if (groupUsers && groupUsers.length > 0) {
+        usersToRenew = groupUsers.map(u => u.username);
+      }
     }
-    const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
-    if (groupUsers && groupUsers.length > 0) {
-      usersToRenew = groupUsers.map(u => u.username);
-    }
-  }
 
-  // Renew user in VPN Panel
-  for (const user of usersToRenew) {
-    for (let i = 0; i < monthsToRenew; i++) {
-      const params = new URLSearchParams();
-      params.append("passapi", VPN_API_KEY);
-      params.append("module", "renewuser");
-      params.append("user", user);
+    // Renew users in VPN Panel
+    for (const user of usersToRenew) {
+      for (let i = 0; i < monthsToRenew; i++) {
+        const params = new URLSearchParams();
+        params.append("passapi", VPN_API_KEY);
+        params.append("module", "renewuser");
+        params.append("user", user);
 
-      const vpnRes = await fetch(VPN_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: params.toString(),
-      });
-
-      const vpnText = await vpnRes.text();
-      console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, vpnText);
+        try {
+          const vpnRes = await fetch(VPN_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+          });
+          const vpnText = await vpnRes.text();
+          console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, vpnText);
+        } catch (e) {
+          console.error(`Failed to renew VPN user ${user}:`, e);
+        }
+      }
     }
   }
 
@@ -174,21 +179,21 @@ async function approvePayment(paymentRecord: any) {
   const metadata = paymentRecord.metadata || {};
   if (metadata.discountApplied) {
     // Reset points
-    await getDb().from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
+    await db.from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
   } else {
     // Add point if paid on time or in advance
     if (metadata.paidOnTime) {
-      const { data: lp } = await getDb().from("loyalty_points").select("points").eq("username", paymentRecord.username).maybeSingle();
+      const { data: lp } = await db.from("loyalty_points").select("points").eq("username", paymentRecord.username).maybeSingle();
       if (lp) {
-        await getDb().from("loyalty_points").update({ points: lp.points + 1, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
+        await db.from("loyalty_points").update({ points: lp.points + 1, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
       } else {
-        await getDb().from("loyalty_points").insert({ username: paymentRecord.username, points: 1 });
+        await db.from("loyalty_points").insert({ username: paymentRecord.username, points: 1 });
       }
     }
   }
 
   // Handle Referral Bonus
-  const { data: referral } = await getDb().from("referrals").select("*").eq("referred_username", paymentRecord.username).eq("status", "testing").single();
+  const { data: referral } = await db.from("referrals").select("*").eq("referred_username", paymentRecord.username).eq("status", "testing").single();
   
   if (referral) {
     // Give 1 month free to referrer
@@ -197,16 +202,17 @@ async function approvePayment(paymentRecord: any) {
     params.append("module", "renewuser");
     params.append("user", referral.referrer_username);
 
-    await fetch(VPN_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: params.toString(),
-    });
-
-    // Update referral status
-    await getDb().from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
+    try {
+      await fetch(VPN_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+      // Update referral status
+      await db.from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
+    } catch (e) {
+      console.error(`Failed to award referral bonus to ${referral.referrer_username}:`, e);
+    }
   }
 }
 
@@ -600,10 +606,13 @@ app.post("/api/pix/new-device", async (req, res) => {
     }
 
     // Calculate remaining days
-    const expirationDate = new Date(mainUser.expira.replace(' ', 'T'));
+    const expirationDate = new Date(mainUser.expira.replace(' ', 'T') + '-03:00'); // Force -03:00 for Brazil
     const now = new Date();
     const diffTime = Math.max(0, expirationDate.getTime() - now.getTime());
     const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Check if paid on time or in advance
+    const paidOnTime = now <= expirationDate;
 
     // Calculate price difference
     const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
@@ -654,7 +663,7 @@ app.post("/api/pix/new-device", async (req, res) => {
       status: "pending",
       group_id: groupId,
       type: "new_device",
-      metadata: { newUsername, remainingDays, groupId, amount: proratedPrice }
+      metadata: { newUsername, remainingDays, groupId, amount: proratedPrice, paidOnTime }
     });
 
     res.json({
@@ -755,7 +764,7 @@ app.post("/api/pix", async (req, res) => {
     // Check if paying on time or in advance
     let paidOnTime = false;
     if (userExists.expira) {
-      const expirationDate = new Date(userExists.expira.replace(' ', 'T'));
+      const expirationDate = new Date(userExists.expira.replace(' ', 'T') + '-03:00'); // Force -03:00 for Brazil
       const now = new Date();
       if (now <= expirationDate) {
         paidOnTime = true;
