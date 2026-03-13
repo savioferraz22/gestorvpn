@@ -221,19 +221,25 @@ async function approvePayment(paymentRecord: any) {
 
   // Handle Loyalty Points
   const metadata = paymentRecord.metadata || {};
-  if (metadata.discountApplied) {
-    // Reset points
-    await db.from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
-  } else {
-    // Add point if paid on time or in advance
-    if (metadata.paidOnTime) {
-      const { data: lp } = await db.from("loyalty_points").select("points").eq("username", paymentRecord.username).maybeSingle();
+  try {
+    if (metadata.discountApplied) {
+      // Reset points after discount used
+      const { error: lpErr } = await db.from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
+      if (lpErr) throw lpErr;
+    } else if (metadata.paidOnTime) {
+      // Add point if paid on time or in advance
+      const { data: lp, error: selErr } = await db.from("loyalty_points").select("points").eq("username", paymentRecord.username).maybeSingle();
+      if (selErr) throw selErr;
       if (lp) {
-        await db.from("loyalty_points").update({ points: lp.points + 1, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
+        const { error: upErr } = await db.from("loyalty_points").update({ points: lp.points + 1, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
+        if (upErr) throw upErr;
       } else {
-        await db.from("loyalty_points").insert({ username: paymentRecord.username, points: 1 });
+        const { error: insErr } = await db.from("loyalty_points").insert({ username: paymentRecord.username, points: 1, updated_at: new Date().toISOString() });
+        if (insErr) throw insErr;
       }
     }
+  } catch (loyaltyErr) {
+    console.error("Loyalty points update error for", paymentRecord.username, ":", loyaltyErr);
   }
 
   // Handle Referral Bonus
