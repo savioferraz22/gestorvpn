@@ -286,6 +286,20 @@ async function approvePayment(paymentRecord: any) {
       } catch (e) { console.error(`[reseller] renewrev failed:`, e); }
     }
 
+  } else if (paymentRecord.type === "reseller_logins_increase") {
+    // After paid login upgrade: create change_request for admin to confirm manually
+    const { newLogins } = metadata;
+    if (newLogins) {
+      await db.from("change_requests").insert({
+        id: crypto.randomUUID(),
+        username: paymentRecord.username,
+        type: "reseller_logins_increase",
+        requested_value: String(newLogins),
+        status: "aguardando_confirmacao",
+      });
+      console.log(`[reseller_logins_increase] change_request created for ${paymentRecord.username}: ${newLogins} logins`);
+    }
+
   } else if (paymentRecord.type === "new_device") {
     const { newUsername, remainingDays, groupId } = metadata;
 
@@ -360,7 +374,7 @@ async function approvePayment(paymentRecord: any) {
   }
 
   // Reseller payments don't earn loyalty/referral bonuses
-  if (paymentRecord.type === "reseller_hire" || paymentRecord.type === "reseller_renewal") {
+  if (["reseller_hire", "reseller_renewal", "reseller_logins_increase"].includes(paymentRecord.type)) {
     return;
   }
 
@@ -1573,29 +1587,59 @@ function calcResellerPrice(months: number, logins: number): number {
   return (30 + logins) * months;
 }
 
-// Calculate reseller plan expiry from approved payments
-function calcResellerExpiry(payments: any[]): string | null {
+// Calculate reseller plan expiry and current logins from approved payments
+// The VPN panel API doesn't expose these for reseller accounts, so Supabase is the source of truth.
+// Renewals use 30-day periods (not calendar months) to match the VPN panel behavior.
+function calcResellerInfo(payments: any[]): { expiresAt: string | null; logins: number } {
   const approved = (payments || [])
     .filter(p => p.status === "approved")
     .sort((a: any, b: any) => new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime());
-  if (approved.length === 0) return null;
+
+  if (approved.length === 0) return { expiresAt: null, logins: 0 };
+
   let expiry: Date | null = null;
+  let logins = 0;
+
   for (const p of approved) {
     const meta = parseMetadata(p.metadata);
+
+    if (p.type === "reseller_setup") {
+      // Manual first-access setup: use exact values as provided by the reseller
+      if (meta.resellerLogins) logins = parseInt(meta.resellerLogins) || logins;
+      if (meta.resellerExpiresAt) expiry = new Date(meta.resellerExpiresAt);
+      continue;
+    }
+
+    if (p.type === "reseller_adjustment") {
+      // Admin manual adjustment: override exact values
+      if (meta.resellerLogins !== undefined) logins = parseInt(meta.resellerLogins) || logins;
+      if (meta.resellerExpiresAt) expiry = new Date(meta.resellerExpiresAt);
+      continue;
+    }
+
+    if ((p.type === "reseller_hire" || p.type === "reseller_renewal") && meta.resellerLogins) {
+      logins = parseInt(meta.resellerLogins) || logins;
+    }
+
+    // Each "month" = exactly 30 days (matches VPN panel renewrev behavior)
     const months = Math.max(1, parseInt(meta.resellerMonths) || 1);
-    const base = expiry ? new Date(expiry) : new Date(p.paid_at || p.created_at);
+    const daysToAdd = months * 30;
     if (!expiry) {
-      // First payment: expiry = paid_at + months
-      base.setMonth(base.getMonth() + months);
+      const base = new Date(p.paid_at || p.created_at);
+      base.setDate(base.getDate() + daysToAdd);
       expiry = base;
     } else {
-      // Renewal: extend from current expiry
       const renewal = new Date(expiry);
-      renewal.setMonth(renewal.getMonth() + months);
+      renewal.setDate(renewal.getDate() + daysToAdd);
       expiry = renewal;
     }
   }
-  return expiry ? expiry.toISOString() : null;
+
+  return { expiresAt: expiry ? expiry.toISOString() : null, logins };
+}
+
+function calcResellerExpiry(payments: any[]): string | null {
+  return calcResellerInfo(payments).expiresAt;
 }
 
 // POST /api/reseller/login — authenticate by username (like regular users)
@@ -1617,13 +1661,19 @@ app.post("/api/reseller/login", async (req, res) => {
       .from("payments")
       .select("*")
       .eq("username", reseller.login)
-      .in("type", ["reseller_hire", "reseller_renewal"])
-      .order("created_at", { ascending: false })
-      .limit(20);
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup"])
+      .order("created_at", { ascending: true })
+      .limit(50);
 
-    const expiresAt = calcResellerExpiry(payments || []);
+    const info = calcResellerInfo(payments || []);
     const points = await calculateLoyaltyPoints(reseller.login);
-    res.json({ token, reseller, payments: payments || [], expiresAt, points });
+    // Never expose senha in login response — client must call /verify-password
+    // Only expose a hint: first 2 chars + dots
+    const passwordHint = reseller.senha
+      ? reseller.senha.slice(0, 2) + "•".repeat(Math.max(2, reseller.senha.length - 2))
+      : null;
+    const { senha: _s, ...safeReseller } = reseller;
+    res.json({ token, reseller: { ...safeReseller, passwordHint }, payments: (payments || []).reverse(), expiresAt: info.expiresAt, logins: info.logins, points });
   } catch (e: any) {
     console.error("[reseller/login] error:", e);
     res.status(500).json({ error: e.message || "Erro ao buscar revendedor." });
@@ -1642,17 +1692,82 @@ app.get("/api/reseller/me", requireResellerAuth, async (req: any, res) => {
       .from("payments")
       .select("*")
       .eq("username", username)
-      .in("type", ["reseller_hire", "reseller_renewal"])
-      .order("created_at", { ascending: false })
-      .limit(20);
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup"])
+      .order("created_at", { ascending: true })
+      .limit(50);
 
-    // Also fetch their VPN users
-    const allUsers = await fetchVpnUsers();
-    const myUsers = allUsers.filter((u: any) => String(u.byid) === String(reseller.id));
-
-    const expiresAt = calcResellerExpiry(payments || []);
+    const info = calcResellerInfo(payments || []);
     const points = await calculateLoyaltyPoints(username);
-    res.json({ reseller, payments: payments || [], users: myUsers, expiresAt, points });
+    const passwordHint2 = reseller.senha
+      ? reseller.senha.slice(0, 2) + "•".repeat(Math.max(2, reseller.senha.length - 2))
+      : null;
+    const { senha: _s2, ...safeReseller2 } = reseller;
+    res.json({ reseller: { ...safeReseller2, passwordHint: passwordHint2 }, payments: (payments || []).reverse(), expiresAt: info.expiresAt, logins: info.logins, points });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reseller/setup — first-access setup for existing resellers with no payment history
+app.post("/api/reseller/setup", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const { logins, expiresAt } = req.body;
+    if (!logins || !expiresAt) return res.status(400).json({ error: "Logins e data de vencimento são obrigatórios" });
+
+    const loginsNum = Math.max(10, parseInt(logins));
+    // Treat date-only input (YYYY-MM-DD) as end of day in Brasília (UTC-3) to avoid off-by-one
+    const dateStr = String(expiresAt).trim();
+    const isoStr = dateStr.length === 10 ? `${dateStr}T23:59:59-03:00` : dateStr;
+    const expiryDate = new Date(isoStr);
+    if (isNaN(expiryDate.getTime())) return res.status(400).json({ error: "Data de vencimento inválida" });
+
+    // Only allow setup if no prior approved payments exist
+    const { data: existing } = await getDb()
+      .from("payments")
+      .select("id")
+      .eq("username", username)
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup"])
+      .eq("status", "approved")
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return res.status(409).json({ error: "Dados já configurados. Não é possível refazer o setup." });
+    }
+
+    const id = `setup_${username}_${Date.now()}`;
+    await getDb().from("payments").insert({
+      id,
+      username,
+      status: "approved",
+      type: "reseller_setup",
+      paid_at: new Date().toISOString(),
+      metadata: { resellerLogins: loginsNum, resellerExpiresAt: expiryDate.toISOString(), isManualSetup: true },
+    });
+
+    res.json({ success: true, logins: loginsNum, expiresAt: expiryDate.toISOString() });
+  } catch (e: any) {
+    console.error("[reseller/setup] error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reseller/verify-password — verify VPN panel password once; client caches result
+app.post("/api/reseller/verify-password", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: "Senha obrigatória" });
+
+    const resellers = await fetchVpnResellers();
+    const reseller = resellers.find((r: any) => r.login === username);
+    if (!reseller) return res.status(404).json({ error: "Revendedor não encontrado" });
+
+    if (String(reseller.senha) !== String(password)) {
+      return res.status(401).json({ error: "Senha incorreta. Verifique a senha do seu painel VPN." });
+    }
+
+    res.json({ verified: true, password: reseller.senha });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -1714,14 +1829,25 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
 app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) => {
   try {
     const username = req.resellerUsername;
-    const { months } = req.body;
+    const { months, logins: loginsParam } = req.body;
     const monthsNum = Math.max(1, parseInt(months) || 1);
 
-    // Get current login limit
+    // Get current login limit from Supabase (VPN panel doesn't expose it reliably)
     const resellers = await fetchVpnResellers();
     const reseller = resellers.find((r: any) => r.login === username);
     if (!reseller) return res.status(404).json({ error: "Revendedor não encontrado" });
-    const logins = Math.max(10, parseInt(reseller.tokenvenda) || parseInt(reseller.mb) || 10);
+
+    // Fetch current logins from payment history
+    const { data: resellerPayments } = await getDb()
+      .from("payments")
+      .select("*")
+      .eq("username", username)
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+      .order("created_at", { ascending: true })
+      .limit(50);
+    const currentInfo = calcResellerInfo(resellerPayments || []);
+    // Allow changing logins during renewal; minimum 10
+    const logins = loginsParam ? Math.max(10, parseInt(loginsParam)) : Math.max(10, currentInfo.logins || 10);
 
     const points = await calculateLoyaltyPoints(username);
     let amount = calcResellerPrice(monthsNum, logins);
@@ -1805,6 +1931,274 @@ app.post("/api/reseller/change-password", requireResellerAuth, async (req: any, 
       requested_value: newPassword,
       status: "aguardando",
     });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Reseller Change Requests ────────────────────────────────────────────────
+
+const RESELLER_REQUEST_TYPES = ["reseller_password", "reseller_logins_decrease", "reseller_logins_increase"];
+
+// GET /api/reseller/requests — list all change requests for the authenticated reseller
+app.get("/api/reseller/requests", requireResellerAuth, async (req: any, res) => {
+  try {
+    const { data } = await getDb().from("change_requests")
+      .select("*")
+      .eq("username", req.resellerUsername)
+      .in("type", RESELLER_REQUEST_TYPES)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    res.json(data || []);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reseller/request/logins-decrease — request to reduce login count (free, needs admin approval)
+app.post("/api/reseller/request/logins-decrease", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const { newLogins } = req.body;
+    const loginsNum = Math.max(10, parseInt(newLogins));
+
+    const { data: payments } = await getDb().from("payments").select("*")
+      .eq("username", username)
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+      .order("created_at", { ascending: true }).limit(50);
+    const info = calcResellerInfo(payments || []);
+
+    if (loginsNum >= info.logins) {
+      return res.status(400).json({ error: "Para adicionar logins use o formulário de adição." });
+    }
+
+    const { data: existing } = await getDb().from("change_requests")
+      .select("id").eq("username", username).eq("type", "reseller_logins_decrease").eq("status", "aguardando").limit(1);
+    if (existing && existing.length > 0) {
+      return res.status(409).json({ error: "Você já tem uma solicitação de redução pendente." });
+    }
+
+    await getDb().from("change_requests").insert({
+      id: crypto.randomUUID(),
+      username,
+      type: "reseller_logins_decrease",
+      requested_value: String(loginsNum),
+      status: "aguardando",
+    });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reseller/pix/logins-upgrade — generate PIX for login count increase (pro-rated)
+app.post("/api/reseller/pix/logins-upgrade", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const { newLogins } = req.body;
+    const loginsNum = Math.max(10, parseInt(newLogins));
+
+    const { data: payments } = await getDb().from("payments").select("*")
+      .eq("username", username)
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+      .order("created_at", { ascending: true }).limit(50);
+    const info = calcResellerInfo(payments || []);
+
+    if (!info.expiresAt) return res.status(400).json({ error: "Sem plano ativo. Renove primeiro." });
+    const daysLeft = Math.ceil((new Date(info.expiresAt).getTime() - Date.now()) / 86400000);
+    if (daysLeft <= 0) return res.status(400).json({ error: "Plano expirado. Renove primeiro." });
+    if (loginsNum <= info.logins) return res.status(400).json({ error: "Para reduzir logins use o formulário de redução." });
+
+    const loginDiff = loginsNum - info.logins;
+    const amount = Math.max(1, Math.round(loginDiff * daysLeft / 30));
+
+    const client = getMpClient();
+    const payment = new Payment(client);
+    const mpRes = await payment.create({
+      body: {
+        transaction_amount: amount,
+        description: `Adição de ${loginDiff} logins — VS+ Revenda (${daysLeft} dias restantes)`,
+        payment_method_id: "pix",
+        payer: { email: "revendedor@cloudbrasil.shop" },
+        notification_url: `${process.env.APP_URL}/api/webhook`,
+      }
+    });
+
+    if (!mpRes.id || !mpRes.point_of_interaction?.transaction_data?.qr_code) {
+      throw new Error("Erro ao gerar Pix no Mercado Pago");
+    }
+
+    await getDb().from("payments").insert({
+      id: mpRes.id.toString(),
+      username,
+      status: "pending",
+      type: "reseller_logins_increase",
+      metadata: { newLogins: loginsNum, currentLogins: info.logins, loginDiff, daysLeft, amount },
+    });
+
+    res.json({
+      paymentId: mpRes.id.toString(),
+      qrCodeBase64: mpRes.point_of_interaction.transaction_data.qr_code_base64,
+      qrCode: mpRes.point_of_interaction.transaction_data.qr_code,
+      amount,
+      newLogins: loginsNum,
+      loginDiff,
+      daysLeft,
+    });
+  } catch (e: any) {
+    console.error("[reseller/pix/logins-upgrade] error:", e);
+    res.status(500).json({ error: e.message || "Erro ao gerar PIX" });
+  }
+});
+
+// ─── Admin Reseller Requests ─────────────────────────────────────────────────
+
+// GET /api/admin/reseller-requests — list reseller-specific change requests
+app.get("/api/admin/reseller-requests", async (_req, res) => {
+  try {
+    const { data } = await getDb().from("change_requests")
+      .select("*")
+      .in("type", RESELLER_REQUEST_TYPES)
+      .order("created_at", { ascending: false });
+    res.json(data || []);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/reseller-requests/:id/approve — approve logins_decrease → creates reseller_adjustment
+app.post("/api/admin/reseller-requests/:id/approve", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: request } = await getDb().from("change_requests").select("*").eq("id", id).maybeSingle();
+    if (!request) return res.status(404).json({ error: "Solicitação não encontrada" });
+
+    const newLogins = parseInt(request.requested_value);
+    if (isNaN(newLogins) || newLogins < 1) return res.status(400).json({ error: "Valor inválido" });
+
+    await getDb().from("payments").insert({
+      id: `adj_${request.username}_${Date.now()}`,
+      username: request.username,
+      status: "approved",
+      type: "reseller_adjustment",
+      paid_at: new Date().toISOString(),
+      metadata: { resellerLogins: newLogins, approvedFrom: id },
+    });
+
+    await getDb().from("change_requests")
+      .update({ status: "aprovado", approved_value: String(newLogins) })
+      .eq("id", id);
+
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/reseller-requests/:id/reject — reject with reason (stored in approved_value)
+app.post("/api/admin/reseller-requests/:id/reject", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    await getDb().from("change_requests")
+      .update({ status: "rejeitado", approved_value: reason || "Recusado pelo administrador." })
+      .eq("id", id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/reseller-requests/:id/confirm — admin confirms login increase after payment
+app.post("/api/admin/reseller-requests/:id/confirm", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: request } = await getDb().from("change_requests").select("*").eq("id", id).maybeSingle();
+    if (!request) return res.status(404).json({ error: "Solicitação não encontrada" });
+
+    const newLogins = parseInt(request.requested_value);
+    if (isNaN(newLogins) || newLogins < 1) return res.status(400).json({ error: "Valor inválido" });
+
+    await getDb().from("payments").insert({
+      id: `adj_${request.username}_${Date.now()}`,
+      username: request.username,
+      status: "approved",
+      type: "reseller_adjustment",
+      paid_at: new Date().toISOString(),
+      metadata: { resellerLogins: newLogins, confirmedFrom: id },
+    });
+
+    await getDb().from("change_requests").update({ status: "confirmado" }).eq("id", id);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Admin Reseller Management ────────────────────────────────────────────────
+
+// GET /api/admin/resellers — list all resellers with their computed plan info
+app.get("/api/admin/resellers", async (_req, res) => {
+  try {
+    const resellers = await fetchVpnResellers();
+
+    // Fetch all reseller-type payments from Supabase in one query
+    const { data: allPayments } = await getDb()
+      .from("payments")
+      .select("*")
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+      .order("created_at", { ascending: true });
+
+    const result = resellers.map((r: any) => {
+      const payments = (allPayments || []).filter((p: any) => p.username === r.login);
+      const info = calcResellerInfo(payments);
+      const { senha: _s, ...safeReseller } = r;
+      return { ...safeReseller, expiresAt: info.expiresAt, logins: info.logins };
+    });
+
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/resellers/:username/adjust — manually set expiry and/or logins for a reseller
+app.post("/api/admin/resellers/:username/adjust", async (req, res) => {
+  try {
+    const { username } = req.params;
+    const { expiresAt, logins } = req.body;
+
+    if (!expiresAt && logins === undefined) {
+      return res.status(400).json({ error: "Informe expiresAt e/ou logins" });
+    }
+
+    const meta: any = { isAdminAdjustment: true };
+
+    if (expiresAt) {
+      const dateStr = String(expiresAt).trim();
+      const isoStr = dateStr.length === 10 ? `${dateStr}T23:59:59-03:00` : dateStr;
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return res.status(400).json({ error: "Data de vencimento inválida" });
+      meta.resellerExpiresAt = d.toISOString();
+    }
+
+    if (logins !== undefined) {
+      const loginsNum = Math.max(1, parseInt(logins));
+      if (isNaN(loginsNum)) return res.status(400).json({ error: "Quantidade de logins inválida" });
+      meta.resellerLogins = loginsNum;
+    }
+
+    const id = `adj_${username}_${Date.now()}`;
+    await getDb().from("payments").insert({
+      id,
+      username,
+      status: "approved",
+      type: "reseller_adjustment",
+      paid_at: new Date().toISOString(),
+      metadata: meta,
+    });
+
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });

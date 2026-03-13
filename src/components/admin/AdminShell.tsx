@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   LayoutDashboard, Users, Smartphone, MessageSquare, CreditCard,
   RefreshCw, ClipboardList, BarChart2, LogOut, ArrowLeft, Menu, X,
-  Shield
+  Shield, Store
 } from "lucide-react";
 import type { AdminTab, AdminReports as AdminReportsData } from "../../types";
 import {
@@ -19,6 +19,7 @@ import { AdminPayments } from "./AdminPayments";
 import { AdminRefunds } from "./AdminRefunds";
 import { AdminChangeReqs } from "./AdminChangeReqs";
 import { AdminReports } from "./AdminReports";
+import { AdminResellers } from "./AdminResellers";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface AdminShellProps {
@@ -35,6 +36,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Visão Geral", icon: <LayoutDashboard className="w-4 h-4" /> },
   { id: "users", label: "Usuários", icon: <Users className="w-4 h-4" /> },
+  { id: "resellers", label: "Revendedores", icon: <Store className="w-4 h-4" /> },
   { id: "devices", label: "Aparelhos", icon: <Smartphone className="w-4 h-4" /> },
   { id: "tickets", label: "Tickets", icon: <MessageSquare className="w-4 h-4" />, badgeKey: "tickets" },
   { id: "payments", label: "Pagamentos", icon: <CreditCard className="w-4 h-4" /> },
@@ -298,6 +300,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
         <main className="flex-1 overflow-hidden flex flex-col">
           {tab === "overview" && <AdminOverview {...sharedProps} />}
           {tab === "users" && <AdminUsers {...sharedProps} />}
+          {tab === "resellers" && <AdminResellers />}
           {tab === "devices" && <AdminDevices {...sharedProps} />}
           {tab === "tickets" && <AdminTickets {...sharedProps} />}
           {tab === "payments" && <AdminPayments {...sharedProps} />}

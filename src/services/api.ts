@@ -198,6 +198,38 @@ export async function fetchAdminUserDetails(username: string) {
   return apiFetch<any>(`/api/admin/users/${encodeURIComponent(username)}/details`, { headers: adminHeaders() });
 }
 
+export async function fetchAdminResellers() {
+  return apiFetch<any[]>("/api/admin/resellers", { headers: adminHeaders() });
+}
+
+export async function adjustReseller(username: string, body: { expiresAt?: string; logins?: number }) {
+  return apiFetch<any>(`/api/admin/resellers/${encodeURIComponent(username)}/adjust`, {
+    method: "POST",
+    headers: { ...adminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchAdminResellerRequests() {
+  return apiFetch<any[]>("/api/admin/reseller-requests", { headers: adminHeaders() });
+}
+
+export async function approveResellerRequest(id: string) {
+  return apiFetch<any>(`/api/admin/reseller-requests/${id}/approve`, { method: "POST", headers: adminHeaders() });
+}
+
+export async function rejectResellerRequest(id: string, reason: string) {
+  return apiFetch<any>(`/api/admin/reseller-requests/${id}/reject`, {
+    method: "POST",
+    headers: { ...adminHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function confirmResellerRequest(id: string) {
+  return apiFetch<any>(`/api/admin/reseller-requests/${id}/confirm`, { method: "POST", headers: adminHeaders() });
+}
+
 // ─── Payments ──────────────────────────────────────────────────────────────
 
 export async function createPixPayment(body: Record<string, any>) {

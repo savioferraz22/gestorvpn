@@ -151,11 +151,17 @@ export default function App() {
   const [hireMonths, setHireMonths] = useState(1);
   // Renew form
   const [renewMonths, setRenewMonths] = useState(1);
+  // Login change request section
+  const [resellerLoginsReq, setResellerLoginsReq] = useState<number | null>(null);
+  const [resellerLoginsBusy, setResellerLoginsBusy] = useState(false);
+  // My requests section
+  const [resellerRequests, setResellerRequests] = useState<any[]>([]);
+  const [resellerRequestsLoaded, setResellerRequestsLoaded] = useState(false);
   // Profit estimator
   const [profitLogins, setProfitLogins] = useState(20);
   const [profitSellPrice, setProfitSellPrice] = useState(15);
   // Reseller PIX
-  const [resellerPixData, setResellerPixData] = useState<{ paymentId: string; qrCodeBase64: string; qrCode: string; amount: number; discountApplied?: boolean; logins?: number; months?: number; mode: "hire" | "renew" } | null>(null);
+  const [resellerPixData, setResellerPixData] = useState<{ paymentId: string; qrCodeBase64: string; qrCode: string; amount: number; discountApplied?: boolean; logins?: number; months?: number; newLogins?: number; loginDiff?: number; daysLeft?: number; mode: "hire" | "renew" | "logins_upgrade" } | null>(null);
   const [resellerPixStatus, setResellerPixStatus] = useState<"pending" | "approved">("pending");
   const [resellerPixExpired, setResellerPixExpired] = useState(false);
   // Change password modal for reseller
@@ -167,6 +173,15 @@ export default function App() {
   const [showResellerTicketForm, setShowResellerTicketForm] = useState(false);
   const [resellerTicketSubject, setResellerTicketSubject] = useState("");
   const [resellerTicketMsg, setResellerTicketMsg] = useState("");
+  // Reseller first-access setup
+  const [resellerSetupLogins, setResellerSetupLogins] = useState(20);
+  const [resellerSetupExpiry, setResellerSetupExpiry] = useState("");
+  // Password verification — cached in localStorage after first verify
+  const [resellerVerifiedPass, setResellerVerifiedPass] = useState<string | null>(null);
+  const [showResellerPass, setShowResellerPass] = useState(false);
+  const [showPassVerifyModal, setShowPassVerifyModal] = useState(false);
+  const [passVerifyInput, setPassVerifyInput] = useState("");
+  const [passVerifyError, setPassVerifyError] = useState("");
   // ─────────────────────────────────────────────────────────────────────────
 
   const calcResellerPrice = (months: number, logins: number) => (30 + logins) * months;
@@ -3690,16 +3705,23 @@ export default function App() {
 
             {/* ── RESELLER DASHBOARD ── */}
             {view === "reseller_dashboard" && resellerData && (() => {
-              const rLogins = parseInt(resellerData.reseller?.tokenvenda) || parseInt(resellerData.reseller?.mb) || 0;
+              // Logins and expiry come from Supabase payment history (VPN panel doesn't expose these)
+              const rLogins: number = resellerData.logins ?? 0;
               const rPoints: number = resellerData.points ?? 0;
               const rExpiry: string | null = resellerData.expiresAt ?? null;
-              const rUsers: any[] = resellerData.users ?? [];
-              const rPayments: any[] = (resellerData.payments ?? []).filter((p: any) => p.status === "approved");
+              const rLogin: string = resellerData.reseller?.login || "";
+              // Load cached password from localStorage on first render
+              if (!resellerVerifiedPass) {
+                const cached = localStorage.getItem(`reseller_pass_${rLogin}`);
+                if (cached) setTimeout(() => setResellerVerifiedPass(cached), 0);
+              }
+              const rPayments: any[] = (resellerData.payments ?? []).filter((p: any) => p.status === "approved" && p.type !== "reseller_setup");
               const now = new Date();
               const expiryDate = rExpiry ? new Date(rExpiry) : null;
               const daysLeft = expiryDate ? Math.ceil((expiryDate.getTime() - now.getTime()) / 86400000) : null;
               const expired = daysLeft !== null && daysLeft <= 0;
               const expiringSoon = daysLeft !== null && daysLeft > 0 && daysLeft <= 7;
+              const needsSetup = rLogins === 0 && !rExpiry;
 
               return (
               <motion.div
@@ -3728,12 +3750,101 @@ export default function App() {
                       <LogOut className="w-5 h-5" />
                     </button>
                   </div>
+                  {/* Login + senha */}
+                  <div className="mt-4 bg-white/10 rounded-xl px-4 py-3">
+                    <p className="text-[10px] text-emerald-200 uppercase font-bold tracking-wide mb-2">Credenciais do Painel VPN</p>
+                    <p className="text-white font-semibold text-sm mb-1">Login: <span className="font-black">{resellerData.reseller?.login}</span></p>
+                    {resellerVerifiedPass ? (
+                      <div className="flex items-center gap-2">
+                        <p className="text-white text-sm">Senha: <span className="font-black">{showResellerPass ? resellerVerifiedPass : "••••••"}</span></p>
+                        <button onClick={() => setShowResellerPass(v => !v)} className="text-emerald-200 hover:text-white transition-colors">
+                          {showResellerPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <p className="text-white text-sm">Senha: <span className="font-black">{resellerData.reseller?.passwordHint ?? "••••••"}</span></p>
+                        <button
+                          onClick={() => { setPassVerifyInput(""); setPassVerifyError(""); setShowPassVerifyModal(true); }}
+                          className="flex items-center gap-1.5 text-xs text-emerald-200 hover:text-white border border-white/20 rounded-lg px-2 py-1 transition-colors hover:bg-white/10"
+                          title="Revelar senha completa"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="p-4 space-y-4 max-w-lg mx-auto pb-12">
 
+                  {/* ─ First-access setup ─ */}
+                  {needsSetup && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold text-amber-800 text-sm">Configure seu plano</p>
+                          <p className="text-xs text-amber-700 mt-0.5">Você já tem uma conta de revenda. Informe os dados do seu plano atual para exibirmos corretamente.</p>
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-xs font-semibold text-amber-800 uppercase tracking-wide block mb-1">Quantidade de Logins Contratados</label>
+                          <div className="flex items-center gap-2 border border-amber-300 rounded-xl overflow-hidden bg-white">
+                            <button onClick={() => setResellerSetupLogins(n => Math.max(10, n - 10))} className="px-3 py-2 text-amber-700 hover:bg-amber-50 font-bold">−</button>
+                            <input
+                              type="number"
+                              min={10}
+                              value={resellerSetupLogins}
+                              onChange={e => setResellerSetupLogins(Math.max(10, parseInt(e.target.value) || 10))}
+                              className="flex-1 text-center font-bold text-text-base bg-transparent outline-none py-2"
+                            />
+                            <button onClick={() => setResellerSetupLogins(n => n + 10)} className="px-3 py-2 text-amber-700 hover:bg-amber-50 font-bold">+</button>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-amber-800 uppercase tracking-wide block mb-1">Data de Vencimento</label>
+                          <input
+                            type="date"
+                            value={resellerSetupExpiry}
+                            onChange={e => setResellerSetupExpiry(e.target.value)}
+                            className="w-full px-3 py-2.5 rounded-xl border border-amber-300 bg-white text-text-base font-semibold outline-none focus:ring-2 focus:ring-amber-400/40 text-sm"
+                          />
+                        </div>
+                        <button
+                          disabled={!resellerSetupExpiry || resellerLoading}
+                          onClick={async () => {
+                            if (!resellerToken || !resellerSetupExpiry) return;
+                            setResellerLoading(true);
+                            setResellerError("");
+                            try {
+                              const res = await fetch("/api/reseller/setup", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                                body: JSON.stringify({ logins: resellerSetupLogins, expiresAt: resellerSetupExpiry }),
+                              });
+                              const txt = await res.text();
+                              let data: any = {}; try { data = JSON.parse(txt); } catch { /* */ }
+                              if (!res.ok) throw new Error(data.error || "Erro ao salvar configuração");
+                              await refreshResellerData(resellerToken);
+                            } catch (err: any) {
+                              setResellerError(err.message);
+                            } finally {
+                              setResellerLoading(false);
+                            }
+                          }}
+                          className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                        >
+                          {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                          Confirmar meu plano
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* ─ Expiry alert ─ */}
-                  {expired && (
+                  {!needsSetup && expired && (
                     <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
                       <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                       <div>
@@ -3742,7 +3853,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {expiringSoon && (
+                  {!needsSetup && expiringSoon && (
                     <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
                       <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                       <div>
@@ -3753,32 +3864,27 @@ export default function App() {
                   )}
 
                   {/* ─ Stats cards ─ */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div className="bg-bg-surface rounded-2xl p-4 shadow-sm border border-border-base text-center">
                       <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Logins</p>
                       <p className="text-3xl font-black text-text-base">{rLogins || "—"}</p>
                       <p className="text-[10px] text-text-muted mt-0.5">contratados</p>
                     </div>
-                    <div className="bg-bg-surface rounded-2xl p-4 shadow-sm border border-border-base text-center">
-                      <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Clientes</p>
-                      <p className="text-3xl font-black text-text-base">{rUsers.length}</p>
-                      <p className="text-[10px] text-text-muted mt-0.5">ativos no painel</p>
-                    </div>
                     <div className={`bg-bg-surface rounded-2xl p-4 shadow-sm border ${expired ? "border-red-200 bg-red-50" : expiringSoon ? "border-amber-200 bg-amber-50" : "border-border-base"} text-center`}>
                       <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Vencimento</p>
-                      <p className={`text-sm font-black ${expired ? "text-red-600" : expiringSoon ? "text-amber-600" : "text-text-base"}`}>
+                      <p className={`text-xs font-black leading-tight ${expired ? "text-red-600" : expiringSoon ? "text-amber-600" : "text-text-base"}`}>
                         {expiryDate ? expiryDate.toLocaleDateString("pt-BR") : "—"}
                       </p>
-                      <p className="text-[10px] text-text-muted mt-0.5">{daysLeft !== null && daysLeft > 0 ? `${daysLeft}d restantes` : daysLeft === 0 ? "vence hoje" : "—"}</p>
+                      <p className="text-[10px] text-text-muted mt-0.5">{daysLeft !== null && daysLeft > 0 ? `${daysLeft}d` : daysLeft === 0 ? "hoje" : "—"}</p>
                     </div>
                     <div className="bg-bg-surface rounded-2xl p-4 shadow-sm border border-border-base text-center">
                       <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Fidelidade</p>
-                      <div className="flex justify-center gap-1.5 my-1">
+                      <div className="flex justify-center gap-1 my-1">
                         {[0,1,2].map(i => (
-                          <div key={i} className={`w-5 h-5 rounded-full border-2 ${i < rPoints ? "bg-emerald-500 border-emerald-500" : "bg-transparent border-border-base"}`} />
+                          <div key={i} className={`w-4 h-4 rounded-full border-2 ${i < rPoints ? "bg-emerald-500 border-emerald-500" : "bg-transparent border-border-base"}`} />
                         ))}
                       </div>
-                      <p className="text-[10px] text-text-muted">{rPoints}/3 pontos</p>
+                      <p className="text-[10px] text-text-muted">{rPoints}/3</p>
                     </div>
                   </div>
 
@@ -3810,9 +3916,7 @@ export default function App() {
                         }
                       </span>
                     </div>
-                    {rPoints >= 3 && (
-                      <p className="text-xs text-emerald-600 font-medium">🎉 Desconto fidelidade -20% aplicado</p>
-                    )}
+                    {rPoints >= 3 && <p className="text-xs text-emerald-600 font-medium">🎉 Desconto fidelidade -20% aplicado</p>}
                     <button
                       disabled={resellerLoading}
                       onClick={async () => {
@@ -3845,37 +3949,157 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* ─ My clients list ─ */}
-                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-3">Meus Clientes ({rUsers.length})</p>
-                    {rUsers.length === 0 ? (
-                      <p className="text-sm text-text-muted text-center py-4">Nenhum cliente cadastrado ainda.</p>
-                    ) : (
-                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                        {rUsers.map((u: any) => {
-                          const uExpiry = u.expira ? new Date(String(u.expira).replace(' ', 'T') + (String(u.expira).length > 10 ? '-03:00' : 'T23:59:59-03:00')) : null;
-                          const uExpired = uExpiry ? uExpiry < now : false;
-                          const uDays = uExpiry ? Math.ceil((uExpiry.getTime() - now.getTime()) / 86400000) : null;
-                          return (
-                            <div key={u.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-surface-hover border border-border-base">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <div className={`w-2 h-2 rounded-full shrink-0 ${u.status === "Online" ? "bg-green-500" : uExpired ? "bg-red-400" : "bg-gray-300"}`} />
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-text-base truncate">{u.login}</p>
-                                  <p className="text-[10px] text-text-muted">
-                                    {uExpired ? "Vencido" : uDays !== null ? `${uDays}d restantes` : "—"}
-                                  </p>
-                                </div>
-                              </div>
-                              <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${u.status === "Online" ? "bg-green-100 text-green-700" : uExpired ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
-                                {u.status === "Online" ? "Online" : uExpired ? "Expirado" : "Offline"}
-                              </span>
-                            </div>
-                          );
-                        })}
+                  {/* ─ Solicitar Alteração de Logins ─ */}
+                  {!needsSetup && (() => {
+                    const currentL = Math.max(10, rLogins);
+                    const reqL = resellerLoginsReq ?? currentL;
+                    const diff = reqL - currentL;
+                    const isDecrease = diff < 0;
+                    const isIncrease = diff > 0;
+                    const proRatedCost = isIncrease && daysLeft !== null && daysLeft > 0
+                      ? Math.max(1, Math.round(diff * daysLeft / 30))
+                      : null;
+                    return (
+                      <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Alterar Quantidade de Logins</p>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-text-muted">Logins:</span>
+                          <div className="flex items-center gap-2 border border-border-base rounded-xl overflow-hidden bg-bg-surface-hover">
+                            <button onClick={() => setResellerLoginsReq(n => Math.max(10, (n ?? currentL) - 10))} className="px-3 py-2 text-text-muted hover:text-text-base font-bold">−</button>
+                            <span className="px-3 font-bold text-text-base">{reqL}</span>
+                            <button onClick={() => setResellerLoginsReq(n => (n ?? currentL) + 10)} className="px-3 py-2 text-text-muted hover:text-text-base font-bold">+</button>
+                          </div>
+                          {diff !== 0 && (
+                            <span className={`text-xs font-bold ${isIncrease ? "text-emerald-600" : "text-amber-600"}`}>
+                              {isIncrease ? `+${diff}` : `${diff}`} logins
+                            </span>
+                          )}
+                        </div>
+                        {isIncrease && proRatedCost !== null && (
+                          <p className="text-xs text-text-muted">
+                            Pro-rata ({daysLeft}d restantes): <span className="font-bold text-emerald-700">R${proRatedCost}</span>
+                          </p>
+                        )}
+                        {isDecrease && (
+                          <p className="text-xs text-text-muted">A redução precisa de aprovação do administrador (gratuita).</p>
+                        )}
+                        <div className="flex gap-2">
+                          {diff !== 0 && (
+                            <button onClick={() => setResellerLoginsReq(null)} className="px-4 py-2.5 rounded-xl border border-border-base text-text-muted text-sm font-semibold hover:bg-bg-surface-hover transition-colors">
+                              Cancelar
+                            </button>
+                          )}
+                          <button
+                            disabled={diff === 0 || resellerLoginsBusy}
+                            onClick={async () => {
+                              if (diff === 0 || !resellerToken) return;
+                              setResellerLoginsBusy(true);
+                              setResellerError("");
+                              try {
+                                if (isDecrease) {
+                                  const res = await fetch("/api/reseller/request/logins-decrease", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                                    body: JSON.stringify({ newLogins: reqL }),
+                                  });
+                                  const txt = await res.text();
+                                  let data: any = {}; try { data = JSON.parse(txt); } catch { /* */ }
+                                  if (!res.ok) throw new Error(data.error || "Erro ao enviar solicitação");
+                                  setResellerLoginsReq(null);
+                                  setResellerRequestsLoaded(false);
+                                  showAlertDialog("Solicitação de redução enviada! Aguarde aprovação do administrador.", "Solicitação Enviada");
+                                } else {
+                                  const res = await fetch("/api/reseller/pix/logins-upgrade", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                                    body: JSON.stringify({ newLogins: reqL }),
+                                  });
+                                  const txt = await res.text();
+                                  let data: any = {}; try { data = JSON.parse(txt); } catch { /* */ }
+                                  if (!res.ok) throw new Error(data.error || "Erro ao gerar PIX");
+                                  setResellerPixData({ ...data, mode: "logins_upgrade" });
+                                  setResellerPixStatus("pending");
+                                  setResellerPixExpired(false);
+                                  setView("reseller_pix");
+                                }
+                              } catch (err: any) {
+                                setResellerError(err.message);
+                              } finally {
+                                setResellerLoginsBusy(false);
+                              }
+                            }}
+                            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 ${
+                              isDecrease
+                                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                            }`}
+                          >
+                            {resellerLoginsBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+                            {isDecrease ? "Solicitar Redução" : proRatedCost !== null ? `Pagar R$${proRatedCost} e Solicitar` : "Solicitar Adição"}
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
+
+                  {/* ─ Minhas Solicitações ─ */}
+                  {!needsSetup && (
+                    <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Minhas Solicitações</p>
+                        <button
+                          onClick={async () => {
+                            if (!resellerToken) return;
+                            try {
+                              const res = await fetch("/api/reseller/requests", { headers: { Authorization: `Bearer ${resellerToken}` } });
+                              if (res.ok) setResellerRequests(await res.json());
+                            } catch { /* */ } finally { setResellerRequestsLoaded(true); }
+                          }}
+                          className="text-xs text-emerald-600 font-semibold hover:text-emerald-700"
+                        >
+                          {resellerRequestsLoaded ? "Atualizar" : "Carregar"}
+                        </button>
+                      </div>
+                      {!resellerRequestsLoaded ? (
+                        <p className="text-xs text-text-muted text-center py-2">Clique em "Carregar" para ver suas solicitações.</p>
+                      ) : resellerRequests.length === 0 ? (
+                        <p className="text-sm text-text-muted text-center py-2">Nenhuma solicitação.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {resellerRequests.map((r: any) => {
+                            const typeMap: Record<string, string> = {
+                              reseller_password: "Alteração de Senha",
+                              reseller_logins_decrease: "Redução de Logins",
+                              reseller_logins_increase: "Adição de Logins",
+                            };
+                            const statusMap: Record<string, { label: string; cls: string }> = {
+                              aguardando: { label: "Aguardando", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+                              aguardando_confirmacao: { label: "Pago · Aguard. Confirmação", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+                              aprovado: { label: "Aprovado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                              confirmado: { label: "Confirmado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                              rejeitado: { label: "Recusado", cls: "bg-red-50 text-red-700 border-red-200" },
+                            };
+                            const s = statusMap[r.status] ?? { label: r.status, cls: "bg-bg-surface-hover text-text-muted border-border-base" };
+                            return (
+                              <div key={r.id} className="rounded-xl border border-border-base bg-bg-surface-hover p-3 flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-text-base">{typeMap[r.type] ?? r.type}</p>
+                                  {r.requested_value && (
+                                    <p className="text-xs text-text-muted mt-0.5">Solicitado: {r.requested_value} logins</p>
+                                  )}
+                                  {r.status === "rejeitado" && r.approved_value && (
+                                    <p className="text-xs text-red-600 mt-0.5 font-medium">Motivo: {r.approved_value}</p>
+                                  )}
+                                  <p className="text-[10px] text-text-muted mt-0.5">{new Date(r.created_at).toLocaleDateString("pt-BR")}</p>
+                                </div>
+                                <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-lg border shrink-0 ${s.cls}`}>{s.label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* ─ Support tickets ─ */}
                   <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
@@ -3919,7 +4143,7 @@ export default function App() {
                               const res = await fetch("/api/tickets", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ username: resellerData.reseller?.login, subject: resellerTicketSubject, message: resellerTicketMsg }),
+                                body: JSON.stringify({ username: resellerData.reseller?.login, category: "suporte", subject: resellerTicketSubject, message: resellerTicketMsg }),
                               });
                               if (!res.ok) throw new Error((await res.json()).error);
                               const updated = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
@@ -4011,6 +4235,59 @@ export default function App() {
                   )}
                 </div>
 
+                {/* Verify password modal */}
+                <AnimatePresence>
+                  {showPassVerifyModal && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+                      <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="bg-bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+                        <h3 className="font-bold text-text-base text-lg flex items-center gap-2"><Lock className="w-5 h-5 text-emerald-500" />Verificar Identidade</h3>
+                        <p className="text-sm text-text-muted">Digite sua senha do painel VPN para revelar as credenciais. Após verificar, ficará salvo neste dispositivo.</p>
+                        <input
+                          type="password"
+                          value={passVerifyInput}
+                          onChange={e => { setPassVerifyInput(e.target.value); setPassVerifyError(""); }}
+                          placeholder="Senha do painel VPN"
+                          autoFocus
+                          className="w-full px-4 py-3 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/40 outline-none text-sm font-semibold text-text-base"
+                        />
+                        {passVerifyError && <p className="text-xs text-red-500 font-medium">{passVerifyError}</p>}
+                        <div className="flex gap-2">
+                          <button onClick={() => { setShowPassVerifyModal(false); setPassVerifyInput(""); setPassVerifyError(""); }} className="flex-1 py-3 rounded-xl border border-border-base text-text-muted font-semibold hover:bg-bg-surface-hover transition-colors">Cancelar</button>
+                          <button
+                            disabled={!passVerifyInput.trim() || resellerLoading}
+                            onClick={async () => {
+                              if (!resellerToken || !passVerifyInput.trim()) return;
+                              setResellerLoading(true);
+                              try {
+                                const res = await fetch("/api/reseller/verify-password", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                                  body: JSON.stringify({ password: passVerifyInput }),
+                                });
+                                const txt = await res.text();
+                                let data: any = {}; try { data = JSON.parse(txt); } catch { /* */ }
+                                if (!res.ok) { setPassVerifyError(data.error || "Senha incorreta"); return; }
+                                localStorage.setItem(`reseller_pass_${rLogin}`, data.password);
+                                setResellerVerifiedPass(data.password);
+                                setShowPassVerifyModal(false);
+                                setPassVerifyInput("");
+                                setShowResellerPass(true);
+                              } catch (err: any) {
+                                setPassVerifyError(err.message);
+                              } finally {
+                                setResellerLoading(false);
+                              }
+                            }}
+                            className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold transition-colors"
+                          >
+                            {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Verificar"}
+                          </button>
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 {/* Change password modal */}
                 <AnimatePresence>
                   {showResellerPassModal && (
@@ -4078,7 +4355,7 @@ export default function App() {
                     <ArrowLeft className="w-5 h-5" />
                   </button>
                   <h2 className="text-lg font-semibold text-text-base">
-                    {resellerPixData.mode === "hire" ? "Contratar Revenda" : "Renovar Revenda"}
+                    {resellerPixData.mode === "hire" ? "Contratar Revenda" : resellerPixData.mode === "logins_upgrade" ? "Adicionar Logins" : "Renovar Revenda"}
                   </h2>
                 </div>
 
@@ -4090,7 +4367,7 @@ export default function App() {
                       </div>
                       <h2 className="text-2xl font-bold text-text-base mb-2">Pagamento Aprovado!</h2>
                       <p className="text-text-muted mb-6">
-                        {resellerPixData.mode === "hire" ? "Conta criada com sucesso! Acesse a área do revendedor." : "Sua revenda foi renovada com sucesso!"}
+                        {resellerPixData.mode === "hire" ? "Conta criada com sucesso! Acesse a área do revendedor." : resellerPixData.mode === "logins_upgrade" ? "Solicitação enviada! O administrador irá confirmar a adição de logins." : "Sua revenda foi renovada com sucesso!"}
                       </p>
                       <button
                         onClick={() => {
@@ -4126,10 +4403,12 @@ export default function App() {
                       <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center justify-between">
                         <div>
                           <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-0.5">
-                            {resellerPixData.mode === "hire" ? "Nova Revenda" : "Renovação"} VS+
+                            {resellerPixData.mode === "hire" ? "Nova Revenda" : resellerPixData.mode === "logins_upgrade" ? "Adição de Logins" : "Renovação"} VS+
                           </p>
                           <p className="text-sm font-semibold text-text-base">
-                            {resellerPixData.logins} logins · {resellerPixData.months} {(resellerPixData.months ?? 1) === 1 ? "mês" : "meses"}
+                            {resellerPixData.mode === "logins_upgrade"
+                              ? `+${resellerPixData.loginDiff} logins · ${resellerPixData.daysLeft}d restantes`
+                              : `${resellerPixData.logins} logins · ${resellerPixData.months} ${(resellerPixData.months ?? 1) === 1 ? "mês" : "meses"}`}
                           </p>
                           {resellerPixData.discountApplied && (
                             <p className="text-[11px] text-emerald-600 font-bold mt-0.5">🎉 Desconto fidelidade -20%!</p>
