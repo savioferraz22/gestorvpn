@@ -9,7 +9,7 @@ import type { AdminTab, AdminReports as AdminReportsData } from "../../types";
 import {
   fetchAdminDevices, fetchAdminTickets, fetchAdminPayments,
   fetchAdminRefunds, fetchAdminChangeRequests, fetchAdminReports,
-  adminLogin, setAdminToken, getAdminToken
+  adminLogin, setAdminToken, getAdminToken, ApiError
 } from "../../services/api";
 import { AdminOverview } from "./AdminOverview";
 import { AdminUsers } from "./AdminUsers";
@@ -65,24 +65,31 @@ export function AdminShell({ onBack }: AdminShellProps) {
   });
 
   async function loadAll() {
-    try {
-      const [d, t, p, r, c, rep] = await Promise.allSettled([
-        fetchAdminDevices(),
-        fetchAdminTickets(),
-        fetchAdminPayments(),
-        fetchAdminRefunds(),
-        fetchAdminChangeRequests(),
-        fetchAdminReports(reportPeriod),
-      ]);
-      if (d.status === "fulfilled") setDevices(d.value);
-      if (t.status === "fulfilled") setAllTickets(t.value);
-      if (p.status === "fulfilled") setPayments(p.value);
-      if (r.status === "fulfilled") setRefunds(r.value);
-      if (c.status === "fulfilled") setChangeRequests(c.value);
-      if (rep.status === "fulfilled") setReports(rep.value);
-    } catch (err) {
-      console.warn("Admin load error:", err);
+    const [d, t, p, r, c, rep] = await Promise.allSettled([
+      fetchAdminDevices(),
+      fetchAdminTickets(),
+      fetchAdminPayments(),
+      fetchAdminRefunds(),
+      fetchAdminChangeRequests(),
+      fetchAdminReports(reportPeriod),
+    ]);
+
+    // Se qualquer request retornou 401, o token expirou → forçar novo login
+    const unauthorized = [d, t, p, r, c, rep].some(
+      result => result.status === "rejected" && result.reason instanceof ApiError && result.reason.status === 401
+    );
+    if (unauthorized) {
+      setAdminToken(null);
+      setIsAuth(false);
+      return;
     }
+
+    if (d.status === "fulfilled") setDevices(d.value);
+    if (t.status === "fulfilled") setAllTickets(t.value);
+    if (p.status === "fulfilled") setPayments(p.value);
+    if (r.status === "fulfilled") setRefunds(r.value);
+    if (c.status === "fulfilled") setChangeRequests(c.value);
+    if (rep.status === "fulfilled") setReports(rep.value);
   }
 
   useEffect(() => {

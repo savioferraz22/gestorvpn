@@ -15,11 +15,17 @@ export function getAdminToken(): string | null {
   return adminToken;
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
 async function apiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: "Erro desconhecido" }));
-    throw new Error(err.error || err.message || `HTTP ${res.status}`);
+    throw new ApiError(err.error || err.message || `HTTP ${res.status}`, res.status);
   }
   return res.json() as Promise<T>;
 }
