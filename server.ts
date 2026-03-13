@@ -26,22 +26,35 @@ function getDb() {
 
 // ─── Admin Auth ────────────────────────────────────────────────────────────
 // Tokens are stored in memory with a TTL of 24h. Never exposed in client JS.
-const adminTokens = new Map<string, number>(); // token -> expiresAt (ms)
-
 const ADMIN_TOKEN_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-function purgeExpiredTokens() {
-  const now = Date.now();
-  for (const [token, exp] of adminTokens.entries()) {
-    if (now > exp) adminTokens.delete(token);
+// HMAC-signed tokens survive server restarts — no in-memory Map needed
+function createAdminToken(): string {
+  const expires = (Date.now() + ADMIN_TOKEN_TTL).toString();
+  const secret = process.env.ADMIN_PASSWORD || "fallback-secret";
+  const sig = crypto.createHmac("sha256", secret).update(expires).digest("hex");
+  return `${expires}.${sig}`;
+}
+
+function validateAdminToken(token: string): boolean {
+  const dot = token.indexOf(".");
+  if (dot === -1) return false;
+  const expires = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  if (Date.now() > parseInt(expires)) return false;
+  const secret = process.env.ADMIN_PASSWORD || "fallback-secret";
+  const expected = crypto.createHmac("sha256", secret).update(expires).digest("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
   }
 }
 
 function requireAdminAuth(req: any, res: any, next: any) {
   const auth = req.headers["authorization"] || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  purgeExpiredTokens();
-  if (!token || !adminTokens.has(token)) {
+  if (!token || !validateAdminToken(token)) {
     return res.status(401).json({ error: "Não autorizado. Faça login como administrador." });
   }
   next();
@@ -56,10 +69,9 @@ app.post("/api/admin/auth", (req, res) => {
   if (password !== adminPassword) {
     return res.status(401).json({ error: "Senha incorreta." });
   }
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = Date.now() + ADMIN_TOKEN_TTL;
-  adminTokens.set(token, expiresAt);
-  res.json({ token, expiresAt: new Date(expiresAt).toISOString() });
+  const token = createAdminToken();
+  const expiresAt = new Date(Date.now() + ADMIN_TOKEN_TTL).toISOString();
+  res.json({ token, expiresAt });
 });
 
 // Protect all /api/admin/* routes (except /api/admin/auth itself)
