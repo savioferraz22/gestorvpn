@@ -507,8 +507,8 @@ app.post("/api/user", async (req, res) => {
       lastPaymentDate = lastPayment.paid_at || lastPayment.created_at;
     }
 
-    // Get payment history
-    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).order("created_at", { ascending: false });
+    // Get payment history (only confirmed payments)
+    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).eq("status", "approved").order("paid_at", { ascending: false, nullsFirst: false });
 
     res.json({ ...user, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments });
   } catch (error: any) {
@@ -566,7 +566,7 @@ app.post("/api/create-free", async (req, res) => {
     // Check if device already created a user
     const { data: existingDevice } = await getDb().from("devices").select("*").eq("device_id", deviceId).maybeSingle();
     if (existingDevice) {
-      return res.status(403).json({ error: "Este aparelho já gerou um teste gratuito." });
+      return res.status(403).json({ error: "Este aparelho já gerou um teste gratuito.", existing_username: existingDevice.username });
     }
 
     // Check if user exists
@@ -1058,10 +1058,14 @@ app.post("/api/admin/refunds/:id/approve", async (req, res) => {
     const { id } = req.params;
     const { refundedAt } = req.body;
 
-    // Get username to reset points
+    // Get username to deduct 1 loyalty point on refund
     const { data: refund } = await getDb().from("refund_requests").select("username").eq("id", id).maybeSingle();
     if (refund) {
-      await getDb().from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", refund.username);
+      const { data: lp } = await getDb().from("loyalty_points").select("points").eq("username", refund.username).maybeSingle();
+      if (lp) {
+        const newPoints = Math.max(0, lp.points - 1);
+        await getDb().from("loyalty_points").update({ points: newPoints, updated_at: new Date().toISOString() }).eq("username", refund.username);
+      }
     }
 
     await getDb().from("refund_requests").update({ 

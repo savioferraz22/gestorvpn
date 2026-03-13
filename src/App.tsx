@@ -58,6 +58,7 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [existingTestUsername, setExistingTestUsername] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserData | null>(null);
 
   // Pix state
@@ -774,9 +775,13 @@ export default function App() {
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 403 && data.existing_username) {
+          setExistingTestUsername(data.existing_username);
+        }
         throw new Error(data.error || "Erro ao criar usuário");
       }
 
+      setExistingTestUsername(null);
       setCredentials(data);
       setView("show_credentials");
       localStorage.setItem("vpn_saved_username", newUsername.trim());
@@ -1944,19 +1949,30 @@ export default function App() {
                               </div>
                             ) : (
                               currentUser.payments.map((payment: any, idx: number) => {
-                                let amount = 0;
-                                try {
-                                  if (payment.metadata) amount = JSON.parse(payment.metadata).amount;
-                                } catch (e) { }
+                                let meta: any = {};
+                                try { if (payment.metadata) meta = typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : payment.metadata; } catch (e) { }
+                                const amount = meta.amount || 0;
+                                const earnedPoint = meta.paidOnTime === true && !meta.discountApplied;
+                                const usedDiscount = meta.discountApplied === true;
                                 return (
                                   <div key={payment.id || idx} className="flex flex-col bg-bg-surface p-3 rounded-2xl border border-border-base shadow-sm">
                                     <div className="flex justify-between items-center mb-1">
-                                      <span className="text-sm font-bold text-text-base">Geração de Pix</span>
-                                      <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">+1 Ponto</span>
+                                      <span className="text-sm font-bold text-text-base">
+                                        {payment.type === 'new_device' ? 'Novo Aparelho' : 'Renovação do Plano'}
+                                      </span>
+                                      {earnedPoint && (
+                                        <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">+1 Ponto</span>
+                                      )}
+                                      {usedDiscount && (
+                                        <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">Desconto -20%</span>
+                                      )}
+                                      {!earnedPoint && !usedDiscount && (
+                                        <span className="text-xs font-bold text-text-muted bg-bg-surface-hover px-2 py-0.5 rounded border border-border-base">Sem ponto</span>
+                                      )}
                                     </div>
                                     <div className="flex justify-between items-center text-[10px] text-text-muted font-medium">
                                       <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {formatDate(payment.paid_at || payment.created_at)}</span>
-                                      <span className="flex items-center gap-1"><CreditCard className="w-3 h-3" /> {amount ? `R$ ${amount},00` : "Pago"}</span>
+                                      <span className="flex items-center gap-1"><CreditCard className="w-3 h-3" /> {amount ? `R$ ${amount},00` : "—"}</span>
                                     </div>
                                   </div>
                                 );
@@ -2943,9 +2959,36 @@ export default function App() {
                       </div>
 
                       {error && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="flex items-start gap-3 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100">
-                          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                          <span className="text-sm font-medium">{error}</span>
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-3">
+                          <div className="flex items-start gap-3 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100">
+                            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                            <span className="text-sm font-medium">{error}</span>
+                          </div>
+                          {existingTestUsername && (
+                            <div className="bg-primary-50 border border-primary-200 rounded-2xl p-4 flex flex-col gap-3">
+                              <div className="flex items-center gap-2 text-primary-700">
+                                <User className="w-4 h-4 flex-shrink-0" />
+                                <p className="text-sm font-semibold">Conta encontrada: <span className="font-mono font-bold">{existingTestUsername}</span></p>
+                              </div>
+                              <p className="text-[11px] text-primary-600">Acesse sua conta para renovar ou continuar usando o serviço.</p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUsername(existingTestUsername);
+                                  localStorage.setItem("vpn_saved_username", existingTestUsername);
+                                  handleLogin(existingTestUsername);
+                                }}
+                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
+                              >
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                                  <>
+                                    <LogIn className="w-4 h-4" />
+                                    Acessar minha conta
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )}
                         </motion.div>
                       )}
 
@@ -3624,19 +3667,30 @@ export default function App() {
                                           </div>
                                         ) : (
                                           adminTicketUserDetails.payments.map((payment: any, idx: number) => {
-                                            let amount = 0;
-                                            try {
-                                              if (payment.metadata) amount = JSON.parse(payment.metadata).amount;
-                                            } catch (e) { }
+                                            let meta: any = {};
+                                            try { if (payment.metadata) meta = typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : payment.metadata; } catch (e) { }
+                                            const amount = meta.amount || 0;
+                                            const earnedPoint = meta.paidOnTime === true && !meta.discountApplied;
+                                            const usedDiscount = meta.discountApplied === true;
                                             return (
                                               <div key={payment.id || idx} className="flex flex-col bg-bg-surface p-3 rounded-2xl border border-border-base shadow-sm">
                                                 <div className="flex justify-between items-center mb-1">
-                                                  <span className="text-sm font-bold text-text-base">Geração de Pix</span>
-                                                  <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">+1 Ponto</span>
+                                                  <span className="text-sm font-bold text-text-base">
+                                                    {payment.type === 'new_device' ? 'Novo Aparelho' : 'Renovação do Plano'}
+                                                  </span>
+                                                  {earnedPoint && (
+                                                    <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">+1 Ponto</span>
+                                                  )}
+                                                  {usedDiscount && (
+                                                    <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">Desconto -20%</span>
+                                                  )}
+                                                  {!earnedPoint && !usedDiscount && (
+                                                    <span className="text-xs font-bold text-text-muted bg-bg-surface-hover px-2 py-0.5 rounded border border-border-base">Sem ponto</span>
+                                                  )}
                                                 </div>
                                                 <div className="flex justify-between items-center text-[10px] text-text-muted font-medium">
                                                   <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {formatDate(payment.paid_at || payment.created_at)}</span>
-                                                  <span className="flex items-center gap-1"><CreditCard className="w-3 h-3" /> {amount ? `R$ ${amount},00` : "Pago"}</span>
+                                                  <span className="flex items-center gap-1"><CreditCard className="w-3 h-3" /> {amount ? `R$ ${amount},00` : "—"}</span>
                                                 </div>
                                               </div>
                                             );

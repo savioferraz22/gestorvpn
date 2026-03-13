@@ -87,7 +87,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
 
   useEffect(() => {
     if (isAuth) loadAll();
-  }, [isAuth]);
+  }, [isAuth, tab]);
 
   const badges = {
     tickets: allTickets.filter(t => t.status === "open").length,
