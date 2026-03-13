@@ -68,6 +68,22 @@ app.use("/api/admin", (req: any, res: any, next: any) => {
   requireAdminAuth(req, res, next);
 });
 
+// ─── Reseller Auth ─────────────────────────────────────────────────────────
+const resellerTokens = new Map<string, { username: string; expiresAt: number }>();
+const RESELLER_TOKEN_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+function requireResellerAuth(req: any, res: any, next: any) {
+  const auth = req.headers["authorization"] || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const session = resellerTokens.get(token);
+  if (!session || Date.now() > session.expiresAt) {
+    resellerTokens.delete(token);
+    return res.status(401).json({ error: "Sessão inválida. Faça login novamente." });
+  }
+  (req as any).resellerUsername = session.username;
+  next();
+}
+
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "ok", 
@@ -213,7 +229,52 @@ async function approvePayment(paymentRecord: any) {
   // Parse metadata safely
   const metadata = parseMetadata(paymentRecord.metadata);
 
-  if (paymentRecord.type === "new_device") {
+  if (paymentRecord.type === "reseller_hire") {
+    // Create new reseller in VPN panel, then renew N months
+    const { resellerUsername: newRev, resellerPassword: newRevPass, resellerWhatsapp, resellerLogins, resellerMonths } = metadata;
+    if (newRev && newRevPass) {
+      const createParams = new URLSearchParams();
+      createParams.append("passapi", VPN_API_KEY);
+      createParams.append("module", "createrev");
+      createParams.append("user", newRev);
+      createParams.append("pass", newRevPass);
+      createParams.append("userlimite", String(resellerLogins || 10));
+      if (resellerWhatsapp) createParams.append("whatsapp", resellerWhatsapp);
+      try {
+        const createRes = await fetch(VPN_API_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: createParams.toString() });
+        console.log(`[reseller] createrev for ${newRev}:`, await createRes.text());
+      } catch (e) { console.error(`[reseller] createrev failed:`, e); }
+
+      // Renew N times to set expiry (each call adds ~30 days)
+      const months = Number(resellerMonths) || 1;
+      for (let i = 0; i < months; i++) {
+        const renewP = new URLSearchParams();
+        renewP.append("passapi", VPN_API_KEY);
+        renewP.append("module", "renewrev");
+        renewP.append("user", newRev);
+        try {
+          const rr = await fetch(VPN_API_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: renewP.toString() });
+          console.log(`[reseller] renewrev ${newRev} month ${i + 1}:`, await rr.text());
+        } catch (e) { console.error(`[reseller] renewrev failed:`, e); }
+      }
+    }
+
+  } else if (paymentRecord.type === "reseller_renewal") {
+    // Renew existing reseller N months
+    const resellerUser = metadata.resellerUsername || paymentRecord.username;
+    const months = Number(metadata.resellerMonths) || 1;
+    for (let i = 0; i < months; i++) {
+      const renewP = new URLSearchParams();
+      renewP.append("passapi", VPN_API_KEY);
+      renewP.append("module", "renewrev");
+      renewP.append("user", resellerUser);
+      try {
+        const rr = await fetch(VPN_API_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: renewP.toString() });
+        console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, await rr.text());
+      } catch (e) { console.error(`[reseller] renewrev failed:`, e); }
+    }
+
+  } else if (paymentRecord.type === "new_device") {
     const { newUsername, remainingDays, groupId } = metadata;
 
     if (newUsername && remainingDays && groupId) {
@@ -284,6 +345,11 @@ async function approvePayment(paymentRecord: any) {
         }
       }
     }
+  }
+
+  // Reseller payments don't earn loyalty/referral bonuses
+  if (paymentRecord.type === "reseller_hire" || paymentRecord.type === "reseller_renewal") {
+    return;
   }
 
   // Handle Loyalty Points
@@ -1468,6 +1534,243 @@ app.delete("/api/admin/devices/:id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ─── Reseller API ───────────────────────────────────────────────────────────
+
+// Helper: fetch resellers from VPN panel
+async function fetchVpnResellers(): Promise<any[]> {
+  const params = new URLSearchParams();
+  params.append("passapi", VPN_API_KEY);
+  params.append("module", "revendaget");
+  const res = await fetch(VPN_API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+// Reseller price: R$30/month + R$1/login/month, min 10 logins
+function calcResellerPrice(months: number, logins: number): number {
+  return (30 + logins) * months;
+}
+
+// POST /api/reseller/login — authenticate by username (like regular users)
+app.post("/api/reseller/login", async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ error: "Usuário é obrigatório" });
+
+    const resellers = await fetchVpnResellers();
+    const reseller = resellers.find((r: any) => r.login?.toLowerCase() === username.toLowerCase());
+    if (!reseller) return res.status(404).json({ error: "Revendedor não encontrado. Verifique o nome de usuário ou contrate uma revenda." });
+
+    // Issue session token
+    const token = crypto.randomBytes(32).toString("hex");
+    resellerTokens.set(token, { username: reseller.login, expiresAt: Date.now() + RESELLER_TOKEN_TTL });
+
+    // Also fetch reseller's payments from Supabase
+    const { data: payments } = await getDb()
+      .from("payments")
+      .select("*")
+      .eq("username", reseller.login)
+      .in("type", ["reseller_hire", "reseller_renewal"])
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    res.json({ token, reseller, payments: payments || [] });
+  } catch (e: any) {
+    console.error("[reseller/login] error:", e);
+    res.status(500).json({ error: e.message || "Erro ao buscar revendedor." });
+  }
+});
+
+// GET /api/reseller/me — get current reseller info (requires token)
+app.get("/api/reseller/me", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const resellers = await fetchVpnResellers();
+    const reseller = resellers.find((r: any) => r.login === username);
+    if (!reseller) return res.status(404).json({ error: "Revendedor não encontrado" });
+
+    const { data: payments } = await getDb()
+      .from("payments")
+      .select("*")
+      .eq("username", username)
+      .in("type", ["reseller_hire", "reseller_renewal"])
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    // Also fetch their VPN users
+    const allUsers = await fetchVpnUsers();
+    const myUsers = allUsers.filter((u: any) => String(u.byid) === String(reseller.id));
+
+    res.json({ reseller, payments: payments || [], users: myUsers });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reseller/pix/hire — generate PIX for new reseller sign-up
+app.post("/api/reseller/pix/hire", async (req, res) => {
+  try {
+    const { username, password, whatsapp, logins, months } = req.body;
+    if (!username || !password || !logins || !months) {
+      return res.status(400).json({ error: "Dados incompletos" });
+    }
+    const loginsNum = Math.max(10, parseInt(logins));
+    const monthsNum = Math.max(1, parseInt(months));
+
+    // Make sure username isn't already taken
+    const resellers = await fetchVpnResellers();
+    const existing = resellers.find((r: any) => r.login?.toLowerCase() === username.toLowerCase());
+    if (existing) return res.status(409).json({ error: "Usuário já existe. Escolha outro nome de usuário." });
+
+    const amount = calcResellerPrice(monthsNum, loginsNum);
+    const client = getMpClient();
+    const payment = new Payment(client);
+    const mpRes = await payment.create({
+      body: {
+        transaction_amount: amount,
+        description: `Nova Revenda VS+ — ${loginsNum} logins por ${monthsNum} ${monthsNum === 1 ? "mês" : "meses"}`,
+        payment_method_id: "pix",
+        payer: { email: "revendedor@cloudbrasil.shop" },
+        notification_url: `${process.env.APP_URL}/api/webhook`,
+      }
+    });
+
+    if (!mpRes.id || !mpRes.point_of_interaction?.transaction_data?.qr_code) {
+      throw new Error("Erro ao gerar Pix no Mercado Pago");
+    }
+
+    await getDb().from("payments").insert({
+      id: mpRes.id.toString(),
+      username,
+      status: "pending",
+      type: "reseller_hire",
+      metadata: { resellerUsername: username, resellerPassword: password, resellerWhatsapp: whatsapp || "", resellerLogins: loginsNum, resellerMonths: monthsNum, amount },
+    });
+
+    res.json({
+      paymentId: mpRes.id.toString(),
+      qrCodeBase64: mpRes.point_of_interaction.transaction_data.qr_code_base64,
+      qrCode: mpRes.point_of_interaction.transaction_data.qr_code,
+      amount,
+    });
+  } catch (e: any) {
+    console.error("[reseller/pix/hire] error:", e);
+    res.status(500).json({ error: e.message || "Erro ao gerar PIX" });
+  }
+});
+
+// POST /api/reseller/pix/renew — generate PIX for reseller renewal (requires token)
+app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const { months } = req.body;
+    const monthsNum = Math.max(1, parseInt(months) || 1);
+
+    // Get current login limit
+    const resellers = await fetchVpnResellers();
+    const reseller = resellers.find((r: any) => r.login === username);
+    if (!reseller) return res.status(404).json({ error: "Revendedor não encontrado" });
+    const logins = Math.max(10, parseInt(reseller.tokenvenda) || parseInt(reseller.mb) || 10);
+
+    const points = await calculateLoyaltyPoints(username);
+    let amount = calcResellerPrice(monthsNum, logins);
+    let discountApplied = false;
+    if (points >= 3) {
+      amount = Math.round(amount * 0.8);
+      discountApplied = true;
+    }
+
+    const client = getMpClient();
+    const payment = new Payment(client);
+    const mpRes = await payment.create({
+      body: {
+        transaction_amount: amount,
+        description: `Renovação Revenda VS+ — ${logins} logins por ${monthsNum} ${monthsNum === 1 ? "mês" : "meses"}${discountApplied ? " (Desconto Fidelidade)" : ""}`,
+        payment_method_id: "pix",
+        payer: { email: "revendedor@cloudbrasil.shop" },
+        notification_url: `${process.env.APP_URL}/api/webhook`,
+      }
+    });
+
+    if (!mpRes.id || !mpRes.point_of_interaction?.transaction_data?.qr_code) {
+      throw new Error("Erro ao gerar Pix no Mercado Pago");
+    }
+
+    await getDb().from("payments").insert({
+      id: mpRes.id.toString(),
+      username,
+      status: "pending",
+      type: "reseller_renewal",
+      metadata: { resellerUsername: username, resellerLogins: logins, resellerMonths: monthsNum, amount, discountApplied, paidOnTime: true },
+    });
+
+    res.json({
+      paymentId: mpRes.id.toString(),
+      qrCodeBase64: mpRes.point_of_interaction.transaction_data.qr_code_base64,
+      qrCode: mpRes.point_of_interaction.transaction_data.qr_code,
+      amount,
+      discountApplied,
+      logins,
+      months: monthsNum,
+    });
+  } catch (e: any) {
+    console.error("[reseller/pix/renew] error:", e);
+    res.status(500).json({ error: e.message || "Erro ao gerar PIX" });
+  }
+});
+
+// GET /api/reseller/status/:paymentId — check reseller PIX payment status
+app.get("/api/reseller/status/:paymentId", async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    const { data: record } = await getDb().from("payments").select("*").eq("id", paymentId).maybeSingle();
+    if (!record) return res.status(404).json({ error: "Pagamento não encontrado" });
+    if (record.status === "approved") return res.json({ status: "approved" });
+
+    const client = getMpClient();
+    const payment = new Payment(client);
+    const mpRes = await payment.get({ id: paymentId });
+    if (mpRes.status === "approved") {
+      await approvePayment(record);
+      return res.json({ status: "approved" });
+    }
+    res.json({ status: mpRes.status });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reseller/change-password — request password change (admin action)
+app.post("/api/reseller/change-password", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const { newPassword } = req.body;
+    if (!newPassword) return res.status(400).json({ error: "Nova senha obrigatória" });
+
+    await getDb().from("change_requests").insert({
+      id: crypto.randomUUID(),
+      username,
+      type: "reseller_password",
+      requested_value: newPassword,
+      status: "aguardando",
+    });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function startServer() {
   const server = http.createServer(app);

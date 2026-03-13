@@ -5,10 +5,10 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu } from "lucide-react";
+import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2 } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 
-type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help";
+type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix";
 
 interface Referral {
   id: string;
@@ -137,6 +137,33 @@ export default function App() {
   // Plan selector state
   const [planMonths, setPlanMonths] = useState(1);
   const [planDevices, setPlanDevices] = useState(1);
+
+  // ─── Reseller state ──────────────────────────────────────────────────────
+  const [resellerUsername, setResellerUsername] = useState("");
+  const [resellerToken, setResellerToken] = useState<string | null>(null);
+  const [resellerData, setResellerData] = useState<any>(null); // { reseller, payments, users }
+  const [resellerLoading, setResellerLoading] = useState(false);
+  const [resellerError, setResellerError] = useState("");
+  // New hire form
+  const [hireUsername, setHireUsername] = useState("");
+  const [hirePassword, setHirePassword] = useState("");
+  const [hireLogins, setHireLogins] = useState(20);
+  const [hireMonths, setHireMonths] = useState(1);
+  // Renew form
+  const [renewMonths, setRenewMonths] = useState(1);
+  // Profit estimator
+  const [profitLogins, setProfitLogins] = useState(20);
+  const [profitSellPrice, setProfitSellPrice] = useState(15);
+  // Reseller PIX
+  const [resellerPixData, setResellerPixData] = useState<{ paymentId: string; qrCodeBase64: string; qrCode: string; amount: number; discountApplied?: boolean; logins?: number; months?: number; mode: "hire" | "renew" } | null>(null);
+  const [resellerPixStatus, setResellerPixStatus] = useState<"pending" | "approved">("pending");
+  const [resellerPixExpired, setResellerPixExpired] = useState(false);
+  // Change password modal for reseller
+  const [showResellerPassModal, setShowResellerPassModal] = useState(false);
+  const [resellerNewPass, setResellerNewPass] = useState("");
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const calcResellerPrice = (months: number, logins: number) => (30 + logins) * months;
 
   // Calculate plan price
   const calcPlanPrice = (months: number, devices: number) =>
@@ -408,6 +435,38 @@ export default function App() {
     };
   }, [paymentData, paymentStatus, pixExpired, currentUser]);
 
+  // Reseller PIX polling
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    let timeout: NodeJS.Timeout;
+
+    if (resellerPixData && resellerPixStatus === "pending" && !resellerPixExpired) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/reseller/status/${resellerPixData.paymentId}`);
+          const data = await res.json();
+          if (data.status === "approved") {
+            setResellerPixStatus("approved");
+            clearInterval(interval);
+            clearTimeout(timeout);
+          }
+        } catch (err) {
+          console.error("Error checking reseller status:", err);
+        }
+      }, 5000);
+
+      timeout = setTimeout(() => {
+        clearInterval(interval);
+        setResellerPixExpired(true);
+      }, 15 * 60 * 1000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [resellerPixData, resellerPixStatus, resellerPixExpired]);
+
   const handleLoginChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     const sanitized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "");
@@ -463,6 +522,42 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResellerLogin = async () => {
+    if (!resellerUsername.trim()) return;
+    setResellerLoading(true);
+    setResellerError("");
+    try {
+      const res = await fetch("/api/reseller/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: resellerUsername.trim() }),
+      });
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch { /* non-JSON 404 fallback */ }
+      if (!res.ok) throw new Error(data.error || `Erro ${res.status}: verifique se o servidor foi reiniciado.`);
+      setResellerToken(data.token);
+      setResellerData(data);
+      setView("reseller_dashboard");
+    } catch (err: any) {
+      setResellerError(err.message);
+    } finally {
+      setResellerLoading(false);
+    }
+  };
+
+  const refreshResellerData = async (token: string) => {
+    try {
+      const res = await fetch("/api/reseller/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResellerData(data);
+      }
+    } catch { /* silent */ }
   };
 
   const fetchGroupData = async () => {
@@ -1162,7 +1257,7 @@ export default function App() {
       </div>
 
       {/* User Sidebar — shown when logged in (not admin/public views) */}
-      {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow"].includes(view) && (
+      {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix"].includes(view) && (
         <>
           {/* Mobile overlay */}
           {userSidebarOpen && (
@@ -1341,7 +1436,57 @@ export default function App() {
                       Criar Teste Grátis (2 Dias)
                     </button>
 
-                    <div className="pt-6 text-center">
+                    {/* ── Trabalhe Conosco divider ── */}
+                    <div className="relative pt-2 pb-1">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-emerald-200 dark:border-emerald-900 border-dashed"></div>
+                      </div>
+                      <div className="relative flex justify-center">
+                        <span className="px-3 bg-bg-surface text-emerald-600 font-bold text-xs uppercase tracking-wider flex items-center gap-1.5">
+                          <DollarSign className="w-3.5 h-3.5" />
+                          Trabalhe Conosco
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Reseller login field + buttons */}
+                    <div className="space-y-2">
+                      <div className="relative group">
+                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                          <Store className="h-5 h-5 text-text-muted group-focus-within:text-emerald-500 transition-colors" />
+                        </div>
+                        <input
+                          type="text"
+                          value={resellerUsername}
+                          onChange={e => setResellerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
+                          onKeyDown={e => e.key === "Enter" && handleResellerLogin()}
+                          className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 focus:bg-bg-surface outline-none transition-all font-semibold text-text-base placeholder-text-muted shadow-sm text-sm"
+                          placeholder="Usuário revendedor (opcional)"
+                        />
+                      </div>
+                      {resellerError && (
+                        <p className="text-xs text-red-500 font-medium px-1">{resellerError}</p>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleResellerLogin}
+                          disabled={resellerLoading || !resellerUsername.trim()}
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-2 rounded-2xl transition-colors flex items-center justify-center active:scale-[0.98] shadow-sm text-xs gap-1.5"
+                        >
+                          {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Store className="w-4 h-4 shrink-0" />}
+                          Acessar Área do Revendedor
+                        </button>
+                        <button
+                          onClick={() => { setResellerError(""); setView("reseller_info"); }}
+                          className="flex-1 bg-bg-surface hover:bg-bg-surface-hover text-emerald-600 font-semibold py-3 px-2 rounded-2xl transition-colors flex items-center justify-center border border-emerald-300 active:scale-[0.98] shadow-sm text-xs gap-1.5"
+                        >
+                          <TrendingUp className="w-4 h-4 shrink-0" />
+                          Contratar / Conhecer
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 text-center">
                       <button
                         onClick={() => { setError(""); setAdminPass(""); setIsAdminAuth(false); setView("admin"); }}
                         className="text-text-muted hover:text-text-base inline-flex items-center justify-center text-sm font-medium transition-colors p-2 rounded-xl"
@@ -3351,6 +3496,486 @@ export default function App() {
               </motion.div>
             )}
 
+            {/* ── RESELLER INFO / CONTRATAR ── */}
+            {view === "reseller_info" && (
+              <motion.div
+                key="reseller_info"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="w-full flex-1 bg-bg-base overflow-y-auto"
+              >
+                {/* Header */}
+                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-5 shadow-md">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setView("login")} className="text-white/80 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors">
+                      <ArrowLeft className="w-5 h-5" />
+                    </button>
+                    <div>
+                      <h1 className="text-xl font-bold text-white">Seja um Revendedor</h1>
+                      <p className="text-emerald-100 text-sm">Ganhe dinheiro com VS+</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-5 space-y-6 max-w-lg mx-auto pb-12">
+                  {/* Benefits */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
+                    <h2 className="font-bold text-text-base text-base flex items-center gap-2"><Star className="w-5 h-5 text-emerald-500" />Vantagens da Revenda</h2>
+                    {[
+                      { icon: <DollarSign className="w-4 h-4 text-emerald-500" />, text: "Lucro real: você escolhe o preço de venda" },
+                      { icon: <Users className="w-4 h-4 text-emerald-500" />, text: "Crie logins para seus clientes diretamente no painel" },
+                      { icon: <Zap className="w-4 h-4 text-emerald-500" />, text: "Suporte técnico dedicado para revendedores" },
+                      { icon: <BadgePercent className="w-4 h-4 text-emerald-500" />, text: "Desconto fidelidade de 20% a cada 3 renovações" },
+                    ].map((b, i) => (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className="mt-0.5 shrink-0">{b.icon}</div>
+                        <span className="text-sm text-text-muted">{b.text}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* How it works */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
+                    <h2 className="font-bold text-text-base text-base flex items-center gap-2 mb-3"><Package className="w-5 h-5 text-emerald-500" />Como funciona</h2>
+                    {[
+                      "Escolha a quantidade de logins (mínimo 10) e o período.",
+                      "Pague via PIX — conta ativada automaticamente.",
+                      "Acesse o painel CloudBR DT e crie logins para seus clientes.",
+                      "Renove mensalmente e acumule desconto fidelidade.",
+                    ].map((step, i) => (
+                      <div key={i} className="flex gap-3 mb-2">
+                        <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">{i + 1}</div>
+                        <span className="text-sm text-text-muted">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Profit estimator */}
+                  <div className="bg-emerald-50 rounded-2xl p-5 shadow-sm border border-emerald-100">
+                    <h2 className="font-bold text-emerald-800 text-base flex items-center gap-2 mb-4"><BarChart2 className="w-5 h-5" />Simulador de Lucro</h2>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Logins que você vai vender</label>
+                        <div className="flex items-center gap-3 mt-1">
+                          <input type="range" min={10} max={200} step={5} value={profitLogins} onChange={e => setProfitLogins(Number(e.target.value))} className="flex-1 accent-emerald-600" />
+                          <span className="w-12 text-right font-bold text-emerald-800">{profitLogins}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Valor de Venda por Login (R$)</label>
+                        <div className="flex items-center gap-3 mt-1">
+                          <input type="range" min={15} max={40} step={1} value={profitSellPrice} onChange={e => setProfitSellPrice(Number(e.target.value))} className="flex-1 accent-emerald-600" />
+                          <span className="w-12 text-right font-bold text-emerald-800">R${profitSellPrice}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-emerald-200">
+                        <div className="text-center">
+                          <p className="text-[10px] uppercase text-emerald-600 font-bold">Receita</p>
+                          <p className="font-black text-emerald-800">R${(profitLogins * profitSellPrice).toLocaleString("pt-BR")}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] uppercase text-emerald-600 font-bold">Custo VS+</p>
+                          <p className="font-black text-emerald-800">R${calcResellerPrice(1, profitLogins)}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] uppercase text-emerald-600 font-bold">Lucro</p>
+                          <p className={`font-black text-xl ${profitLogins * profitSellPrice - calcResellerPrice(1, profitLogins) > 0 ? "text-emerald-700" : "text-red-500"}`}>
+                            R${(profitLogins * profitSellPrice - calcResellerPrice(1, profitLogins)).toLocaleString("pt-BR")}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-emerald-600 text-center">* Estimativa mensal. Custo VS+: R$30 + R$1/login/mês</p>
+                    </div>
+                  </div>
+
+                  {/* Sign-up form */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-4">
+                    <h2 className="font-bold text-text-base text-base flex items-center gap-2"><Store className="w-5 h-5 text-emerald-500" />Contratar Agora</h2>
+
+                    {/* Plan selector */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">Logins (mín. 10)</label>
+                        <div className="flex items-center gap-2 mt-1 border border-border-base rounded-xl overflow-hidden bg-bg-surface-hover">
+                          <button onClick={() => setHireLogins(l => Math.max(10, l - 5))} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">−</button>
+                          <span className="flex-1 text-center font-bold text-text-base">{hireLogins}</span>
+                          <button onClick={() => setHireLogins(l => l + 5)} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">+</button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">Meses</label>
+                        <div className="flex items-center gap-2 mt-1 border border-border-base rounded-xl overflow-hidden bg-bg-surface-hover">
+                          <button onClick={() => setHireMonths(m => Math.max(1, m - 1))} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">−</button>
+                          <span className="flex-1 text-center font-bold text-text-base">{hireMonths}</span>
+                          <button onClick={() => setHireMonths(m => m + 1)} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">+</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Price breakdown */}
+                    <div className="bg-emerald-50 rounded-xl p-3 text-sm space-y-1">
+                      <div className="flex justify-between text-emerald-800">
+                        <span>R$30 × {hireMonths} {hireMonths === 1 ? "mês" : "meses"}</span>
+                        <span className="font-semibold">R${30 * hireMonths}</span>
+                      </div>
+                      <div className="flex justify-between text-emerald-800">
+                        <span>{hireLogins} logins × R$1 × {hireMonths} {hireMonths === 1 ? "mês" : "meses"}</span>
+                        <span className="font-semibold">R${hireLogins * hireMonths}</span>
+                      </div>
+                      <div className="flex justify-between font-black text-emerald-900 border-t border-emerald-200 pt-1 mt-1">
+                        <span>Total</span>
+                        <span>R${calcResellerPrice(hireMonths, hireLogins)}</span>
+                      </div>
+                    </div>
+
+                    {/* User fields */}
+                    <input
+                      type="text"
+                      value={hireUsername}
+                      onChange={e => setHireUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
+                      placeholder="Usuário desejado (sem espaços)"
+                      className="w-full px-4 py-3 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 outline-none text-sm font-semibold text-text-base"
+                    />
+                    <input
+                      type="password"
+                      value={hirePassword}
+                      onChange={e => setHirePassword(e.target.value)}
+                      placeholder="Senha"
+                      className="w-full px-4 py-3 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 outline-none text-sm font-semibold text-text-base"
+                    />
+
+                    {resellerError && <p className="text-sm text-red-500 font-medium">{resellerError}</p>}
+
+                    <button
+                      disabled={resellerLoading || !hireUsername.trim() || !hirePassword.trim()}
+                      onClick={async () => {
+                        if (!hireUsername.trim() || !hirePassword.trim()) return;
+                        setResellerLoading(true);
+                        setResellerError("");
+                        try {
+                          const res = await fetch("/api/reseller/pix/hire", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ username: hireUsername, password: hirePassword, logins: hireLogins, months: hireMonths }),
+                          });
+                          const txt = await res.text();
+                          let data: any = {}; try { data = JSON.parse(txt); } catch { /* */ }
+                          if (!res.ok) throw new Error(data.error || "Erro ao gerar PIX");
+                          setResellerPixData({ ...data, mode: "hire" });
+                          setResellerPixStatus("pending");
+                          setResellerPixExpired(false);
+                          setView("reseller_pix");
+                        } catch (err: any) {
+                          setResellerError(err.message);
+                        } finally {
+                          setResellerLoading(false);
+                        }
+                      }}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      {resellerLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
+                      Gerar PIX e Contratar
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── RESELLER DASHBOARD ── */}
+            {view === "reseller_dashboard" && resellerData && (
+              <motion.div
+                key="reseller_dashboard"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                className="w-full flex-1 bg-bg-base overflow-y-auto"
+              >
+                {/* Header */}
+                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-5 shadow-md">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center">
+                        <Store className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h1 className="text-lg font-bold text-white">Olá, {resellerData.reseller?.login}</h1>
+                        <p className="text-emerald-100 text-xs">Área do Revendedor</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => { setResellerToken(null); setResellerData(null); setResellerUsername(""); setView("login"); }}
+                      className="text-white/80 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors"
+                    >
+                      <LogOut className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-5 space-y-4 max-w-lg mx-auto pb-12">
+                  {/* Plan / account info */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-3">Meu Plano</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                        <p className="text-[10px] uppercase text-emerald-600 font-bold">Logins</p>
+                        <p className="text-2xl font-black text-emerald-800">{resellerData.reseller?.tokenvenda || resellerData.reseller?.mb || "—"}</p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                        <p className="text-[10px] uppercase text-emerald-600 font-bold">Clientes Ativos</p>
+                        <p className="text-2xl font-black text-emerald-800">{resellerData.users?.length ?? "—"}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-1">Ações</p>
+
+                    {/* Renew */}
+                    <div className="border border-border-base rounded-xl p-4 space-y-3">
+                      <p className="font-semibold text-text-base flex items-center gap-2"><RefreshCw className="w-4 h-4 text-emerald-500" />Renovar Acesso</p>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-text-muted w-16">Meses:</label>
+                        <div className="flex items-center gap-2 border border-border-base rounded-lg overflow-hidden bg-bg-surface-hover">
+                          <button onClick={() => setRenewMonths(m => Math.max(1, m - 1))} className="px-3 py-1.5 text-text-muted hover:text-text-base font-bold">−</button>
+                          <span className="px-2 font-bold text-text-base">{renewMonths}</span>
+                          <button onClick={() => setRenewMonths(m => m + 1)} className="px-3 py-1.5 text-text-muted hover:text-text-base font-bold">+</button>
+                        </div>
+                        <span className="text-sm text-text-muted ml-auto">
+                          R${calcResellerPrice(renewMonths, Math.max(10, parseInt(resellerData.reseller?.tokenvenda) || parseInt(resellerData.reseller?.mb) || 10))}
+                        </span>
+                      </div>
+                      <button
+                        disabled={resellerLoading}
+                        onClick={async () => {
+                          if (!resellerToken) return;
+                          setResellerLoading(true);
+                          setResellerError("");
+                          try {
+                            const res = await fetch("/api/reseller/pix/renew", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                              body: JSON.stringify({ months: renewMonths }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || "Erro ao gerar PIX");
+                            setResellerPixData({ ...data, mode: "renew" });
+                            setResellerPixStatus("pending");
+                            setResellerPixExpired(false);
+                            setView("reseller_pix");
+                          } catch (err: any) {
+                            setResellerError(err.message);
+                          } finally {
+                            setResellerLoading(false);
+                          }
+                        }}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+                      >
+                        {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+                        Gerar PIX de Renovação
+                      </button>
+                    </div>
+
+                    {/* Change password */}
+                    <button
+                      onClick={() => { setResellerNewPass(""); setShowResellerPassModal(true); }}
+                      className="w-full flex items-center justify-between p-4 border border-border-base rounded-xl hover:bg-bg-surface-hover transition-colors"
+                    >
+                      <span className="flex items-center gap-2 font-semibold text-text-base"><Key className="w-4 h-4 text-primary-500" />Alterar Senha</span>
+                      <ChevronRight className="w-4 h-4 text-text-muted" />
+                    </button>
+                  </div>
+
+                  {/* Payment history */}
+                  {resellerData.payments?.length > 0 && (
+                    <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-3">Histórico de Pagamentos</p>
+                      <div className="space-y-2">
+                        {resellerData.payments.filter((p: any) => p.status === "approved").slice(0, 5).map((p: any) => {
+                          const meta = p.metadata ? (typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata) : {};
+                          return (
+                            <div key={p.id} className="flex items-center justify-between py-2 border-b border-border-base last:border-0">
+                              <div>
+                                <p className="text-sm font-semibold text-text-base">
+                                  {p.type === "reseller_hire" ? "Contratação" : "Renovação"}
+                                </p>
+                                <p className="text-xs text-text-muted">{new Date(p.paid_at || p.created_at).toLocaleDateString("pt-BR")}</p>
+                              </div>
+                              <p className="font-bold text-emerald-600">R${meta.amount ?? "—"}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {resellerError && (
+                    <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm text-red-600 font-medium">{resellerError}</div>
+                  )}
+                </div>
+
+                {/* Change password modal */}
+                <AnimatePresence>
+                  {showResellerPassModal && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+                      <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="bg-bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+                        <h3 className="font-bold text-text-base text-lg">Alterar Senha</h3>
+                        <p className="text-sm text-text-muted">Sua solicitação será enviada ao administrador para aprovação.</p>
+                        <input
+                          type="password"
+                          value={resellerNewPass}
+                          onChange={e => setResellerNewPass(e.target.value)}
+                          placeholder="Nova senha"
+                          className="w-full px-4 py-3 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 outline-none text-sm font-semibold text-text-base"
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={() => setShowResellerPassModal(false)} className="flex-1 py-3 rounded-xl border border-border-base text-text-muted font-semibold hover:bg-bg-surface-hover transition-colors">Cancelar</button>
+                          <button
+                            disabled={!resellerNewPass.trim() || resellerLoading}
+                            onClick={async () => {
+                              if (!resellerToken || !resellerNewPass.trim()) return;
+                              setResellerLoading(true);
+                              try {
+                                const res = await fetch("/api/reseller/change-password", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                                  body: JSON.stringify({ newPassword: resellerNewPass }),
+                                });
+                                if (!res.ok) throw new Error((await res.json()).error);
+                                setShowResellerPassModal(false);
+                                showAlertDialog("Solicitação enviada! O administrador processará em breve.", "Senha Solicitada");
+                              } catch (err: any) {
+                                setResellerError(err.message);
+                                setShowResellerPassModal(false);
+                              } finally {
+                                setResellerLoading(false);
+                              }
+                            }}
+                            className="flex-1 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white font-semibold transition-colors"
+                          >
+                            {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Enviar"}
+                          </button>
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
+
+            {/* ── RESELLER PIX ── */}
+            {view === "reseller_pix" && resellerPixData && (
+              <motion.div
+                key="reseller_pix"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="max-w-md w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden"
+              >
+                <div className="p-4 border-b border-border-base flex items-center">
+                  <button
+                    onClick={() => setView(resellerPixData.mode === "hire" ? "reseller_info" : "reseller_dashboard")}
+                    className="text-text-muted hover:text-text-base transition-colors mr-4"
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <h2 className="text-lg font-semibold text-text-base">
+                    {resellerPixData.mode === "hire" ? "Contratar Revenda" : "Renovar Revenda"}
+                  </h2>
+                </div>
+
+                <div className="p-6">
+                  {resellerPixStatus === "approved" ? (
+                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
+                      <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <CheckCircle2 className="w-10 h-10 text-emerald-600" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-text-base mb-2">Pagamento Aprovado!</h2>
+                      <p className="text-text-muted mb-6">
+                        {resellerPixData.mode === "hire" ? "Conta criada com sucesso! Acesse a área do revendedor." : "Sua revenda foi renovada com sucesso!"}
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (resellerPixData.mode === "hire") {
+                            setView("login");
+                          } else {
+                            resellerToken && refreshResellerData(resellerToken);
+                            setView("reseller_dashboard");
+                          }
+                        }}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 px-4 rounded-xl transition-colors"
+                      >
+                        {resellerPixData.mode === "hire" ? "Ir para Login" : "Voltar ao Painel"}
+                      </button>
+                    </motion.div>
+                  ) : resellerPixExpired ? (
+                    <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
+                      <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <XCircle className="w-10 h-10 text-red-500" />
+                      </div>
+                      <h2 className="text-xl font-bold text-text-base mb-2">QR Code expirado</h2>
+                      <p className="text-text-muted mb-6 text-sm">O tempo limite de 15 minutos foi atingido. Gere um novo PIX para continuar.</p>
+                      <button
+                        onClick={() => { setResellerPixData(null); setResellerPixStatus("pending"); setResellerPixExpired(false); setView(resellerPixData.mode === "hire" ? "reseller_info" : "reseller_dashboard"); }}
+                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 rounded-xl transition-colors"
+                      >
+                        Voltar
+                      </button>
+                    </motion.div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Info card */}
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-0.5">
+                            {resellerPixData.mode === "hire" ? "Nova Revenda" : "Renovação"} VS+
+                          </p>
+                          <p className="text-sm font-semibold text-text-base">
+                            {resellerPixData.logins} logins · {resellerPixData.months} {(resellerPixData.months ?? 1) === 1 ? "mês" : "meses"}
+                          </p>
+                          {resellerPixData.discountApplied && (
+                            <p className="text-[11px] text-emerald-600 font-bold mt-0.5">🎉 Desconto fidelidade -20%!</p>
+                          )}
+                        </div>
+                        <p className="text-2xl font-black text-emerald-700">R${resellerPixData.amount}</p>
+                      </div>
+
+                      <div className="text-center">
+                        <h3 className="text-xl font-semibold text-text-base mb-1">Pague com Pix</h3>
+                        <p className="text-sm text-text-muted">Escaneie o QR Code ou copie o código abaixo.</p>
+                      </div>
+
+                      <div className="flex justify-center">
+                        <div className="p-4 bg-bg-surface border-2 border-border-base rounded-2xl shadow-sm">
+                          <img src={`data:image/jpeg;base64,${resellerPixData.qrCodeBase64}`} alt="QR Code Pix" className="w-48 h-48" />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 border border-border-base rounded-2xl overflow-hidden">
+                        <input readOnly value={resellerPixData.qrCode} className="flex-1 bg-bg-surface-hover px-3 py-2 text-xs text-text-muted font-mono truncate outline-none" />
+                        <button onClick={() => copyToClipboard(resellerPixData.qrCode)} className="px-4 py-2 bg-bg-surface-hover hover:bg-bg-surface text-text-base rounded-lg transition-colors flex items-center min-w-[80px]">
+                          {copied ? <span className="text-primary-600 font-medium text-sm">Copiado!</span> : <><Copy className="w-4 h-4 mr-2" /><span className="text-sm font-medium">Copiar</span></>}
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-center gap-3 text-sm text-text-muted pt-4 border-t border-border-base">
+                        <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                        Aguardando confirmação do pagamento...
+                      </div>
+
+                      <button
+                        onClick={() => { setResellerPixData(null); setResellerPixStatus("pending"); setResellerPixExpired(false); setView(resellerPixData.mode === "hire" ? "reseller_info" : "reseller_dashboard"); }}
+                        className="w-full text-sm text-text-muted hover:text-red-500 py-2 transition-colors"
+                      >
+                        Cancelar e voltar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {view === "admin" && (
               <motion.div
                 key="admin"
@@ -4013,7 +4638,7 @@ export default function App() {
         </div>
 
         {/* Mobile bottom navigation — shown when logged in (not admin) */}
-        {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow"].includes(view) && (
+        {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix"].includes(view) && (
           <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
             <button
               onClick={() => setView("dashboard")}
