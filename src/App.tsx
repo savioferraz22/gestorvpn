@@ -142,12 +142,14 @@ export default function App() {
   const calcPlanPrice = (months: number, devices: number) =>
     5 + devices * months * 10;
 
-  // Calculate loyalty points from payment history (source of truth = payments, same as history display)
+  // Calculate loyalty points from APPROVED payment history only
   const calcLoyaltyPoints = (payments: any[]): number => {
     let pts = 0;
-    const sorted = [...payments].sort((a, b) =>
-      new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime()
-    );
+    const sorted = [...payments]
+      .filter(p => p.status === "approved")
+      .sort((a, b) =>
+        new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime()
+      );
     for (const p of sorted) {
       let meta: any = {};
       try { meta = p.metadata ? (typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata) : {}; } catch { }
@@ -1967,12 +1969,12 @@ export default function App() {
                             exit={{ height: 0, opacity: 0 }}
                             className="space-y-2 border-t border-yellow-200/30 pt-4 mt-2"
                           >
-                            {(!currentUser.payments || currentUser.payments.length === 0) ? (
+                            {(!currentUser.payments || currentUser.payments.filter((p: any) => p.status === "approved").length === 0) ? (
                               <div className="bg-bg-surface/50 border border-border-base/50 rounded-2xl p-4 text-center">
                                 <p className="text-xs font-semibold text-text-muted">Nenhum pagamento registrado.</p>
                               </div>
                             ) : (
-                              currentUser.payments.map((payment: any, idx: number) => {
+                              currentUser.payments.filter((p: any) => p.status === "approved").map((payment: any, idx: number) => {
                                 let meta: any = {};
                                 try { if (payment.metadata) meta = typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : payment.metadata; } catch (e) { }
                                 const amount = meta.amount || 0;

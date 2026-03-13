@@ -1327,8 +1327,10 @@ app.get("/api/admin/reports", async (req, res) => {
       }
     });
 
+    // A conversion = test user (in devices table) who made at least one approved payment
+    const testUsernames = new Set((devices || []).map((d: any) => d.username));
     const convertedUsers = new Set((payments || [])
-      .filter(p => p.type === 'new_device')
+      .filter(p => testUsernames.has(p.username))
       .map(p => p.username)
     );
     const totalConverted = convertedUsers.size;
