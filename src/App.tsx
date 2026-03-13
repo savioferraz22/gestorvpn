@@ -1416,19 +1416,26 @@ export default function App() {
                       <div key={device.login} className="bg-bg-surface rounded-3xl p-5 border border-border-base space-y-4 relative overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                         <div className="absolute top-0 right-0 flex items-center gap-1.5 bg-primary-100/50 backdrop-blur-md text-primary-800 text-xs font-bold px-4 py-1.5 rounded-bl-2xl border-b border-l border-primary-200/50">
                           Aparelho {index + 1}
-                          {device.status && (
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                              device.status === 'online' ? 'bg-green-100 text-green-700' :
-                              device.status === 'offline' ? 'bg-gray-100 text-gray-500' :
-                              'bg-red-100 text-red-600'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${
-                                device.status === 'online' ? 'bg-green-500' :
-                                device.status === 'offline' ? 'bg-gray-400' :
-                                'bg-red-500'
-                              }`} />
-                              {device.status === 'online' ? 'Online' : device.status === 'offline' ? 'Offline' : device.status}
-                            </span>
+                          {device.status !== undefined && device.status !== null && (
+                            (() => {
+                              const s = String(device.status).toLowerCase();
+                              const isOnline = s === 'online' || s === '1' || s === 'true' || s === 'ativo';
+                              const isOffline = s === 'offline' || s === '0' || s === 'false' || s === 'inativo';
+                              return (
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                  isOnline ? 'bg-green-100 text-green-700' :
+                                  isOffline ? 'bg-gray-100 text-gray-500' :
+                                  'bg-red-100 text-red-600'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${
+                                    isOnline ? 'bg-green-500' :
+                                    isOffline ? 'bg-gray-400' :
+                                    'bg-red-500'
+                                  }`} />
+                                  {isOnline ? 'Online' : isOffline ? 'Offline' : String(device.status)}
+                                </span>
+                              );
+                            })()
                           )}
                         </div>
 
