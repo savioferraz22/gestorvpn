@@ -1561,6 +1561,31 @@ function calcResellerPrice(months: number, logins: number): number {
   return (30 + logins) * months;
 }
 
+// Calculate reseller plan expiry from approved payments
+function calcResellerExpiry(payments: any[]): string | null {
+  const approved = (payments || [])
+    .filter(p => p.status === "approved")
+    .sort((a: any, b: any) => new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime());
+  if (approved.length === 0) return null;
+  let expiry: Date | null = null;
+  for (const p of approved) {
+    const meta = parseMetadata(p.metadata);
+    const months = Math.max(1, parseInt(meta.resellerMonths) || 1);
+    const base = expiry ? new Date(expiry) : new Date(p.paid_at || p.created_at);
+    if (!expiry) {
+      // First payment: expiry = paid_at + months
+      base.setMonth(base.getMonth() + months);
+      expiry = base;
+    } else {
+      // Renewal: extend from current expiry
+      const renewal = new Date(expiry);
+      renewal.setMonth(renewal.getMonth() + months);
+      expiry = renewal;
+    }
+  }
+  return expiry ? expiry.toISOString() : null;
+}
+
 // POST /api/reseller/login — authenticate by username (like regular users)
 app.post("/api/reseller/login", async (req, res) => {
   try {
@@ -1584,7 +1609,9 @@ app.post("/api/reseller/login", async (req, res) => {
       .order("created_at", { ascending: false })
       .limit(20);
 
-    res.json({ token, reseller, payments: payments || [] });
+    const expiresAt = calcResellerExpiry(payments || []);
+    const points = await calculateLoyaltyPoints(reseller.login);
+    res.json({ token, reseller, payments: payments || [], expiresAt, points });
   } catch (e: any) {
     console.error("[reseller/login] error:", e);
     res.status(500).json({ error: e.message || "Erro ao buscar revendedor." });
@@ -1611,7 +1638,9 @@ app.get("/api/reseller/me", requireResellerAuth, async (req: any, res) => {
     const allUsers = await fetchVpnUsers();
     const myUsers = allUsers.filter((u: any) => String(u.byid) === String(reseller.id));
 
-    res.json({ reseller, payments: payments || [], users: myUsers });
+    const expiresAt = calcResellerExpiry(payments || []);
+    const points = await calculateLoyaltyPoints(username);
+    res.json({ reseller, payments: payments || [], users: myUsers, expiresAt, points });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

@@ -161,6 +161,12 @@ export default function App() {
   // Change password modal for reseller
   const [showResellerPassModal, setShowResellerPassModal] = useState(false);
   const [resellerNewPass, setResellerNewPass] = useState("");
+  // Reseller tickets
+  const [resellerTickets, setResellerTickets] = useState<any[]>([]);
+  const [resellerTicketsLoaded, setResellerTicketsLoaded] = useState(false);
+  const [showResellerTicketForm, setShowResellerTicketForm] = useState(false);
+  const [resellerTicketSubject, setResellerTicketSubject] = useState("");
+  const [resellerTicketMsg, setResellerTicketMsg] = useState("");
   // ─────────────────────────────────────────────────────────────────────────
 
   const calcResellerPrice = (months: number, logins: number) => (30 + logins) * months;
@@ -3683,7 +3689,19 @@ export default function App() {
             )}
 
             {/* ── RESELLER DASHBOARD ── */}
-            {view === "reseller_dashboard" && resellerData && (
+            {view === "reseller_dashboard" && resellerData && (() => {
+              const rLogins = parseInt(resellerData.reseller?.tokenvenda) || parseInt(resellerData.reseller?.mb) || 0;
+              const rPoints: number = resellerData.points ?? 0;
+              const rExpiry: string | null = resellerData.expiresAt ?? null;
+              const rUsers: any[] = resellerData.users ?? [];
+              const rPayments: any[] = (resellerData.payments ?? []).filter((p: any) => p.status === "approved");
+              const now = new Date();
+              const expiryDate = rExpiry ? new Date(rExpiry) : null;
+              const daysLeft = expiryDate ? Math.ceil((expiryDate.getTime() - now.getTime()) / 86400000) : null;
+              const expired = daysLeft !== null && daysLeft <= 0;
+              const expiringSoon = daysLeft !== null && daysLeft > 0 && daysLeft <= 7;
+
+              return (
               <motion.div
                 key="reseller_dashboard"
                 initial={{ opacity: 0, scale: 0.98 }}
@@ -3712,97 +3730,275 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="p-5 space-y-4 max-w-lg mx-auto pb-12">
-                  {/* Plan / account info */}
-                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-3">Meu Plano</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-emerald-50 rounded-xl p-3 text-center">
-                        <p className="text-[10px] uppercase text-emerald-600 font-bold">Logins</p>
-                        <p className="text-2xl font-black text-emerald-800">{resellerData.reseller?.tokenvenda || resellerData.reseller?.mb || "—"}</p>
+                <div className="p-4 space-y-4 max-w-lg mx-auto pb-12">
+
+                  {/* ─ Expiry alert ─ */}
+                  {expired && (
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-red-700 text-sm">Plano vencido</p>
+                        <p className="text-xs text-red-600">Renove agora para continuar acessando os serviços.</p>
                       </div>
-                      <div className="bg-emerald-50 rounded-xl p-3 text-center">
-                        <p className="text-[10px] uppercase text-emerald-600 font-bold">Clientes Ativos</p>
-                        <p className="text-2xl font-black text-emerald-800">{resellerData.users?.length ?? "—"}</p>
+                    </div>
+                  )}
+                  {expiringSoon && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-amber-700 text-sm">Vence em {daysLeft} dia{daysLeft !== 1 ? "s" : ""}</p>
+                        <p className="text-xs text-amber-600">Renove em breve para não perder o acesso.</p>
                       </div>
+                    </div>
+                  )}
+
+                  {/* ─ Stats cards ─ */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-bg-surface rounded-2xl p-4 shadow-sm border border-border-base text-center">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Logins</p>
+                      <p className="text-3xl font-black text-text-base">{rLogins || "—"}</p>
+                      <p className="text-[10px] text-text-muted mt-0.5">contratados</p>
+                    </div>
+                    <div className="bg-bg-surface rounded-2xl p-4 shadow-sm border border-border-base text-center">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Clientes</p>
+                      <p className="text-3xl font-black text-text-base">{rUsers.length}</p>
+                      <p className="text-[10px] text-text-muted mt-0.5">ativos no painel</p>
+                    </div>
+                    <div className={`bg-bg-surface rounded-2xl p-4 shadow-sm border ${expired ? "border-red-200 bg-red-50" : expiringSoon ? "border-amber-200 bg-amber-50" : "border-border-base"} text-center`}>
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Vencimento</p>
+                      <p className={`text-sm font-black ${expired ? "text-red-600" : expiringSoon ? "text-amber-600" : "text-text-base"}`}>
+                        {expiryDate ? expiryDate.toLocaleDateString("pt-BR") : "—"}
+                      </p>
+                      <p className="text-[10px] text-text-muted mt-0.5">{daysLeft !== null && daysLeft > 0 ? `${daysLeft}d restantes` : daysLeft === 0 ? "vence hoje" : "—"}</p>
+                    </div>
+                    <div className="bg-bg-surface rounded-2xl p-4 shadow-sm border border-border-base text-center">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-500 mb-1">Fidelidade</p>
+                      <div className="flex justify-center gap-1.5 my-1">
+                        {[0,1,2].map(i => (
+                          <div key={i} className={`w-5 h-5 rounded-full border-2 ${i < rPoints ? "bg-emerald-500 border-emerald-500" : "bg-transparent border-border-base"}`} />
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-text-muted">{rPoints}/3 pontos</p>
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-1">Ações</p>
-
-                    {/* Renew */}
-                    <div className="border border-border-base rounded-xl p-4 space-y-3">
-                      <p className="font-semibold text-text-base flex items-center gap-2"><RefreshCw className="w-4 h-4 text-emerald-500" />Renovar Acesso</p>
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm text-text-muted w-16">Meses:</label>
-                        <div className="flex items-center gap-2 border border-border-base rounded-lg overflow-hidden bg-bg-surface-hover">
-                          <button onClick={() => setRenewMonths(m => Math.max(1, m - 1))} className="px-3 py-1.5 text-text-muted hover:text-text-base font-bold">−</button>
-                          <span className="px-2 font-bold text-text-base">{renewMonths}</span>
-                          <button onClick={() => setRenewMonths(m => m + 1)} className="px-3 py-1.5 text-text-muted hover:text-text-base font-bold">+</button>
-                        </div>
-                        <span className="text-sm text-text-muted ml-auto">
-                          R${calcResellerPrice(renewMonths, Math.max(10, parseInt(resellerData.reseller?.tokenvenda) || parseInt(resellerData.reseller?.mb) || 10))}
-                        </span>
+                  {/* ─ Loyalty info ─ */}
+                  {rPoints >= 3 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
+                      <span className="text-2xl">🎉</span>
+                      <div>
+                        <p className="font-bold text-emerald-800 text-sm">Desconto de 20% disponível!</p>
+                        <p className="text-xs text-emerald-700">Sua próxima renovação terá desconto automático de fidelidade.</p>
                       </div>
-                      <button
-                        disabled={resellerLoading}
-                        onClick={async () => {
-                          if (!resellerToken) return;
-                          setResellerLoading(true);
-                          setResellerError("");
-                          try {
-                            const res = await fetch("/api/reseller/pix/renew", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
-                              body: JSON.stringify({ months: renewMonths }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) throw new Error(data.error || "Erro ao gerar PIX");
-                            setResellerPixData({ ...data, mode: "renew" });
-                            setResellerPixStatus("pending");
-                            setResellerPixExpired(false);
-                            setView("reseller_pix");
-                          } catch (err: any) {
-                            setResellerError(err.message);
-                          } finally {
-                            setResellerLoading(false);
-                          }
-                        }}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
-                      >
-                        {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
-                        Gerar PIX de Renovação
-                      </button>
                     </div>
+                  )}
 
-                    {/* Change password */}
+                  {/* ─ Renew ─ */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Renovar Acesso</p>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-text-muted">Meses:</span>
+                      <div className="flex items-center gap-2 border border-border-base rounded-xl overflow-hidden bg-bg-surface-hover">
+                        <button onClick={() => setRenewMonths(m => Math.max(1, m - 1))} className="px-3 py-2 text-text-muted hover:text-text-base font-bold">−</button>
+                        <span className="px-3 font-bold text-text-base">{renewMonths}</span>
+                        <button onClick={() => setRenewMonths(m => m + 1)} className="px-3 py-2 text-text-muted hover:text-text-base font-bold">+</button>
+                      </div>
+                      <span className="ml-auto font-bold text-text-base">
+                        {rPoints >= 3
+                          ? <><span className="line-through text-text-muted text-xs mr-1">R${calcResellerPrice(renewMonths, Math.max(10, rLogins))}</span><span className="text-emerald-600">R${Math.round(calcResellerPrice(renewMonths, Math.max(10, rLogins)) * 0.8)}</span></>
+                          : `R$${calcResellerPrice(renewMonths, Math.max(10, rLogins))}`
+                        }
+                      </span>
+                    </div>
+                    {rPoints >= 3 && (
+                      <p className="text-xs text-emerald-600 font-medium">🎉 Desconto fidelidade -20% aplicado</p>
+                    )}
                     <button
-                      onClick={() => { setResellerNewPass(""); setShowResellerPassModal(true); }}
-                      className="w-full flex items-center justify-between p-4 border border-border-base rounded-xl hover:bg-bg-surface-hover transition-colors"
+                      disabled={resellerLoading}
+                      onClick={async () => {
+                        if (!resellerToken) return;
+                        setResellerLoading(true);
+                        setResellerError("");
+                        try {
+                          const res = await fetch("/api/reseller/pix/renew", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                            body: JSON.stringify({ months: renewMonths }),
+                          });
+                          const txt = await res.text();
+                          let data: any = {}; try { data = JSON.parse(txt); } catch { /* */ }
+                          if (!res.ok) throw new Error(data.error || "Erro ao gerar PIX");
+                          setResellerPixData({ ...data, mode: "renew" });
+                          setResellerPixStatus("pending");
+                          setResellerPixExpired(false);
+                          setView("reseller_pix");
+                        } catch (err: any) {
+                          setResellerError(err.message);
+                        } finally {
+                          setResellerLoading(false);
+                        }
+                      }}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
                     >
-                      <span className="flex items-center gap-2 font-semibold text-text-base"><Key className="w-4 h-4 text-primary-500" />Alterar Senha</span>
-                      <ChevronRight className="w-4 h-4 text-text-muted" />
+                      {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+                      Gerar PIX de Renovação
                     </button>
                   </div>
 
-                  {/* Payment history */}
-                  {resellerData.payments?.length > 0 && (
+                  {/* ─ My clients list ─ */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-3">Meus Clientes ({rUsers.length})</p>
+                    {rUsers.length === 0 ? (
+                      <p className="text-sm text-text-muted text-center py-4">Nenhum cliente cadastrado ainda.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                        {rUsers.map((u: any) => {
+                          const uExpiry = u.expira ? new Date(String(u.expira).replace(' ', 'T') + (String(u.expira).length > 10 ? '-03:00' : 'T23:59:59-03:00')) : null;
+                          const uExpired = uExpiry ? uExpiry < now : false;
+                          const uDays = uExpiry ? Math.ceil((uExpiry.getTime() - now.getTime()) / 86400000) : null;
+                          return (
+                            <div key={u.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-surface-hover border border-border-base">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className={`w-2 h-2 rounded-full shrink-0 ${u.status === "Online" ? "bg-green-500" : uExpired ? "bg-red-400" : "bg-gray-300"}`} />
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-text-base truncate">{u.login}</p>
+                                  <p className="text-[10px] text-text-muted">
+                                    {uExpired ? "Vencido" : uDays !== null ? `${uDays}d restantes` : "—"}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${u.status === "Online" ? "bg-green-100 text-green-700" : uExpired ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
+                                {u.status === "Online" ? "Online" : uExpired ? "Expirado" : "Offline"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ─ Support tickets ─ */}
+                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Suporte</p>
+                      <button
+                        onClick={async () => {
+                          if (!resellerTicketsLoaded) {
+                            const res = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
+                            if (res.ok) setResellerTickets(await res.json());
+                            setResellerTicketsLoaded(true);
+                          }
+                          setShowResellerTicketForm(f => !f);
+                        }}
+                        className="text-xs text-emerald-600 font-semibold hover:text-emerald-700"
+                      >
+                        {showResellerTicketForm ? "Fechar" : "+ Novo chamado"}
+                      </button>
+                    </div>
+
+                    {showResellerTicketForm && (
+                      <div className="space-y-2">
+                        <input
+                          value={resellerTicketSubject}
+                          onChange={e => setResellerTicketSubject(e.target.value)}
+                          placeholder="Assunto"
+                          className="w-full px-3 py-2.5 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/30 outline-none text-sm text-text-base"
+                        />
+                        <textarea
+                          value={resellerTicketMsg}
+                          onChange={e => setResellerTicketMsg(e.target.value)}
+                          placeholder="Descreva sua solicitação..."
+                          rows={3}
+                          className="w-full px-3 py-2.5 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/30 outline-none text-sm text-text-base resize-none"
+                        />
+                        <button
+                          disabled={!resellerTicketSubject.trim() || !resellerTicketMsg.trim() || resellerLoading}
+                          onClick={async () => {
+                            setResellerLoading(true);
+                            try {
+                              const res = await fetch("/api/tickets", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ username: resellerData.reseller?.login, subject: resellerTicketSubject, message: resellerTicketMsg }),
+                              });
+                              if (!res.ok) throw new Error((await res.json()).error);
+                              const updated = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
+                              if (updated.ok) setResellerTickets(await updated.json());
+                              setResellerTicketSubject(""); setResellerTicketMsg(""); setShowResellerTicketForm(false);
+                              showAlertDialog("Chamado aberto com sucesso! Responderemos em breve.", "Chamado Aberto");
+                            } catch (err: any) {
+                              setResellerError(err.message);
+                            } finally {
+                              setResellerLoading(false);
+                            }
+                          }}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                        >
+                          {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
+                          Enviar Chamado
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Ticket list */}
+                    {resellerTickets.length > 0 ? (
+                      <div className="space-y-2">
+                        {resellerTickets.slice(0, 5).map((t: any) => (
+                          <div key={t.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-surface-hover border border-border-base">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-text-base truncate">{t.subject}</p>
+                              <p className="text-[10px] text-text-muted">{new Date(t.created_at).toLocaleDateString("pt-BR")}</p>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 ml-2 ${t.status === "open" ? "bg-blue-100 text-blue-700" : t.status === "closed" ? "bg-gray-100 text-gray-600" : "bg-amber-100 text-amber-700"}`}>
+                              {t.status === "open" ? "Aberto" : t.status === "closed" ? "Fechado" : "Resp."}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : resellerTicketsLoaded ? (
+                      <p className="text-sm text-text-muted text-center py-2">Nenhum chamado aberto.</p>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
+                          if (res.ok) setResellerTickets(await res.json());
+                          setResellerTicketsLoaded(true);
+                        }}
+                        className="w-full text-sm text-emerald-600 hover:text-emerald-700 py-2 font-medium"
+                      >
+                        Ver meus chamados
+                      </button>
+                    )}
+                  </div>
+
+                  {/* ─ Change password ─ */}
+                  <button
+                    onClick={() => { setResellerNewPass(""); setShowResellerPassModal(true); }}
+                    className="w-full flex items-center justify-between p-4 bg-bg-surface rounded-2xl shadow-sm border border-border-base hover:bg-bg-surface-hover transition-colors"
+                  >
+                    <span className="flex items-center gap-2 font-semibold text-text-base"><Key className="w-4 h-4 text-primary-500" />Alterar Senha</span>
+                    <ChevronRight className="w-4 h-4 text-text-muted" />
+                  </button>
+
+                  {/* ─ Payment history ─ */}
+                  {rPayments.length > 0 && (
                     <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
                       <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-3">Histórico de Pagamentos</p>
-                      <div className="space-y-2">
-                        {resellerData.payments.filter((p: any) => p.status === "approved").slice(0, 5).map((p: any) => {
+                      <div className="space-y-1">
+                        {rPayments.slice(0, 5).map((p: any) => {
                           const meta = p.metadata ? (typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata) : {};
                           return (
-                            <div key={p.id} className="flex items-center justify-between py-2 border-b border-border-base last:border-0">
+                            <div key={p.id} className="flex items-center justify-between py-2.5 border-b border-border-base last:border-0">
                               <div>
                                 <p className="text-sm font-semibold text-text-base">
-                                  {p.type === "reseller_hire" ? "Contratação" : "Renovação"}
+                                  {p.type === "reseller_hire" ? "Contratação" : `Renovação ${meta.resellerMonths ? `(${meta.resellerMonths}m)` : ""}`}
                                 </p>
                                 <p className="text-xs text-text-muted">{new Date(p.paid_at || p.created_at).toLocaleDateString("pt-BR")}</p>
                               </div>
-                              <p className="font-bold text-emerald-600">R${meta.amount ?? "—"}</p>
+                              <div className="text-right">
+                                <p className="font-bold text-emerald-600">R${meta.amount ?? "—"}</p>
+                                {meta.discountApplied && <p className="text-[10px] text-emerald-500">🎉 -20%</p>}
+                              </div>
                             </div>
                           );
                         })}
@@ -3862,7 +4058,8 @@ export default function App() {
                   )}
                 </AnimatePresence>
               </motion.div>
-            )}
+              );
+            })()}
 
             {/* ── RESELLER PIX ── */}
             {view === "reseller_pix" && resellerPixData && (
