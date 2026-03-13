@@ -1487,7 +1487,7 @@ export default function App() {
                             <Key className="w-5 h-5" />
                           </div>
                           <div className="flex-1 overflow-hidden">
-                            <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5" title="Identificador único necessário para conectar no app CloudBR DT">ID do Aparelho</p>
+                            <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5" title="UUID opcional usado no app CloudBR DT para conexão sem usuário/senha">UUID do Aparelho</p>
                             {device.uuid && device.uuid !== "NULL" && device.uuid !== "" ? (
                               showData ? (
                                 <div className="flex items-center justify-between">
@@ -1508,14 +1508,14 @@ export default function App() {
                                 {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid' && r.status === 'aguardando') ? (
                                   <div className="flex items-center bg-amber-50 text-amber-700 px-2.5 py-2 rounded-lg border border-amber-200">
                                     <Clock className="w-3.5 h-3.5 mr-1.5 shrink-0" />
-                                    <p className="text-[11px] font-medium leading-tight">Solicitação de ID do Aparelho em análise pelo administrador.</p>
+                                    <p className="text-[11px] font-medium leading-tight">Solicitação de UUID em análise pelo administrador.</p>
                                   </div>
                                 ) : (
                                   <>
                                     <div className="flex items-center bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg border border-blue-100/50">
                                       <AlertCircle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
                                       <p className="text-[11px] font-medium leading-tight">
-                                        Sem ID do Aparelho. Solicite abaixo para vincular seu aparelho ao app CloudBR DT.
+                                        UUID não vinculado. O UUID é opcional — usado no app CloudBR DT para conexão sem usuário/senha. Solicite ao administrador se desejar usar essa forma de conexão.
                                       </p>
                                     </div>
                                     <button
@@ -1524,7 +1524,7 @@ export default function App() {
                                       className="w-full bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors active:scale-95 shadow-sm disabled:opacity-60"
                                     >
                                       <Key className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                                      Solicitar ID do Aparelho
+                                      Solicitar UUID
                                     </button>
                                   </>
                                 )}
@@ -1826,7 +1826,7 @@ export default function App() {
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-1.5">
                                 <p className="text-xs font-bold text-text-base">
-                                  {req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Geração de ID do Aparelho' : 'Alteração de Senha'}
+                                  {req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : 'Alteração de Senha'}
                                 </p>
                                 <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-md font-bold border border-primary-200">{getDeviceLabel(req.username)}</span>
                               </div>
@@ -3019,91 +3019,166 @@ export default function App() {
             {view === "show_credentials" && credentials && (
               <motion.div
                 key="show_credentials"
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                className="w-full flex-1 flex justify-center items-center p-6"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full flex-1 overflow-y-auto"
               >
-                <div className="w-full max-w-sm">
-                  <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-green-500/20 to-transparent pointer-events-none" />
-
-                  <div className="pt-10 pb-6 text-center flex flex-col items-center relative z-10 space-y-3">
-                    <div className="flex items-center justify-center relative bg-bg-surface-hover p-4 rounded-3xl shadow-sm border border-border-base">
-                      <div className="absolute inset-0 bg-green-500 blur-xl opacity-20 rounded-full" />
-                      <CheckCircle2 className="w-10 h-10 text-green-500" />
+                {/* Success header */}
+                <div className="bg-gradient-to-br from-green-500 to-emerald-600 px-6 pt-10 pb-8 text-white relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10" />
+                  <div className="relative z-10 flex flex-col items-center text-center gap-3">
+                    <div className="w-16 h-16 bg-white/20 rounded-3xl flex items-center justify-center backdrop-blur-sm border border-white/30 shadow-lg">
+                      <CheckCircle2 className="w-9 h-9 text-white" />
                     </div>
                     <div>
-                      <h2 className="text-2xl font-bold text-text-base tracking-tight">Sucesso!</h2>
-                      <p className="text-text-muted mt-1 text-sm font-medium">
-                        Seu teste de 2 dias foi gerado.
-                      </p>
+                      <h2 className="text-2xl font-black tracking-tight">Teste Criado!</h2>
+                      <p className="text-green-100 mt-1 text-sm font-medium">Seu acesso de 2 dias está pronto. Anote suas credenciais abaixo.</p>
                     </div>
                   </div>
+                </div>
 
-                  <div className="space-y-4 relative z-10">
-                    <div className="bg-bg-surface divide-y divide-border-base border border-border-base rounded-2xl shadow-sm overflow-hidden">
-                      <div className="p-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">Usuário</p>
-                          <p className="font-mono text-base font-semibold text-text-base">{credentials.username}</p>
-                        </div>
-                        <button onClick={() => copyToClipboard(credentials.username)} className="p-2 bg-bg-surface-hover hover:bg-border-base rounded-xl transition-colors text-primary-600">
-                          <Copy className="w-5 h-5" />
-                        </button>
-                      </div>
+                <div className="p-5 space-y-5 max-w-md mx-auto pb-10">
 
-                      <div className="p-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">Senha</p>
-                          <p className="font-mono text-base font-semibold text-text-base">{credentials.password}</p>
-                        </div>
-                        <button onClick={() => copyToClipboard(credentials.password)} className="p-2 bg-bg-surface-hover hover:bg-border-base rounded-xl transition-colors text-primary-600">
-                          <Copy className="w-5 h-5" />
-                        </button>
-                      </div>
-
-                      {credentials.uuid && (
-                        <div className="p-4 flex items-center justify-between">
-                          <div className="overflow-hidden mr-3">
-                            <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">ID do Aparelho</p>
-                            <p className="font-mono text-xs font-semibold text-text-base truncate">{credentials.uuid}</p>
-                          </div>
-                          <button onClick={() => copyToClipboard(credentials.uuid)} className="p-2 bg-bg-surface-hover hover:bg-border-base rounded-xl transition-colors text-primary-600 shrink-0">
-                            <Copy className="w-5 h-5" />
-                          </button>
-                        </div>
-                      )}
+                  {/* Credentials card */}
+                  <div className="bg-bg-surface border border-border-base rounded-3xl shadow-sm overflow-hidden divide-y divide-border-base">
+                    <div className="px-4 py-3 bg-bg-surface-hover">
+                      <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Suas Credenciais de Acesso</p>
                     </div>
-
-                    <AnimatePresence>
-                      {copied && (
-                        <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-center text-sm text-green-600 font-semibold">
-                          Copiado para a área de transferência!
-                        </motion.p>
-                      )}
-                    </AnimatePresence>
-
-                    <div className="flex flex-col gap-3 pt-4">
-                      <a
-                        href="https://play.google.com/store/apps/details?id=google.android.a48"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-4 px-4 rounded-2xl transition-colors flex items-center justify-center shadow-sm text-sm"
-                      >
-                        <Download className="w-5 h-5 mr-2 text-primary-600" />
-                        Baixar App de Conexão
-                      </a>
-
-                      <button
-                        onClick={() => {
-                          setUsername(credentials.username);
-                          handleLogin(credentials.username);
-                        }}
-                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-4 px-4 rounded-2xl transition-all shadow-lg shadow-primary-500/30 active:scale-[0.98]"
-                      >
-                        Acessar Minha Conta
+                    <div className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Usuário</p>
+                        <p className="font-mono text-lg font-bold text-text-base">{credentials.username}</p>
+                      </div>
+                      <button onClick={() => copyToClipboard(credentials.username)} className="p-2.5 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors text-primary-600 border border-primary-100">
+                        <Copy className="w-4 h-4" />
                       </button>
                     </div>
+                    <div className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Senha</p>
+                        <p className="font-mono text-lg font-bold text-text-base">{credentials.password}</p>
+                      </div>
+                      <button onClick={() => copyToClipboard(credentials.password)} className="p-2.5 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors text-primary-600 border border-primary-100">
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="px-4 py-3 bg-amber-50 border-t border-amber-100 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-amber-700 font-semibold">Anote ou tire um print dessas informações. Você vai precisar delas para conectar no app.</p>
+                    </div>
                   </div>
+
+                  <AnimatePresence>
+                    {copied && (
+                      <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-center text-sm text-green-600 font-semibold">
+                        Copiado!
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Download CTA */}
+                  <div className="rounded-3xl overflow-hidden border border-border-base shadow-sm">
+                    <div className="bg-primary-600 px-4 py-2.5">
+                      <p className="text-[11px] font-bold text-primary-100 uppercase tracking-wider">Passo 1 — Baixe o app</p>
+                    </div>
+                    <a
+                      href="https://play.google.com/store/apps/details?id=google.android.a48"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-4 bg-bg-surface hover:bg-bg-surface-hover p-4 transition-colors active:scale-[0.98]"
+                    >
+                      <div className="w-14 h-14 bg-primary-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-md">
+                        <Download className="w-7 h-7 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-text-base">Baixar CloudBR DT</p>
+                        <p className="text-[11px] text-text-muted mt-0.5">Disponível na Google Play Store</p>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-primary-600 flex-shrink-0" />
+                    </a>
+                    <div className="bg-amber-50 border-t border-amber-100 px-4 py-3 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2 text-amber-700">
+                        <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                        <p className="text-[11px] font-bold">Somente Android — não funciona em iPhone</p>
+                      </div>
+                      <div className="flex items-center gap-2 text-amber-700">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <p className="text-[11px] font-bold">Requer chip TIM ou VIVO — outras operadoras não funcionam</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step-by-step guide */}
+                  <div className="bg-bg-surface border border-border-base rounded-3xl overflow-hidden shadow-sm">
+                    <div className="bg-primary-600 px-4 py-2.5">
+                      <p className="text-[11px] font-bold text-primary-100 uppercase tracking-wider">Passo 2 — Como conectar</p>
+                    </div>
+                    <div className="p-4 space-y-4">
+                      {[
+                        { n: "1", icon: <Download className="w-4 h-4" />, title: "Instale o CloudBR DT", desc: "Baixe e instale o app pela Play Store. Abra-o com o Wi-Fi ligado na primeira vez para carregar as configurações." },
+                        { n: "2", icon: <User className="w-4 h-4" />, title: "Faça login no app", desc: `Na tela inicial do app, toque no ícone de usuário e insira seu usuário (${credentials.username}) e sua senha.` },
+                        { n: "3", icon: <RefreshCw className="w-4 h-4" />, title: "Escolha o servidor", desc: "Selecione qualquer servidor DT disponível na lista. Procure pelos servidores com sinal mais forte (mais barras)." },
+                        { n: "4", icon: <CheckCircle2 className="w-4 h-4" />, title: "Conecte e aproveite!", desc: "Toque no botão de conectar. Aguarde até aparecer 'Conectado'. Pronto — sua internet ilimitada está funcionando!" },
+                      ].map(step => (
+                        <div key={step.n} className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-primary-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm text-sm font-black">
+                            {step.n}
+                          </div>
+                          <div className="flex-1 pt-0.5">
+                            <p className="text-sm font-bold text-text-base">{step.title}</p>
+                            <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">{step.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Tips */}
+                  <div className="bg-bg-surface border border-border-base rounded-3xl overflow-hidden shadow-sm">
+                    <div className="bg-bg-surface-hover px-4 py-2.5 border-b border-border-base">
+                      <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Informações importantes</p>
+                    </div>
+                    <div className="divide-y divide-border-base">
+                      {[
+                        { icon: <Clock className="w-4 h-4 text-primary-600" />, text: "Seu teste dura 2 dias. Após isso, acesse sua conta e renove para continuar." },
+                        { icon: <Shield className="w-4 h-4 text-primary-600" />, text: "Sua internet funciona via VPN. Alguns apps de banco ou apostas podem pedir verificação — isso é normal." },
+                        { icon: <Key className="w-4 h-4 text-primary-600" />, text: "Guarde bem seu usuário e senha. Você vai usá-los para acessar o app e renovar sua conta." },
+                        { icon: <MessageSquare className="w-4 h-4 text-primary-600" />, text: "Teve algum problema? Acesse sua conta e abra um ticket de suporte. Respondemos rapidinho!" },
+                        { icon: <CreditCard className="w-4 h-4 text-primary-600" />, text: "Gostou? Renove pelo nosso site antes do teste acabar e garanta seu acesso sem interrupção." },
+                      ].map((tip, i) => (
+                        <div key={i} className="flex items-start gap-3 p-3.5">
+                          <div className="w-7 h-7 rounded-lg bg-primary-50 border border-primary-100 flex items-center justify-center flex-shrink-0">
+                            {tip.icon}
+                          </div>
+                          <p className="text-[11px] text-text-muted leading-relaxed pt-0.5">{tip.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-col gap-3 pt-2">
+                    <button
+                      onClick={() => {
+                        setUsername(credentials.username);
+                        handleLogin(credentials.username);
+                      }}
+                      className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-4 px-4 rounded-2xl transition-all shadow-lg shadow-primary-500/30 active:scale-[0.98] flex items-center justify-center gap-2"
+                    >
+                      <User className="w-5 h-5" />
+                      Acessar Minha Conta
+                    </button>
+                    <a
+                      href="https://play.google.com/store/apps/details?id=google.android.a48"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3.5 px-4 rounded-2xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm"
+                    >
+                      <Download className="w-4 h-4 text-primary-600" />
+                      Baixar CloudBR DT na Play Store
+                    </a>
+                  </div>
+
                 </div>
               </motion.div>
             )}
@@ -3370,7 +3445,7 @@ export default function App() {
                               >
                                 <option>Suporte Técnico</option>
                                 <option>Financeiro</option>
-                                <option>Solicitar ID do Aparelho</option>
+                                <option>Solicitar UUID</option>
                                 <option>Outros</option>
                               </select>
                             </div>
@@ -3607,7 +3682,7 @@ export default function App() {
                                             <span className="font-mono text-xs font-bold text-text-base overflow-hidden break-all">{adminTicketUserDetails.user?.senha || adminTicketUserDetails.user?.pass || adminTicketUserDetails.user?.password || 'Não definida'}</span>
                                           </div>
                                           <div className="flex justify-between">
-                                            <span className="text-text-muted text-xs font-medium">ID do Aparelho:</span>
+                                            <span className="text-text-muted text-xs font-medium">UUID:</span>
                                             <span className="font-mono text-[10px] text-text-base text-right max-w-[150px] overflow-hidden text-ellipsis">{adminTicketUserDetails.devices?.[0]?.device_id || 'Nenhum celular vinculado'}</span>
                                           </div>
                                         </div>
