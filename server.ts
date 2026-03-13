@@ -142,15 +142,78 @@ const getMpClient = () => {
   return mpClient;
 };
 
+// Parse payment metadata safely (Supabase may return JSONB as string in some contexts)
+function parseMetadata(raw: any): any {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return raw;
+}
+
+// Calculate loyalty points from payment + refund history (single source of truth)
+async function calculateLoyaltyPoints(username: string): Promise<number> {
+  const { data: payments } = await getDb()
+    .from("payments")
+    .select("metadata, paid_at")
+    .eq("username", username)
+    .eq("status", "approved")
+    .order("paid_at", { ascending: true, nullsFirst: false });
+
+  let points = 0;
+  for (const p of payments || []) {
+    const meta = parseMetadata(p.metadata);
+    if (meta.discountApplied === true) {
+      points = 0; // Reset after discount was used
+    } else if (meta.paidOnTime === true) {
+      points++;
+    }
+  }
+
+  // Deduct 1 point for each approved refund
+  const { data: refunds } = await getDb()
+    .from("refund_requests")
+    .select("id")
+    .eq("username", username)
+    .eq("status", "aprovado");
+  points = Math.max(0, points - (refunds?.length || 0));
+
+  return Math.min(points, 3); // Never exceed 3
+}
+
+// Parse VPN expira date robustly (handles "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DD")
+function parseVpnExpira(expira: any): Date | null {
+  if (!expira) return null;
+  const s = String(expira).trim();
+  // If has time component: "2026-03-20 23:59:59" → "2026-03-20T23:59:59-03:00"
+  // If date only: "2026-03-20" → "2026-03-20T23:59:59-03:00" (end of day)
+  const iso = s.length > 10
+    ? s.replace(' ', 'T') + '-03:00'
+    : s + 'T23:59:59-03:00';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 async function approvePayment(paymentRecord: any) {
   const paymentId = paymentRecord.id;
   const db = getDb();
 
-  // Update DB status
-  await db.from("payments").update({ status: "approved", paid_at: new Date().toISOString() }).eq("id", paymentId);
+  // Idempotency: only update if still pending (atomic guard against double-processing)
+  const { data: updated } = await db.from("payments")
+    .update({ status: "approved", paid_at: new Date().toISOString() })
+    .eq("id", paymentId)
+    .eq("status", "pending")
+    .select("id");
+
+  if (!updated || updated.length === 0) {
+    console.log(`[approvePayment] Payment ${paymentId} already processed, skipping`);
+    return;
+  }
+
+  // Parse metadata safely
+  const metadata = parseMetadata(paymentRecord.metadata);
 
   if (paymentRecord.type === "new_device") {
-    const metadata = paymentRecord.metadata || {};
     const { newUsername, remainingDays, groupId } = metadata;
 
     if (newUsername && remainingDays && groupId) {
@@ -176,8 +239,12 @@ async function approvePayment(paymentRecord: any) {
         console.error(`Failed to create VPN user ${newUsername}:`, e);
       }
 
-      // Add to group
-      await db.from("user_groups").insert({ group_id: groupId, username: newUsername });
+      // Add to group (ignore duplicate key — safe on retry)
+      try {
+        await db.from("user_groups").insert({ group_id: groupId, username: newUsername });
+      } catch (e: any) {
+        console.warn(`[approvePayment] user_groups insert for ${newUsername} (may be duplicate):`, e?.message);
+      }
     }
   } else {
     // Renewal logic
@@ -220,26 +287,31 @@ async function approvePayment(paymentRecord: any) {
   }
 
   // Handle Loyalty Points
-  const metadata = paymentRecord.metadata || {};
+  const username = paymentRecord.username;
   try {
-    if (metadata.discountApplied) {
+    if (metadata.discountApplied === true) {
       // Reset points after discount used
-      const { error: lpErr } = await db.from("loyalty_points").update({ points: 0, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
-      if (lpErr) throw lpErr;
-    } else if (metadata.paidOnTime) {
-      // Add point if paid on time or in advance
-      const { data: lp, error: selErr } = await db.from("loyalty_points").select("points").eq("username", paymentRecord.username).maybeSingle();
-      if (selErr) throw selErr;
-      if (lp) {
-        const { error: upErr } = await db.from("loyalty_points").update({ points: lp.points + 1, updated_at: new Date().toISOString() }).eq("username", paymentRecord.username);
-        if (upErr) throw upErr;
-      } else {
-        const { error: insErr } = await db.from("loyalty_points").insert({ username: paymentRecord.username, points: 1, updated_at: new Date().toISOString() });
-        if (insErr) throw insErr;
-      }
+      const { error } = await db.from("loyalty_points")
+        .upsert({ username, points: 0, updated_at: new Date().toISOString() }, { onConflict: 'username' });
+      if (error) throw error;
+      console.log(`[loyalty] Reset points for ${username} (discount used)`);
+    } else if (metadata.paidOnTime === true) {
+      // Increment by 1 using UPSERT to avoid INSERT/UPDATE split issues
+      const { data: lp } = await db.from("loyalty_points")
+        .select("points")
+        .eq("username", username)
+        .maybeSingle();
+      const currentPoints = lp ? Number(lp.points) : 0;
+      const newPoints = currentPoints + 1;
+      const { error } = await db.from("loyalty_points")
+        .upsert({ username, points: newPoints, updated_at: new Date().toISOString() }, { onConflict: 'username' });
+      if (error) throw error;
+      console.log(`[loyalty] Points for ${username}: ${currentPoints} → ${newPoints}`);
+    } else {
+      console.log(`[loyalty] No change for ${username}: discountApplied=${metadata.discountApplied}, paidOnTime=${metadata.paidOnTime}`);
     }
   } catch (loyaltyErr) {
-    console.error("Loyalty points update error for", paymentRecord.username, ":", loyaltyErr);
+    console.error(`[loyalty] Error for ${username}:`, loyaltyErr);
   }
 
   // Handle Referral Bonus
@@ -465,9 +537,8 @@ app.post("/api/user", async (req, res) => {
       if (trusted) isTrusted = true;
     }
 
-    // Get loyalty points
-    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).maybeSingle();
-    const points = loyaltyRecord ? loyaltyRecord.points : 0;
+    // Get loyalty points (calculated from payment history — always in sync with history display)
+    const points = await calculateLoyaltyPoints(username);
 
     // Get referrals
     const { data: referrals } = await getDb().from("referrals").select("*").eq("referrer_username", username).order("created_at", { ascending: false });
@@ -656,11 +727,14 @@ app.post("/api/pix/new-device", async (req, res) => {
     }
 
     // Calculate remaining days
-    const expirationDate = new Date(mainUser.expira.replace(' ', 'T') + '-03:00'); // Force -03:00 for Brazil
+    const expirationDate = parseVpnExpira(mainUser.expira);
+    if (!expirationDate) {
+      return res.status(400).json({ error: "Data de expiração inválida no painel VPN" });
+    }
     const now = new Date();
     const diffTime = Math.max(0, expirationDate.getTime() - now.getTime());
     const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     // Check if paid on time or in advance
     const paidOnTime = now <= expirationDate;
 
@@ -799,9 +873,8 @@ app.post("/api/pix", async (req, res) => {
       return res.status(404).json({ error: "Plano não encontrado" });
     }
 
-    // Check loyalty points
-    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).maybeSingle();
-    const points = loyaltyRecord ? loyaltyRecord.points : 0;
+    // Check loyalty points (calculated from payment history)
+    const points = await calculateLoyaltyPoints(username);
 
     let transactionAmount = plan.plan_price;
     let discountApplied = false;
@@ -813,12 +886,11 @@ app.post("/api/pix", async (req, res) => {
 
     // Check if paying on time or in advance
     let paidOnTime = false;
-    if (userExists.expira) {
-      const expirationDate = new Date(userExists.expira.replace(' ', 'T') + '-03:00'); // Force -03:00 for Brazil
-      const now = new Date();
-      if (now <= expirationDate) {
-        paidOnTime = true;
-      }
+    const expirationDate = parseVpnExpira(userExists.expira);
+    if (expirationDate) {
+      paidOnTime = new Date() <= expirationDate;
+    } else if (userExists.expira) {
+      console.warn(`[pix] Invalid expira format for ${username}:`, userExists.expira);
     }
 
     // Generate Pix via Mercado Pago
@@ -1183,9 +1255,8 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
       plan = p;
     }
 
-    // Get loyalty points
-    const { data: loyaltyRecord } = await getDb().from("loyalty_points").select("points").eq("username", username).maybeSingle();
-    const points = loyaltyRecord ? loyaltyRecord.points : 0;
+    // Get loyalty points (calculated from payment history — always in sync with history display)
+    const points = await calculateLoyaltyPoints(username);
 
     // Get referrals
     const { data: referrals } = await getDb().from("referrals").select("*").eq("referrer_username", username).order("created_at", { ascending: false });

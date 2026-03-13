@@ -66,6 +66,8 @@ export default function App() {
     paymentId: string;
     qrCodeBase64: string;
     qrCode: string;
+    amount?: number;
+    discountApplied?: boolean;
   } | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<"pending" | "approved">("pending");
   const [pixExpired, setPixExpired] = useState(false);
@@ -139,6 +141,21 @@ export default function App() {
   // Calculate plan price
   const calcPlanPrice = (months: number, devices: number) =>
     5 + devices * months * 10;
+
+  // Calculate loyalty points from payment history (source of truth = payments, same as history display)
+  const calcLoyaltyPoints = (payments: any[]): number => {
+    let pts = 0;
+    const sorted = [...payments].sort((a, b) =>
+      new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime()
+    );
+    for (const p of sorted) {
+      let meta: any = {};
+      try { meta = p.metadata ? (typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata) : {}; } catch { }
+      if (meta.discountApplied === true) { pts = 0; }
+      else if (meta.paidOnTime === true) { pts++; }
+    }
+    return Math.min(pts, 3);
+  };
 
   // Tickets state
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -1608,11 +1625,11 @@ export default function App() {
                                <span className="text-[15px]">Renovar Plano Agora</span>
                               {groupData && (
                                 <div className="ml-2 flex flex-col items-end">
-                                  {currentUser.points >= 3 && (
+                                  {calcLoyaltyPoints(currentUser.payments || []) >= 3 && (
                                     <span className="text-[10px] text-green-300 font-bold -mb-1">Fidelidade -20%</span>
                                   )}
                                   <span className="bg-primary-800/50 px-2 py-0.5 rounded-lg text-primary-100 text-[13px] font-medium border border-primary-500/30">
-                                    R$ {Math.floor(calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices) * (currentUser.points >= 3 ? 0.8 : 1))},00
+                                    R$ {Math.floor(calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices) * (calcLoyaltyPoints(currentUser.payments || []) >= 3 ? 0.8 : 1))},00
                                   </span>
                                 </div>
                               )}
@@ -1923,7 +1940,7 @@ export default function App() {
                           <h3 className="text-sm font-bold text-text-base">Programa de Fidelidade</h3>
                         </div>
                         <span className="text-[10px] uppercase tracking-wider font-bold bg-yellow-100 text-yellow-800 px-3 py-1.5 rounded-xl border border-yellow-200 shadow-sm">
-                          {currentUser.points || 0}/3 Pontos
+                          {calcLoyaltyPoints(currentUser.payments || []) || 0}/3 Pontos
                         </span>
                       </div>
                       <div className="flex flex-col mb-1 relative z-10 px-0.5 space-y-3">
@@ -1931,7 +1948,7 @@ export default function App() {
                           Pague em dia ou adiantado e ganhe 1 ponto. Junte 3 pontos e ganhe <strong className="text-green-600 bg-green-50 px-1 py-0.5 rounded">20% de desconto</strong> na próxima renovação!
                         </p>
                         <div className="w-full bg-bg-surface-hover rounded-full h-3 mb-1 border border-border-base/50 p-0.5 overflow-hidden">
-                          <div className="bg-gradient-to-r from-yellow-400 to-yellow-500 h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(250,204,21,0.5)]" style={{ width: `${((currentUser.points || 0) / 3) * 100}%` }}></div>
+                          <div className="bg-gradient-to-r from-yellow-400 to-yellow-500 h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(250,204,21,0.5)]" style={{ width: `${((calcLoyaltyPoints(currentUser.payments || []) || 0) / 3) * 100}%` }}></div>
                         </div>
                         <button
                           onClick={() => setShowHistory(!showHistory)}
@@ -2180,9 +2197,19 @@ export default function App() {
                                     <span className="text-white/80">{planDevices} celular{planDevices > 1 ? "es" : ""} × {planMonths} {planMonths > 1 ? "meses" : "mês"} × R$ 10</span>
                                     <span className="font-bold">+ R$ {planDevices * planMonths * 10}</span>
                                   </div>
+                                  {calcLoyaltyPoints(currentUser?.payments || []) >= 3 && (
+                                    <div className="flex justify-between text-green-300">
+                                      <span className="font-bold">🎉 Desconto fidelidade -20%</span>
+                                      <span className="font-bold">- R$ {Math.round(calcPlanPrice(planMonths, planDevices) * 0.2)}</span>
+                                    </div>
+                                  )}
                                   <div className="border-t border-white/20 pt-2 mt-2 flex justify-between">
                                     <span className="font-black text-lg">Total</span>
-                                    <span className="font-black text-2xl">R$ {calcPlanPrice(planMonths, planDevices)}</span>
+                                    <span className="font-black text-2xl">
+                                      R$ {calcLoyaltyPoints(currentUser?.payments || []) >= 3
+                                        ? Math.floor(calcPlanPrice(planMonths, planDevices) * 0.8)
+                                        : calcPlanPrice(planMonths, planDevices)}
+                                    </span>
                                   </div>
                                 </div>
                                 <button
@@ -3243,13 +3270,16 @@ export default function App() {
                           <div>
                             <p className="text-[10px] uppercase tracking-wider font-bold text-primary-500 mb-0.5">Renovação do Plano</p>
                             <p className="text-sm font-semibold text-text-base">{groupData.plan.plan_months} {groupData.plan.plan_months === 1 ? 'mês' : 'meses'} · {groupData.plan.plan_devices} {groupData.plan.plan_devices === 1 ? 'aparelho' : 'aparelhos'}</p>
-                            {currentUser?.points >= 3 && (
-                              <p className="text-[11px] text-green-600 font-bold mt-0.5">Desconto fidelidade -20% aplicado!</p>
+                            {paymentData?.discountApplied && (
+                              <p className="text-[11px] text-green-600 font-bold mt-0.5">🎉 Desconto fidelidade -20% aplicado!</p>
                             )}
                           </div>
                           <div className="text-right">
+                            {paymentData?.discountApplied && (
+                              <p className="text-xs line-through text-text-muted">R$ {calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices)},00</p>
+                            )}
                             <p className="text-2xl font-black text-primary-600">
-                              R$ {Math.floor(calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices) * (currentUser?.points >= 3 ? 0.8 : 1))},00
+                              R$ {paymentData?.amount != null ? Math.floor(paymentData.amount) : calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices)},00
                             </p>
                           </div>
                         </div>
