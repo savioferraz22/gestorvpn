@@ -129,7 +129,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="w-full bg-bg-surface rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-border-base/50"
+        className="w-full flex-1 flex flex-col min-h-[100dvh] sm:min-h-0"
       >
         <div className="bg-gradient-to-r from-bg-surface to-bg-surface-hover p-6 flex justify-between items-center shrink-0 border-b border-border-base/50">
           <div className="flex items-center gap-3">
@@ -186,8 +186,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="w-full bg-bg-surface rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-border-base/50"
-      style={{ height: "90vh" }}
+      className="w-full flex-1 flex flex-col overflow-hidden min-h-[100dvh] sm:min-h-0"
     >
       {/* Top bar */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border-base/50 bg-gradient-to-r from-bg-surface to-bg-surface-hover shrink-0">

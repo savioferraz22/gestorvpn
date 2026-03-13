@@ -1404,6 +1404,10 @@ async function startServer() {
   } else {
     app.use(express.static("dist"));
   }
+
+  server.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+  });
 }
 
 // Global error handler

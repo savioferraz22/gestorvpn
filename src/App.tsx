@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard } from "lucide-react";
+import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 
 type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help";
@@ -67,6 +67,7 @@ export default function App() {
     qrCode: string;
   } | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<"pending" | "approved">("pending");
+  const [pixExpired, setPixExpired] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // New User state
@@ -218,6 +219,9 @@ export default function App() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [openTrouble, setOpenTrouble] = useState<number | null>(null);
 
+  // User sidebar mobile open state
+  const [userSidebarOpen, setUserSidebarOpen] = useState(false);
+
   const troubleshootingSteps = [
     {
       title: "1. Validade do Chip (Fazer Login na Rede)",
@@ -247,6 +251,14 @@ export default function App() {
 
   const faqItems = [
     {
+      title: "Funciona em iPhone?",
+      content: "Não. O app CloudBR DT é exclusivo para Android. Não temos compatibilidade com iPhone (iOS) e não há previsão de suporte."
+    },
+    {
+      title: "Funciona com qualquer chip?",
+      content: "Não. O app CloudBR DT funciona somente com chips das operadoras TIM e VIVO. Chips de outras operadoras (Claro, Oi, etc.) não são compatíveis."
+    },
+    {
       title: "É possível rotear a internet?",
       content: "Sim, porém é necessário pesquisar no YouTube como fazer isso. Na maioria das vezes não funciona para roteamento (vai da sorte), por isso não oferecemos suporte para essa função."
     },
@@ -265,10 +277,6 @@ export default function App() {
     {
       title: "Qual a velocidade da internet?",
       content: "Varia entre 5 e 100 megas, dependendo da força do sinal da operadora na sua região. Lentidões temporárias podem ocorrer."
-    },
-    {
-      title: "Tem grupo no WhatsApp?",
-      content: "Sim! Temos um grupo de avisos onde apenas o Administrador fala. Acesse: https://chat.whatsapp.com/JABxgPJYwpa7iSClCp8Alz"
     },
     {
       title: "Se eu tiver crédito, vai gastar meu saldo?",
@@ -322,6 +330,20 @@ export default function App() {
     }
     setDeviceId(id);
 
+    // Handle referral link: ?ref=USERNAME
+    const params = new URLSearchParams(window.location.search);
+    const refParam = params.get("ref");
+    if (refParam) {
+      const sanitized = refParam.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10);
+      if (sanitized) {
+        setReferrerUsername(sanitized);
+        setView("create_user");
+        // Clean URL without reload
+        window.history.replaceState({}, "", window.location.pathname);
+        return;
+      }
+    }
+
     const savedUsername = localStorage.getItem("vpn_saved_username");
     if (savedUsername) {
       setUsername(savedUsername);
@@ -332,8 +354,9 @@ export default function App() {
   // Pix status polling
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let timeout: NodeJS.Timeout;
 
-    if (paymentData && paymentStatus === "pending") {
+    if (paymentData && paymentStatus === "pending" && !pixExpired) {
       interval = setInterval(async () => {
         try {
           const res = await fetch(`/api/status/${paymentData.paymentId}`);
@@ -341,6 +364,7 @@ export default function App() {
           if (data.status === "approved") {
             setPaymentStatus("approved");
             clearInterval(interval);
+            clearTimeout(timeout);
             // Refresh user data after approval
             if (currentUser) {
               handleLogin(currentUser.login);
@@ -350,12 +374,19 @@ export default function App() {
           console.error("Error checking status:", err);
         }
       }, 5000);
+
+      // 15-minute timeout
+      timeout = setTimeout(() => {
+        clearInterval(interval);
+        setPixExpired(true);
+      }, 15 * 60 * 1000);
     }
 
     return () => {
       if (interval) clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
     };
-  }, [paymentData, paymentStatus, currentUser]);
+  }, [paymentData, paymentStatus, pixExpired, currentUser]);
 
   const handleLoginChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -1099,15 +1130,91 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-bg-base flex flex-col items-center justify-start sm:justify-center p-0 sm:p-4 font-sans w-full relative">
+    <div className="min-h-[100dvh] bg-bg-base font-sans w-full relative flex">
       {/* Background decoration elements */}
       <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[500px] max-h-[500px] rounded-full bg-primary-500/10 blur-[80px]" />
         <div className="absolute bottom-[10%] -left-[10%] w-[60vw] h-[60vw] max-w-[400px] max-h-[400px] rounded-full bg-primary-400/10 blur-[60px]" />
       </div>
 
-      <div className="w-full max-w-md min-h-[100dvh] sm:min-h-0 sm:h-auto sm:border sm:border-border-base sm:rounded-[2.5rem] bg-bg-surface sm:shadow-2xl flex flex-col overflow-hidden relative z-10">
+      {/* User Sidebar — shown when logged in (not admin/public views) */}
+      {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow"].includes(view) && (
+        <>
+          {/* Mobile overlay */}
+          {userSidebarOpen && (
+            <div
+              className="md:hidden fixed inset-0 bg-black/40 z-10"
+              onClick={() => setUserSidebarOpen(false)}
+            />
+          )}
+          <aside className={`
+            fixed md:relative z-20 md:z-auto
+            flex flex-col h-full md:h-screen w-64 shrink-0
+            bg-bg-surface border-r border-border-base/50
+            transition-transform duration-200
+            ${userSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+          `}>
+            {/* Brand */}
+            <div className="p-5 border-b border-border-base/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div
+                  onDoubleClick={() => { setUserSidebarOpen(false); setView("admin"); }}
+                  className="w-10 h-10 rounded-2xl bg-primary-600 flex items-center justify-center cursor-pointer select-none hover:bg-primary-700 transition-colors"
+                  title="Área Administrativa (Duplo Clique)"
+                >
+                  <img src="/logo.png" alt="VS+" className="w-8 h-8 object-contain" />
+                </div>
+                <div>
+                  <p className="font-bold text-text-base text-sm leading-tight">VS Plus</p>
+                  <p className="text-text-muted text-xs truncate max-w-[120px]">{currentUser?.login}</p>
+                </div>
+              </div>
+            </div>
+            {/* Nav */}
+            <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+              <button
+                onClick={() => { setView("dashboard"); setUserSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${view === "dashboard" ? "bg-primary-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Meu Painel</span>
+              </button>
+              <button
+                onClick={() => { fetchUserTickets(); setView("tickets"); setUserSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${["tickets", "ticket_detail"].includes(view) ? "bg-primary-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span className="flex-1">Suporte</span>
+                {tickets.filter(t => t.status === "answered").length > 0 && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${["tickets", "ticket_detail"].includes(view) ? "bg-white/20 text-white" : "bg-primary-600 text-white"}`}>
+                    {tickets.filter(t => t.status === "answered").length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => { setView("help"); setUserSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${view === "help" ? "bg-primary-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>Ajuda</span>
+              </button>
+            </nav>
+            {/* Logout */}
+            <div className="p-3 border-t border-border-base/50 shrink-0">
+              <button
+                onClick={() => { setView("login"); setCurrentUser(null); setShowData(false); localStorage.removeItem("vpn_saved_username"); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                Sair
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
 
+      {/* Main content wrapper */}
+      <div className="flex-1 overflow-hidden flex flex-col relative z-10">
         {/* Notification Toast for Copy */}
         <AnimatePresence>
           {copied && (
@@ -1115,7 +1222,7 @@ export default function App() {
               initial={{ opacity: 0, y: 20, x: "-50%" }}
               animate={{ opacity: 1, y: 0, x: "-50%" }}
               exit={{ opacity: 0, y: 20, x: "-50%" }}
-              className="fixed bottom-24 left-1/2 transform -translate-x-1/2 bg-gray-900/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-2xl z-[100] flex items-center gap-3 border border-white/10"
+              className="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-gray-900/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-2xl z-[100] flex items-center gap-3 border border-white/10"
             >
               <div className="bg-green-500 rounded-full p-1">
                 <CheckCircle2 className="w-4 h-4 text-white" />
@@ -1125,8 +1232,8 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Main Content Area */}
-        <div className="flex-1 overflow-y-auto pb-24 sm:pb-6 scroll-smooth">
+        {/* Views area */}
+        <div className="flex-1 overflow-hidden flex flex-col">
           <AnimatePresence mode="wait">
             {view === "login" && (
               <motion.div
@@ -1134,7 +1241,7 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                className="w-full flex justify-center items-center min-h-[100dvh] sm:min-h-0 p-6"
+                className="w-full flex-1 flex justify-center items-center p-6"
               >
                 <div className="w-full max-w-sm">
                   {/* Glossy Header Effect */}
@@ -1230,12 +1337,19 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
-                className="w-full max-w-md bg-bg-base min-h-[100dvh] sm:min-h-[850px] sm:h-[85vh] sm:rounded-[40px] sm:shadow-2xl overflow-x-hidden overflow-y-auto relative flex flex-col"
+                className="w-full flex-1 bg-bg-base overflow-x-hidden overflow-y-auto relative flex flex-col"
               >
-                {/* Premium Header - Simplified */}
-                <div className="bg-gradient-to-br from-primary-600 to-primary-800 p-5 rounded-b-3xl shadow-md relative z-10 shrink-0">
+                {/* Premium Header */}
+                <div className="bg-gradient-to-br from-primary-600 to-primary-800 p-5 shadow-md relative z-10 shrink-0">
                   <div className="flex justify-between items-center relative z-10">
                     <div className="flex items-center gap-3">
+                      {/* Mobile hamburger */}
+                      <button
+                        onClick={() => setUserSidebarOpen(v => !v)}
+                        className="md:hidden p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      >
+                        <Menu className="w-5 h-5" />
+                      </button>
                       <div
                         onDoubleClick={() => { setError(""); setAdminPass(""); setIsAdminAuth(false); setView("admin"); }}
                         className="w-12 h-12 flex items-center justify-center shadow-inner rounded-2xl overflow-hidden bg-black/20 backdrop-blur-md border border-white/10 cursor-pointer select-none transition-transform active:scale-95 hover:bg-black/30"
@@ -1248,30 +1362,16 @@ export default function App() {
 
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-xl backdrop-blur-md border border-white/10">
-                      <button
-                        onClick={() => { fetchUserTickets(); setView("tickets"); }}
-                        className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
-                        title="Meus Tickets"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setView("login");
-                          setCurrentUser(null);
-                          setShowData(false);
-                          localStorage.removeItem("vpn_saved_username");
-                        }}
-                        className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
-                        title="Sair"
-                      >
-                        <LogIn className="w-4 h-4 transform rotate-180" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => setUserSidebarOpen(true)}
+                      className="md:hidden text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
+                      title="Menu"
+                    >
+                      <Menu className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
-                <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0">
+                <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
                   {/* Security Hint Banner for Unverified Users */}
                   {!showData && (
                     <motion.div
@@ -1301,43 +1401,6 @@ export default function App() {
 
 
                   <div className="space-y-4">
-                    {/* Loyalty Points Section */}
-                    {currentUser.points !== undefined && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-3xl p-5 text-white shadow-lg relative overflow-hidden group"
-                      >
-                        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:scale-110 transition-transform">
-                          <Star className="w-16 h-16 fill-white" />
-                        </div>
-                        <div className="relative z-10">
-                          <div className="flex justify-between items-start mb-4">
-                            <div>
-                              <h3 className="text-sm font-bold opacity-90 uppercase tracking-widest text-amber-100">Progresso Fidelidade</h3>
-                              <p className="text-2xl font-black mt-1">
-                                {currentUser.points >= 3 ? "20% DE DESCONTO!" : `${currentUser.points} / 3 Pontos`}
-                              </p>
-                            </div>
-                            <div className="bg-white/20 p-2 rounded-2xl backdrop-blur-md">
-                              <Star className={`w-6 h-6 ${currentUser.points >= 3 ? 'fill-white' : ''}`} />
-                            </div>
-                          </div>
-                          <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden border border-white/10">
-                            <motion.div 
-                              initial={{ width: 0 }}
-                              animate={{ width: `${Math.min((currentUser.points / 3) * 100, 100)}%` }}
-                              className={`h-full ${currentUser.points >= 3 ? 'bg-green-400' : 'bg-white'}`}
-                            />
-                          </div>
-                          <p className="text-[10px] mt-3 font-medium text-amber-50 leading-tight">
-                            {currentUser.points >= 3 
-                              ? "Sua próxima renovação terá 20% de desconto automático!" 
-                              : `Faltam ${3 - currentUser.points} pagamentos em dia para você ganhar 20% de desconto.`}
-                          </p>
-                        </div>
-                      </motion.div>
-                    )}
                     {(groupUsersDetails.length > 0
                       // Sort: current user first, then others
                       ? [...groupUsersDetails].sort((a, b) =>
@@ -1346,8 +1409,22 @@ export default function App() {
                       : [currentUser]
                     ).map((device, index) => (
                       <div key={device.login} className="bg-bg-surface rounded-3xl p-5 border border-border-base space-y-4 relative overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                        <div className="absolute top-0 right-0 bg-primary-100/50 backdrop-blur-md text-primary-800 text-xs font-bold px-4 py-1.5 rounded-bl-2xl border-b border-l border-primary-200/50">
+                        <div className="absolute top-0 right-0 flex items-center gap-1.5 bg-primary-100/50 backdrop-blur-md text-primary-800 text-xs font-bold px-4 py-1.5 rounded-bl-2xl border-b border-l border-primary-200/50">
                           Aparelho {index + 1}
+                          {device.status && (
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                              device.status === 'online' ? 'bg-green-100 text-green-700' :
+                              device.status === 'offline' ? 'bg-gray-100 text-gray-500' :
+                              'bg-red-100 text-red-600'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${
+                                device.status === 'online' ? 'bg-green-500' :
+                                device.status === 'offline' ? 'bg-gray-400' :
+                                'bg-red-500'
+                              }`} />
+                              {device.status === 'online' ? 'Online' : device.status === 'offline' ? 'Offline' : device.status}
+                            </span>
+                          )}
                         </div>
 
                         {/* User Section */}
@@ -1398,7 +1475,7 @@ export default function App() {
                             <Key className="w-5 h-5" />
                           </div>
                           <div className="flex-1 overflow-hidden">
-                            <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5">UUID</p>
+                            <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5" title="Identificador único necessário para conectar no app CloudBR DT">ID do Aparelho</p>
                             {device.uuid && device.uuid !== "NULL" && device.uuid !== "" ? (
                               showData ? (
                                 <div className="flex items-center justify-between">
@@ -1419,14 +1496,14 @@ export default function App() {
                                 {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid' && r.status === 'aguardando') ? (
                                   <div className="flex items-center bg-amber-50 text-amber-700 px-2.5 py-2 rounded-lg border border-amber-200">
                                     <Clock className="w-3.5 h-3.5 mr-1.5 shrink-0" />
-                                    <p className="text-[11px] font-medium leading-tight">Solicitação de UUID em análise pelo administrador.</p>
+                                    <p className="text-[11px] font-medium leading-tight">Solicitação de ID do Aparelho em análise pelo administrador.</p>
                                   </div>
                                 ) : (
                                   <>
                                     <div className="flex items-center bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg border border-blue-100/50">
                                       <AlertCircle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
                                       <p className="text-[11px] font-medium leading-tight">
-                                        Sem UUID. Solicite abaixo para vincular seu aparelho.
+                                        Sem ID do Aparelho. Solicite abaixo para vincular seu aparelho ao app CloudBR DT.
                                       </p>
                                     </div>
                                     <button
@@ -1435,7 +1512,7 @@ export default function App() {
                                       className="w-full bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors active:scale-95 shadow-sm disabled:opacity-60"
                                     >
                                       <Key className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                                      Solicitar UUID
+                                      Solicitar ID do Aparelho
                                     </button>
                                   </>
                                 )}
@@ -1446,12 +1523,56 @@ export default function App() {
                       </div>
                     ))}
 
+                    {/* Download App CTA */}
+                    <div className="rounded-3xl overflow-hidden border border-border-base shadow-sm">
+                      <a
+                        href="https://play.google.com/store/apps/details?id=google.android.a48"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-4 bg-bg-surface hover:bg-bg-surface-hover p-4 transition-colors active:scale-[0.98]"
+                      >
+                        <div className="w-12 h-12 bg-primary-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-md">
+                          <Download className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-text-base">Baixar App CloudBR DT</p>
+                          <p className="text-[11px] text-text-muted mt-0.5">Use seu usuário e senha para conectar</p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0" />
+                      </a>
+                      <div className="bg-amber-50 border-t border-amber-100 px-4 py-2.5 flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-amber-700">
+                          <Smartphone className="w-3.5 h-3.5 flex-shrink-0" />
+                          <p className="text-[11px] font-bold">Somente Android — não compatível com iPhone</p>
+                        </div>
+                        <div className="flex items-center gap-2 text-amber-700">
+                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                          <p className="text-[11px] font-bold">Funciona somente com chip TIM ou VIVO</p>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Expiration and Limit Card */}
                     <div className="bg-bg-surface-hover rounded-3xl p-5 border border-border-base flex flex-col gap-5 shadow-sm">
                       <div className="flex justify-between items-center bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm">
                         <div className="flex flex-col items-center flex-1">
                           <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Vencimento</p>
                           <p className="text-xl font-bold text-primary-600">{formatDate(currentUser.expira)}</p>
+                          {(() => {
+                            const expiry = new Date(currentUser.expira);
+                            const now = new Date();
+                            const diffMs = expiry.getTime() - now.getTime();
+                            const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                            if (diffDays <= 0) return (
+                              <span className="mt-1 text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">Expirado</span>
+                            );
+                            if (diffDays <= 7) return (
+                              <span className="mt-1 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Vence em {diffDays}d</span>
+                            );
+                            return (
+                              <span className="mt-1 text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Ativo · {diffDays}d</span>
+                            );
+                          })()}
                         </div>
                         <div className="w-px h-10 bg-border-base"></div>
                         <div className="flex flex-col items-center flex-1">
@@ -1693,7 +1814,7 @@ export default function App() {
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-1.5">
                                 <p className="text-xs font-bold text-text-base">
-                                  {req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Geração de UUID' : 'Alteração de Senha'}
+                                  {req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Geração de ID do Aparelho' : 'Alteração de Senha'}
                                 </p>
                                 <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-md font-bold border border-primary-200">{getDeviceLabel(req.username)}</span>
                               </div>
@@ -1710,7 +1831,7 @@ export default function App() {
                               </span>
                               {req.status === 'aguardando' && (
                                 <button
-                                  onClick={() => cancelChangeRequest(req.id)}
+                                  onClick={() => confirmAction("Cancelar solicitação", "Tem certeza que deseja cancelar esta solicitação?", () => cancelChangeRequest(req.id))}
                                   className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors border border-red-100"
                                   title="Cancelar solicitação"
                                 >
@@ -1735,7 +1856,7 @@ export default function App() {
                               </span>
                               {currentUser.refundRequest.status === 'aguardando' && (
                                 <button
-                                  onClick={() => cancelRefundRequest(currentUser.refundRequest.id)}
+                                  onClick={() => confirmAction("Cancelar reembolso", "Tem certeza que deseja cancelar a solicitação de reembolso?", () => cancelRefundRequest(currentUser.refundRequest.id))}
                                   className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors border border-red-100"
                                   title="Cancelar solicitação de reembolso"
                                 >
@@ -1859,15 +1980,24 @@ export default function App() {
                           <div className="bg-black/10 rounded-xl p-3 backdrop-blur-sm border border-white/10 text-xs">
                             <p className="font-semibold mb-1">Como funciona:</p>
                             <ol className="list-decimal pl-4 space-y-1 text-[11px] text-white/90">
-                              <li>Passe o site para o seu amigo.</li>
-                              <li>Peça para ele colocar o seu Usuário (<strong className="bg-white/20 px-1 rounded">{currentUser.login}</strong>) no campo "Indicado por" durante a geração do teste.</li>
+                              <li>Copie seu link de indicação abaixo e envie para o amigo.</li>
+                              <li>Ao abrir o link, a página já abre com seu usuário preenchido automaticamente.</li>
                               <li>Quando ele assinar, você ganha 30 dias grátis!</li>
                             </ol>
                           </div>
                         </div>
-                        <p className="text-[11px] text-text-muted font-medium text-center leading-relaxed">
-                          Seu código de indicação: <strong className="font-mono bg-bg-surface border border-border-base px-2 py-1 rounded-lg text-text-base">{currentUser.login}</strong>
-                        </p>
+                        <div className="flex flex-col items-center gap-2">
+                          <p className="text-[11px] text-text-muted font-medium text-center leading-relaxed">
+                            Seu código de indicação: <strong className="font-mono bg-bg-surface border border-border-base px-2 py-1 rounded-lg text-text-base">{currentUser.login}</strong>
+                          </p>
+                          <button
+                            onClick={() => copyToClipboard(`https://vsplusnet.com.br/?ref=${currentUser.login}`)}
+                            className="w-full text-[11px] font-bold bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl transition-colors shadow-sm active:scale-95 flex justify-center items-center gap-2"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            Copiar Link de Indicação
+                          </button>
+                        </div>
                         <button
                           onClick={() => setShowReferrals(!showReferrals)}
                           className="w-full text-[11px] uppercase tracking-wider font-bold bg-bg-surface hover:bg-border-base text-primary-600 border border-border-base px-4 py-3 rounded-xl transition-colors shadow-sm active:scale-95 flex justify-center items-center"
@@ -2431,7 +2561,8 @@ export default function App() {
                             <div>
                               <label className="block text-sm font-medium text-text-base mb-1">Alterar Senha</label>
                               <input
-                                type="text"
+                                type="password"
+                                inputMode="numeric"
                                 pattern="\d{4,10}"
                                 maxLength={10}
                                 value={newPassword}
@@ -2613,11 +2744,12 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="max-w-md w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden flex flex-col h-[700px] max-h-[90vh]"
+                className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
               >
-                <div className="bg-blue-600 p-4 flex justify-between items-center flex-shrink-0">
+                <div className="bg-primary-600 p-4 flex justify-between items-center flex-shrink-0">
+                  {/* Mobile hamburger for help view */}
                   <div className="flex items-center">
-                    <button onClick={() => setView("dashboard")} className="text-blue-100 hover:text-white mr-3">
+                    <button onClick={() => setView("dashboard")} className="text-primary-100 hover:text-white mr-3">
                       <ArrowLeft className="w-5 h-5" />
                     </button>
                     <h1 className="text-lg font-semibold text-white">Central de Ajuda</h1>
@@ -2628,7 +2760,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-0 bg-bg-surface-hover">
+                <div className="flex-1 overflow-y-auto p-0 bg-bg-surface-hover pb-20 md:pb-0">
                   {/* Como Conectar */}
                   <div className="p-5 border-b border-border-base bg-bg-surface">
                     <h2 className="font-semibold text-text-base flex items-center mb-4">
@@ -2729,7 +2861,7 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                className="w-full flex justify-center items-center min-h-[100dvh] sm:min-h-0 p-6"
+                className="w-full flex-1 flex justify-center items-center p-6"
               >
                 <div className="w-full max-w-sm">
                   {/* Glossy Header Effect */}
@@ -2779,16 +2911,34 @@ export default function App() {
                           <label htmlFor="referrerUsername" className="block text-xs font-semibold text-text-muted mb-1.5 uppercase tracking-wider px-1">
                             Quem te indicou? <span className="text-primary-500 font-normal">(Opcional)</span>
                           </label>
-                          <input
-                            id="referrerUsername"
-                            type="text"
-                            value={referrerUsername}
-                            onChange={(e) => setReferrerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10))}
-                            className="w-full px-4 py-4 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 focus:bg-bg-surface outline-none transition-all font-semibold text-text-base placeholder-text-muted shadow-sm"
-                            placeholder="Deixe em branco se não souber"
-                            disabled={loading}
-                            maxLength={10}
-                          />
+                          <div className="relative">
+                            <input
+                              id="referrerUsername"
+                              type="text"
+                              value={referrerUsername}
+                              onChange={(e) => setReferrerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10))}
+                              className={`w-full px-4 py-4 rounded-2xl border focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted shadow-sm ${referrerUsername ? 'bg-green-50 border-green-300 text-green-800' : 'bg-bg-surface-hover border-border-base focus:bg-bg-surface'}`}
+                              placeholder="Deixe em branco se não foi indicado"
+                              disabled={loading}
+                              maxLength={10}
+                            />
+                            {referrerUsername && (
+                              <button
+                                type="button"
+                                onClick={() => setReferrerUsername("")}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-green-600 hover:text-red-500 transition-colors"
+                                title="Limpar"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          {referrerUsername && (
+                            <p className="text-[11px] text-green-700 font-semibold mt-1.5 px-1 flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Indicado por: <strong>{referrerUsername}</strong>
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -2821,7 +2971,7 @@ export default function App() {
                 key="show_credentials"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                className="w-full flex justify-center items-center min-h-[100dvh] sm:min-h-0 p-6"
+                className="w-full flex-1 flex justify-center items-center p-6"
               >
                 <div className="w-full max-w-sm">
                   <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-green-500/20 to-transparent pointer-events-none" />
@@ -2864,7 +3014,7 @@ export default function App() {
                       {credentials.uuid && (
                         <div className="p-4 flex items-center justify-between">
                           <div className="overflow-hidden mr-3">
-                            <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">UUID</p>
+                            <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">ID do Aparelho</p>
                             <p className="font-mono text-xs font-semibold text-text-base truncate">{credentials.uuid}</p>
                           </div>
                           <button onClick={() => copyToClipboard(credentials.uuid)} className="p-2 bg-bg-surface-hover hover:bg-border-base rounded-xl transition-colors text-primary-600 shrink-0">
@@ -2949,8 +3099,44 @@ export default function App() {
                         Voltar ao Painel
                       </button>
                     </motion.div>
+                  ) : pixExpired ? (
+                    <motion.div
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="text-center py-6"
+                    >
+                      <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <XCircle className="w-10 h-10 text-red-500" />
+                      </div>
+                      <h2 className="text-xl font-bold text-text-base mb-2">QR Code expirado</h2>
+                      <p className="text-text-muted mb-6 text-sm">
+                        O tempo limite de 15 minutos foi atingido. Gere um novo PIX para continuar.
+                      </p>
+                      <button
+                        onClick={() => { setPaymentData(null); setPaymentStatus("pending"); setPixExpired(false); setView("dashboard"); }}
+                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 rounded-xl transition-colors"
+                      >
+                        Voltar ao Painel
+                      </button>
+                    </motion.div>
                   ) : (
                     <div className="space-y-6">
+                      {groupData && (
+                        <div className="bg-primary-50 border border-primary-100 rounded-2xl p-4 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-primary-500 mb-0.5">Renovação do Plano</p>
+                            <p className="text-sm font-semibold text-text-base">{groupData.plan.plan_months} {groupData.plan.plan_months === 1 ? 'mês' : 'meses'} · {groupData.plan.plan_devices} {groupData.plan.plan_devices === 1 ? 'aparelho' : 'aparelhos'}</p>
+                            {currentUser?.points >= 3 && (
+                              <p className="text-[11px] text-green-600 font-bold mt-0.5">Desconto fidelidade -20% aplicado!</p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-black text-primary-600">
+                              R$ {Math.floor(calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices) * (currentUser?.points >= 3 ? 0.8 : 1))},00
+                            </p>
+                          </div>
+                        </div>
+                      )}
                       <div className="text-center">
                         <h3 className="text-xl font-semibold text-text-base mb-2">
                           Pague com Pix
@@ -3003,6 +3189,13 @@ export default function App() {
                         <Loader2 className="w-4 h-4 animate-spin text-primary-600" />
                         Aguardando confirmação do pagamento...
                       </div>
+
+                      <button
+                        onClick={() => { setPaymentData(null); setPaymentStatus("pending"); setPixExpired(false); setView("dashboard"); }}
+                        className="w-full text-sm text-text-muted hover:text-red-500 py-2 transition-colors"
+                      >
+                        Cancelar e voltar ao painel
+                      </button>
                     </div>
                   )}
                 </div>
@@ -3015,7 +3208,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="w-full"
+                className="flex-1 flex flex-col overflow-hidden"
               >
                 <AdminShell onBack={() => setView("login")} />
               </motion.div>
@@ -3028,7 +3221,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="max-w-md w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden flex flex-col h-[600px] relative"
+                className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
               >
                 <div className="bg-primary-600 p-4 flex justify-between items-center flex-shrink-0">
                   <div className="flex items-center">
@@ -3039,7 +3232,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover">
+                <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-4">
                   {tickets.length === 0 ? (
                     <div className="text-center py-12 flex flex-col items-center justify-center h-full">
                       <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mb-4">
@@ -3087,7 +3280,7 @@ export default function App() {
                 {/* Floating Action Button */}
                 <button
                   onClick={() => setShowNewTicketModal(true)}
-                  className="absolute bottom-6 right-6 w-14 h-14 bg-primary-600 hover:bg-primary-700 text-white rounded-full flex items-center justify-center shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all z-20"
+                  className="absolute bottom-20 right-6 md:bottom-6 w-14 h-14 bg-primary-600 hover:bg-primary-700 text-white rounded-full flex items-center justify-center shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all z-20"
                 >
                   <Plus className="w-7 h-7" />
                 </button>
@@ -3127,7 +3320,7 @@ export default function App() {
                               >
                                 <option>Suporte Técnico</option>
                                 <option>Financeiro</option>
-                                <option>Solicitar UUID</option>
+                                <option>Solicitar ID do Aparelho</option>
                                 <option>Outros</option>
                               </select>
                             </div>
@@ -3179,7 +3372,7 @@ export default function App() {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
-                className={`w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden flex flex-col ${view === "admin_ticket_detail" ? "h-[90vh]" : "max-w-md h-[600px]"}`}
+                className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
               >
                 <div className={`${view === "admin_ticket_detail" ? "bg-bg-surface-hover text-text-base" : "bg-primary-600 text-white"} p-4 flex justify-between items-center flex-shrink-0`}>
                   <div className="flex items-center overflow-hidden">
@@ -3364,7 +3557,7 @@ export default function App() {
                                             <span className="font-mono text-xs font-bold text-text-base overflow-hidden break-all">{adminTicketUserDetails.user?.senha || adminTicketUserDetails.user?.pass || adminTicketUserDetails.user?.password || 'Não definida'}</span>
                                           </div>
                                           <div className="flex justify-between">
-                                            <span className="text-text-muted text-xs font-medium">UUID do Aparelho:</span>
+                                            <span className="text-text-muted text-xs font-medium">ID do Aparelho:</span>
                                             <span className="font-mono text-[10px] text-text-base text-right max-w-[150px] overflow-hidden text-ellipsis">{adminTicketUserDetails.devices?.[0]?.device_id || 'Nenhum celular vinculado'}</span>
                                           </div>
                                         </div>
@@ -3658,6 +3851,38 @@ export default function App() {
             )}
           </AnimatePresence>
         </div>
+
+        {/* Mobile bottom navigation — shown when logged in (not admin) */}
+        {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow"].includes(view) && (
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
+            <button
+              onClick={() => setView("dashboard")}
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "dashboard" ? "text-primary-600" : "text-text-muted"}`}
+            >
+              <LayoutDashboard className="w-5 h-5" />
+              Painel
+            </button>
+            <button
+              onClick={() => { fetchUserTickets(); setView("tickets"); }}
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors relative ${["tickets", "ticket_detail"].includes(view) ? "text-primary-600" : "text-text-muted"}`}
+            >
+              <MessageSquare className="w-5 h-5" />
+              Suporte
+              {tickets.filter(t => t.status === "answered").length > 0 && (
+                <span className="absolute top-2 right-[calc(50%-10px)] bg-primary-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+                  {tickets.filter(t => t.status === "answered").length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setView("help")}
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "help" ? "text-primary-600" : "text-text-muted"}`}
+            >
+              <HelpCircle className="w-5 h-5" />
+              Ajuda
+            </button>
+          </nav>
+        )}
       </div>
     </div>
   );
