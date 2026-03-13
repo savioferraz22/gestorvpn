@@ -138,7 +138,7 @@ export default function App() {
 
   // Calculate plan price
   const calcPlanPrice = (months: number, devices: number) =>
-    15 + (months - 1) * 10 + (devices - 1) * 10;
+    5 + devices * months * 10;
 
   // Tickets state
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -2173,21 +2173,13 @@ export default function App() {
                                 <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-3">Resumo do Plano</p>
                                 <div className="space-y-1.5 text-sm mb-4">
                                   <div className="flex justify-between">
-                                    <span className="text-white/80">Base (1 mês, 1 celular)</span>
-                                    <span className="font-bold">R$ 15</span>
+                                    <span className="text-white/80">Taxa base</span>
+                                    <span className="font-bold">R$ 5</span>
                                   </div>
-                                  {planMonths > 1 && (
-                                    <div className="flex justify-between">
-                                      <span className="text-white/80">{planMonths - 1} mês(es) extra</span>
-                                      <span className="font-bold">+ R$ {(planMonths - 1) * 10}</span>
-                                    </div>
-                                  )}
-                                  {planDevices > 1 && (
-                                    <div className="flex justify-between">
-                                      <span className="text-white/80">{planDevices - 1} celular(es) extra</span>
-                                      <span className="font-bold">+ R$ {(planDevices - 1) * 10}</span>
-                                    </div>
-                                  )}
+                                  <div className="flex justify-between">
+                                    <span className="text-white/80">{planDevices} celular{planDevices > 1 ? "es" : ""} × {planMonths} {planMonths > 1 ? "meses" : "mês"} × R$ 10</span>
+                                    <span className="font-bold">+ R$ {planDevices * planMonths * 10}</span>
+                                  </div>
                                   <div className="border-t border-white/20 pt-2 mt-2 flex justify-between">
                                     <span className="font-black text-lg">Total</span>
                                     <span className="font-black text-2xl">R$ {calcPlanPrice(planMonths, planDevices)}</span>
