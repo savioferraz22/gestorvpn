@@ -3920,6 +3920,38 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* ─ Quick access ─ */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <a
+                      href="https://pweb.cloudbrasil.shop/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3.5 px-4 rounded-2xl transition-colors shadow-sm active:scale-[0.98]"
+                    >
+                      <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
+                        <LayoutDashboard className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold leading-tight">Painel VPN</p>
+                        <p className="text-[10px] text-emerald-100 truncate">pweb.cloudbrasil.shop</p>
+                      </div>
+                    </a>
+                    <a
+                      href="https://play.google.com/store/apps/details?id=google.android.a48"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3.5 px-4 rounded-2xl transition-colors shadow-sm active:scale-[0.98]"
+                    >
+                      <div className="w-8 h-8 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
+                        <Download className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold leading-tight text-text-base">App CloudBRDT</p>
+                        <p className="text-[10px] text-text-muted truncate">Play Store</p>
+                      </div>
+                    </a>
+                  </div>
+
                   {/* ─ Expiry alert ─ */}
                   {!needsSetup && expired && (
                     <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
@@ -4380,19 +4412,17 @@ export default function App() {
                   </div>
 
                   {/* ─ Aviso importante ─ */}
-                  <div className="p-5 bg-amber-50 border-b border-amber-100">
-                    <div className="flex items-start gap-3">
-                      <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                      <div className="space-y-2">
-                        <p className="text-sm font-bold text-amber-800">Como funciona a sua revenda</p>
-                        <ul className="text-sm text-amber-700 space-y-1.5 list-none">
-                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> Toda a gestão de clientes (teste gratuito, criação de contas, renovações) é feita pelo <strong>Painel VPN Cloud Brasil</strong>.</li>
-                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> Seus clientes devem usar o <strong>app CloudBRDT</strong> para se conectar.</li>
-                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> O <strong>suporte ao seu cliente é 100% sua responsabilidade</strong>. Nós oferecemos suporte somente a você, revendedor.</li>
-                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> Dúvidas sobre sua conta de revenda? Use o botão "Abrir Chamado" acima.</li>
-                        </ul>
-                      </div>
+                  <div className="p-5 bg-amber-50 border-b border-amber-100 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+                      <p className="text-sm font-bold text-amber-800">Como funciona a sua revenda</p>
                     </div>
+                    <ul className="space-y-2.5">
+                      <li className="text-sm text-amber-700 pl-2 border-l-2 border-amber-300">Toda a gestão de clientes (testes, criação de contas, renovações) é feita pelo <strong className="text-amber-900">Painel VPN Cloud Brasil</strong>.</li>
+                      <li className="text-sm text-amber-700 pl-2 border-l-2 border-amber-300">Seus clientes devem usar o <strong className="text-amber-900">app CloudBRDT</strong> para se conectar.</li>
+                      <li className="text-sm text-amber-700 pl-2 border-l-2 border-amber-300">O <strong className="text-amber-900">suporte ao seu cliente é 100% sua responsabilidade.</strong> Nós oferecemos suporte somente a você, revendedor.</li>
+                      <li className="text-sm text-amber-700 pl-2 border-l-2 border-amber-300">Dúvidas sobre sua conta? Use a aba <strong className="text-amber-900">Suporte</strong> no menu.</li>
+                    </ul>
                   </div>
 
                   {/* ─ Como dar suporte ao seu cliente ─ */}
