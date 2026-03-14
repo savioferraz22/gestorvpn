@@ -171,6 +171,7 @@ export default function App() {
   const [resellerTickets, setResellerTickets] = useState<any[]>([]);
   const [resellerTicketsLoaded, setResellerTicketsLoaded] = useState(false);
   const [showResellerTicketForm, setShowResellerTicketForm] = useState(false);
+  const [ticketBackView, setTicketBackView] = useState<ViewState>("tickets");
   const [resellerTicketSubject, setResellerTicketSubject] = useState("");
   const [resellerTicketMsg, setResellerTicketMsg] = useState("");
   // Reseller first-access setup
@@ -4168,7 +4169,11 @@ export default function App() {
                     {resellerTickets.length > 0 ? (
                       <div className="space-y-2">
                         {resellerTickets.slice(0, 5).map((t: any) => (
-                          <div key={t.id} className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-surface-hover border border-border-base">
+                          <div
+                            key={t.id}
+                            onClick={() => { setCurrentTicket(t); fetchMessages(t.id); setTicketBackView("reseller_dashboard"); setView("ticket_detail"); }}
+                            className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-surface-hover border border-border-base cursor-pointer hover:border-emerald-500 active:scale-[0.98] transition-all"
+                          >
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-text-base truncate">{t.subject}</p>
                               <p className="text-[10px] text-text-muted">{new Date(t.created_at).toLocaleDateString("pt-BR")}</p>
@@ -4496,7 +4501,7 @@ export default function App() {
                       {tickets.map(t => (
                         <div
                           key={t.id}
-                          onClick={() => { setCurrentTicket(t); fetchMessages(t.id); setView("ticket_detail"); }}
+                          onClick={() => { setCurrentTicket(t); fetchMessages(t.id); setTicketBackView("tickets"); setView("ticket_detail"); }}
                           className="bg-bg-surface border border-border-base p-5 rounded-2xl cursor-pointer hover:border-primary-500 transition-all shadow-sm active:scale-[0.98] relative overflow-hidden group"
                         >
                           <div className="flex justify-between items-start mb-3 relative z-10">
@@ -4632,7 +4637,12 @@ export default function App() {
                           setView("admin");
                           setAdminTab("tickets");
                         } else {
-                          setView("tickets");
+                          if (ticketBackView === "reseller_dashboard") {
+                            fetch(`/api/tickets/${resellerData?.reseller?.login}`).then(r => r.ok ? r.json() : []).then(d => { setResellerTickets(d); setResellerTicketsLoaded(true); });
+                          } else {
+                            fetchUserTickets();
+                          }
+                          setView(ticketBackView);
                         }
                       }}
                       className={`${view === "admin_ticket_detail" ? "text-text-muted hover:text-text-base bg-bg-base" : "text-white/80 hover:text-white bg-black/10"} mr-3 flex-shrink-0 flex items-center text-sm font-medium px-2 py-1.5 rounded-lg transition-colors`}
