@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2 } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 
-type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help";
+type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
 
 interface Referral {
   id: string;
@@ -170,9 +170,9 @@ export default function App() {
   // Reseller tickets
   const [resellerTickets, setResellerTickets] = useState<any[]>([]);
   const [resellerTicketsLoaded, setResellerTicketsLoaded] = useState(false);
-  const [showResellerTicketForm, setShowResellerTicketForm] = useState(false);
   const [ticketBackView, setTicketBackView] = useState<ViewState>("tickets");
   const [resellerSidebarOpen, setResellerSidebarOpen] = useState(false);
+  const [showResellerNewTicketModal, setShowResellerNewTicketModal] = useState(false);
   const [resellerTicketSubject, setResellerTicketSubject] = useState("");
   const [resellerTicketMsg, setResellerTicketMsg] = useState("");
   // Reseller first-access setup
@@ -1282,7 +1282,7 @@ export default function App() {
       </div>
 
       {/* User Sidebar — shown when logged in (not admin/public views) */}
-      {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help"].includes(view) && (
+      {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help", "reseller_tickets"].includes(view) && (
         <>
           {/* Mobile overlay */}
           {userSidebarOpen && (
@@ -1358,7 +1358,7 @@ export default function App() {
       )}
 
       {/* Reseller Sidebar — shown on reseller views */}
-      {resellerData && (["reseller_dashboard", "reseller_help"].includes(view) || (view === "ticket_detail" && ticketBackView === "reseller_dashboard")) && (
+      {resellerData && (["reseller_dashboard", "reseller_help", "reseller_tickets"].includes(view) || (view === "ticket_detail" && ticketBackView === "reseller_tickets")) && (
         <>
           {resellerSidebarOpen && (
             <div className="md:hidden fixed inset-0 bg-black/40 z-10" onClick={() => setResellerSidebarOpen(false)} />
@@ -1397,15 +1397,14 @@ export default function App() {
                     if (r.ok) setResellerTickets(await r.json());
                     setResellerTicketsLoaded(true);
                   }
-                  setShowResellerTicketForm(true);
-                  setView("reseller_dashboard");
+                  setView("reseller_tickets");
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${(view === "ticket_detail" && ticketBackView === "reseller_dashboard") ? "bg-emerald-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${(view === "reseller_tickets" || (view === "ticket_detail" && ticketBackView === "reseller_tickets")) ? "bg-emerald-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
               >
                 <MessageSquare className="w-4 h-4" />
                 <span className="flex-1">Suporte</span>
                 {resellerTickets.filter((t: any) => t.status === "answered").length > 0 && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${(view === "ticket_detail" && ticketBackView === "reseller_dashboard") ? "bg-white/20 text-white" : "bg-emerald-600 text-white"}`}>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${(view === "reseller_tickets" || (view === "ticket_detail" && ticketBackView === "reseller_tickets")) ? "bg-white/20 text-white" : "bg-emerald-600 text-white"}`}>
                     {resellerTickets.filter((t: any) => t.status === "answered").length}
                   </span>
                 )}
@@ -4179,104 +4178,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* ─ Support tickets ─ */}
-                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Suporte</p>
-                      <button
-                        onClick={async () => {
-                          if (!resellerTicketsLoaded) {
-                            const res = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
-                            if (res.ok) setResellerTickets(await res.json());
-                            setResellerTicketsLoaded(true);
-                          }
-                          setShowResellerTicketForm(f => !f);
-                        }}
-                        className="text-xs text-emerald-600 font-semibold hover:text-emerald-700"
-                      >
-                        {showResellerTicketForm ? "Fechar" : "+ Novo chamado"}
-                      </button>
-                    </div>
-
-                    {showResellerTicketForm && (
-                      <div className="space-y-2">
-                        <input
-                          value={resellerTicketSubject}
-                          onChange={e => setResellerTicketSubject(e.target.value)}
-                          placeholder="Assunto"
-                          className="w-full px-3 py-2.5 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/30 outline-none text-sm text-text-base"
-                        />
-                        <textarea
-                          value={resellerTicketMsg}
-                          onChange={e => setResellerTicketMsg(e.target.value)}
-                          placeholder="Descreva sua solicitação..."
-                          rows={3}
-                          className="w-full px-3 py-2.5 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/30 outline-none text-sm text-text-base resize-none"
-                        />
-                        <button
-                          disabled={!resellerTicketSubject.trim() || !resellerTicketMsg.trim() || resellerLoading}
-                          onClick={async () => {
-                            setResellerLoading(true);
-                            try {
-                              const res = await fetch("/api/tickets", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ username: resellerData.reseller?.login, category: "suporte", subject: resellerTicketSubject, message: resellerTicketMsg }),
-                              });
-                              if (!res.ok) throw new Error((await res.json()).error);
-                              const updated = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
-                              if (updated.ok) setResellerTickets(await updated.json());
-                              setResellerTicketSubject(""); setResellerTicketMsg(""); setShowResellerTicketForm(false);
-                              showAlertDialog("Chamado aberto com sucesso! Responderemos em breve.", "Chamado Aberto");
-                            } catch (err: any) {
-                              setResellerError(err.message);
-                            } finally {
-                              setResellerLoading(false);
-                            }
-                          }}
-                          className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
-                        >
-                          {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
-                          Enviar Chamado
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Ticket list */}
-                    {resellerTickets.length > 0 ? (
-                      <div className="space-y-2">
-                        {resellerTickets.slice(0, 5).map((t: any) => (
-                          <div
-                            key={t.id}
-                            onClick={() => { setCurrentTicket(t); fetchMessages(t.id); setTicketBackView("reseller_dashboard"); setView("ticket_detail"); }}
-                            className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-bg-surface-hover border border-border-base cursor-pointer hover:border-emerald-500 active:scale-[0.98] transition-all"
-                          >
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-text-base truncate">{t.subject}</p>
-                              <p className="text-[10px] text-text-muted">{new Date(t.created_at).toLocaleDateString("pt-BR")}</p>
-                            </div>
-                            <span className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 ml-2 ${t.status === "open" ? "bg-blue-100 text-blue-700" : t.status === "closed" ? "bg-gray-100 text-gray-600" : "bg-amber-100 text-amber-700"}`}>
-                              {t.status === "open" ? "Aberto" : t.status === "closed" ? "Fechado" : "Resp."}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : resellerTicketsLoaded ? (
-                      <p className="text-sm text-text-muted text-center py-2">Nenhum chamado aberto.</p>
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          const res = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
-                          if (res.ok) setResellerTickets(await res.json());
-                          setResellerTicketsLoaded(true);
-                        }}
-                        className="w-full text-sm text-emerald-600 hover:text-emerald-700 py-2 font-medium"
-                      >
-                        Ver meus chamados
-                      </button>
-                    )}
-                  </div>
-
                   {/* ─ Change password ─ */}
                   <button
                     onClick={() => { setResellerNewPass(""); setShowResellerPassModal(true); }}
@@ -4599,13 +4500,158 @@ export default function App() {
                 <div className="p-4 bg-bg-surface border-t border-border-base flex-shrink-0">
                   <p className="text-xs text-center text-text-muted mb-2 font-medium">Problema com sua conta de revendedor?</p>
                   <button
-                    onClick={() => { setShowResellerTicketForm(true); setView("reseller_dashboard"); }}
+                    onClick={() => setView("reseller_tickets")}
                     className="w-full bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-medium py-3 px-4 rounded-xl transition-colors flex items-center justify-center shadow-sm text-sm"
                   >
                     <MessageSquare className="w-4 h-4 mr-2" />
                     Abrir Chamado de Suporte
                   </button>
                 </div>
+              </motion.div>
+            )}
+
+            {/* ── RESELLER TICKETS ── */}
+            {view === "reseller_tickets" && resellerData && (
+              <motion.div
+                key="reseller_tickets"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col relative"
+              >
+                {/* Header */}
+                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-4 flex items-center gap-3 flex-shrink-0">
+                  <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors">
+                    <Menu className="w-5 h-5" />
+                  </button>
+                  <h1 className="text-lg font-semibold text-white">Meus Chamados</h1>
+                </div>
+
+                <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-4">
+                  {resellerTickets.length === 0 ? (
+                    <div className="text-center py-12 flex flex-col items-center justify-center h-full">
+                      <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-4">
+                        <MessageSquare className="w-10 h-10 text-emerald-500" />
+                      </div>
+                      <h3 className="text-lg font-bold text-text-base mb-1">Nenhum chamado aberto</h3>
+                      <p className="text-text-muted px-4 text-center text-sm">Se precisar de suporte, basta abrir um novo chamado pelo botão abaixo.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 pb-20">
+                      {resellerTickets.map((t: any) => (
+                        <div
+                          key={t.id}
+                          onClick={() => { setCurrentTicket(t); fetchMessages(t.id); setTicketBackView("reseller_tickets"); setView("ticket_detail"); }}
+                          className="bg-bg-surface border border-border-base p-5 rounded-2xl cursor-pointer hover:border-emerald-500 transition-all shadow-sm active:scale-[0.98] relative overflow-hidden group"
+                        >
+                          <div className="flex justify-between items-start mb-3 relative z-10">
+                            <div className="flex items-center overflow-hidden pr-3 flex-1">
+                              {t.status === "answered" && (
+                                <span className="flex h-3 w-3 relative mr-3 flex-shrink-0">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                                </span>
+                              )}
+                              <h3 className="font-semibold text-text-base truncate">{t.subject}</h3>
+                            </div>
+                            <span className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0 font-medium ${t.status === "open" ? "bg-amber-100 text-amber-800" : t.status === "answered" ? "bg-emerald-100 text-emerald-800" : "bg-bg-surface-hover text-text-muted border border-border-base"}`}>
+                              {t.status === "open" ? "Aberto" : t.status === "answered" ? "Respondido" : "Fechado"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs text-text-muted relative z-10">
+                            <span className="bg-bg-surface-hover px-2 py-1 rounded-md">{t.category}</span>
+                            <span>{new Date(t.created_at).toLocaleDateString("pt-BR")}</span>
+                          </div>
+                          <div className="absolute inset-0 bg-emerald-50 opacity-0 group-hover:opacity-100 transition-opacity z-0" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* FAB */}
+                <button
+                  onClick={() => setShowResellerNewTicketModal(true)}
+                  className="absolute bottom-20 right-6 md:bottom-6 w-14 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full flex items-center justify-center shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all z-20"
+                >
+                  <Plus className="w-7 h-7" />
+                </button>
+
+                {/* New ticket modal */}
+                <AnimatePresence>
+                  {showResellerNewTicketModal && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 bg-black/50 backdrop-blur-sm z-30 flex items-center justify-center p-4"
+                      onClick={() => setShowResellerNewTicketModal(false)}
+                    >
+                      <motion.div
+                        initial={{ scale: 0.95, y: 20 }}
+                        animate={{ scale: 1, y: 0 }}
+                        exit={{ scale: 0.95, y: 20 }}
+                        onClick={e => e.stopPropagation()}
+                        className="bg-bg-surface w-full max-w-sm rounded-[2rem] shadow-2xl border border-border-base overflow-hidden flex flex-col max-h-full"
+                      >
+                        <div className="p-6 border-b border-border-base flex justify-between items-center bg-bg-surface shrink-0">
+                          <h2 className="text-xl font-bold text-text-base tracking-tight">Novo Chamado</h2>
+                          <button onClick={() => setShowResellerNewTicketModal(false)} className="p-2 bg-bg-surface-hover hover:bg-border-base text-text-muted rounded-full transition-colors active:scale-95">
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto space-y-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-text-muted tracking-wider uppercase mb-2 ml-1">Assunto</label>
+                            <input
+                              type="text"
+                              placeholder="Ex: Problema na renovação, Dúvida sobre logins..."
+                              value={resellerTicketSubject}
+                              onChange={e => setResellerTicketSubject(e.target.value)}
+                              className="w-full px-4 py-3.5 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 focus:bg-bg-surface outline-none transition-all font-medium text-text-base placeholder-text-muted"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-text-muted tracking-wider uppercase mb-2 ml-1">Mensagem</label>
+                            <textarea
+                              placeholder="Descreva sua dúvida ou problema..."
+                              value={resellerTicketMsg}
+                              onChange={e => setResellerTicketMsg(e.target.value)}
+                              className="w-full px-4 py-3.5 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 focus:bg-bg-surface outline-none transition-all font-medium text-text-base placeholder-text-muted resize-none h-32"
+                            />
+                          </div>
+                        </div>
+                        <div className="p-6 border-t border-border-base bg-bg-surface-hover shrink-0">
+                          <button
+                            disabled={!resellerTicketSubject.trim() || !resellerTicketMsg.trim() || resellerLoading}
+                            onClick={async () => {
+                              setResellerLoading(true);
+                              try {
+                                const res = await fetch("/api/tickets", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ username: resellerData.reseller?.login, category: "suporte", subject: resellerTicketSubject, message: resellerTicketMsg }),
+                                });
+                                if (!res.ok) throw new Error((await res.json()).error);
+                                const updated = await fetch(`/api/tickets/${resellerData.reseller?.login}`);
+                                if (updated.ok) setResellerTickets(await updated.json());
+                                setResellerTicketSubject(""); setResellerTicketMsg("");
+                                setShowResellerNewTicketModal(false);
+                              } catch (err: any) {
+                                setResellerError(err.message);
+                              } finally {
+                                setResellerLoading(false);
+                              }
+                            }}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3.5 px-4 rounded-xl transition-all shadow-md active:scale-[0.98] disabled:opacity-60 disabled:scale-100 flex items-center justify-center"
+                          >
+                            {resellerLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><MessageSquare className="w-5 h-5 mr-2" />Enviar Chamado</>}
+                          </button>
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
 
@@ -4903,7 +4949,7 @@ export default function App() {
                           setView("admin");
                           setAdminTab("tickets");
                         } else {
-                          if (ticketBackView === "reseller_dashboard") {
+                          if (ticketBackView === "reseller_tickets") {
                             fetch(`/api/tickets/${resellerData?.reseller?.login}`).then(r => r.ok ? r.json() : []).then(d => { setResellerTickets(d); setResellerTicketsLoaded(true); });
                           } else {
                             fetchUserTickets();
@@ -5390,7 +5436,7 @@ export default function App() {
         </div>
 
         {/* Mobile bottom navigation — shown when logged in (not admin) */}
-        {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help"].includes(view) && (
+        {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help", "reseller_tickets"].includes(view) && (
           <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
             <button
               onClick={() => setView("dashboard")}
@@ -5422,7 +5468,7 @@ export default function App() {
         )}
 
         {/* Reseller Mobile bottom navigation */}
-        {resellerData && (["reseller_dashboard", "reseller_help"].includes(view) || (view === "ticket_detail" && ticketBackView === "reseller_dashboard")) && (
+        {resellerData && (["reseller_dashboard", "reseller_help", "reseller_tickets"].includes(view) || (view === "ticket_detail" && ticketBackView === "reseller_tickets")) && (
           <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
             <button
               onClick={() => setView("reseller_dashboard")}
@@ -5438,10 +5484,9 @@ export default function App() {
                   if (r.ok) setResellerTickets(await r.json());
                   setResellerTicketsLoaded(true);
                 }
-                setShowResellerTicketForm(true);
-                setView("reseller_dashboard");
+                setView("reseller_tickets");
               }}
-              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors relative ${(view === "ticket_detail" && ticketBackView === "reseller_dashboard") ? "text-emerald-600" : "text-text-muted"}`}
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors relative ${(view === "reseller_tickets" || (view === "ticket_detail" && ticketBackView === "reseller_tickets")) ? "text-emerald-600" : "text-text-muted"}`}
             >
               <MessageSquare className="w-5 h-5" />
               Suporte
