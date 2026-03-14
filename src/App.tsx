@@ -4709,7 +4709,7 @@ export default function App() {
                     </div>
 
                     {currentTicket.status !== "closed" ? (
-                      <div className="p-4 bg-bg-surface border-t border-border-base flex-shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                      <div className={`p-4 bg-bg-surface border-t border-border-base flex-shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]${view === "ticket_detail" ? " pb-20 md:pb-4" : ""}`}>
                         <form
                           onSubmit={(e) => handleSendMessage(e, view === "admin_ticket_detail" ? "admin" : "user")}
                           className="flex gap-3 items-end"
@@ -4741,7 +4741,7 @@ export default function App() {
                         <p className="text-[10px] text-text-muted text-center mt-2 hidden sm:block">Pressione Enter para enviar, Shift+Enter para quebrar linha</p>
                       </div>
                     ) : (
-                      <div className="p-4 bg-bg-surface-hover border-t border-border-base flex justify-center items-center text-sm text-text-muted flex-shrink-0">
+                      <div className={`p-4 bg-bg-surface-hover border-t border-border-base flex justify-center items-center text-sm text-text-muted flex-shrink-0${view === "ticket_detail" ? " pb-20 md:pb-4" : ""}`}>
                         <XCircle className="w-4 h-4 mr-2" /> Este ticket foi encerrado
                       </div>
                     )}
