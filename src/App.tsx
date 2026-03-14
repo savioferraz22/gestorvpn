@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2 } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 
-type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix";
+type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help";
 
 interface Referral {
   id: string;
@@ -172,6 +172,7 @@ export default function App() {
   const [resellerTicketsLoaded, setResellerTicketsLoaded] = useState(false);
   const [showResellerTicketForm, setShowResellerTicketForm] = useState(false);
   const [ticketBackView, setTicketBackView] = useState<ViewState>("tickets");
+  const [resellerSidebarOpen, setResellerSidebarOpen] = useState(false);
   const [resellerTicketSubject, setResellerTicketSubject] = useState("");
   const [resellerTicketMsg, setResellerTicketMsg] = useState("");
   // Reseller first-access setup
@@ -287,6 +288,8 @@ export default function App() {
   // Help state
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [openTrouble, setOpenTrouble] = useState<number | null>(null);
+  const [openResellerFaq, setOpenResellerFaq] = useState<number | null>(null);
+  const [openResellerTrouble, setOpenResellerTrouble] = useState<number | null>(null);
 
   // User sidebar mobile open state
   const [userSidebarOpen, setUserSidebarOpen] = useState(false);
@@ -1279,7 +1282,7 @@ export default function App() {
       </div>
 
       {/* User Sidebar — shown when logged in (not admin/public views) */}
-      {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix"].includes(view) && (
+      {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help"].includes(view) && (
         <>
           {/* Mobile overlay */}
           {userSidebarOpen && (
@@ -1344,6 +1347,80 @@ export default function App() {
             <div className="p-3 border-t border-border-base/50 shrink-0">
               <button
                 onClick={() => { setView("login"); setCurrentUser(null); setShowData(false); localStorage.removeItem("vpn_saved_username"); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                Sair
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
+
+      {/* Reseller Sidebar — shown on reseller views */}
+      {resellerData && (["reseller_dashboard", "reseller_help"].includes(view) || (view === "ticket_detail" && ticketBackView === "reseller_dashboard")) && (
+        <>
+          {resellerSidebarOpen && (
+            <div className="md:hidden fixed inset-0 bg-black/40 z-10" onClick={() => setResellerSidebarOpen(false)} />
+          )}
+          <aside className={`
+            fixed md:relative z-20 md:z-auto
+            flex flex-col h-full md:h-screen w-64 shrink-0
+            bg-bg-surface border-r border-border-base/50
+            transition-transform duration-200
+            ${resellerSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+          `}>
+            <div className="p-5 border-b border-border-base/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600 flex items-center justify-center">
+                  <Store className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <p className="font-bold text-text-base text-sm leading-tight">Revendedor VS+</p>
+                  <p className="text-text-muted text-xs truncate max-w-[120px]">{resellerData?.reseller?.login}</p>
+                </div>
+              </div>
+            </div>
+            <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+              <button
+                onClick={() => { setView("reseller_dashboard"); setResellerSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${view === "reseller_dashboard" ? "bg-emerald-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Home</span>
+              </button>
+              <button
+                onClick={async () => {
+                  setResellerSidebarOpen(false);
+                  if (!resellerTicketsLoaded) {
+                    const r = await fetch(`/api/tickets/${resellerData?.reseller?.login}`);
+                    if (r.ok) setResellerTickets(await r.json());
+                    setResellerTicketsLoaded(true);
+                  }
+                  setShowResellerTicketForm(true);
+                  setView("reseller_dashboard");
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${(view === "ticket_detail" && ticketBackView === "reseller_dashboard") ? "bg-emerald-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span className="flex-1">Suporte</span>
+                {resellerTickets.filter((t: any) => t.status === "answered").length > 0 && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${(view === "ticket_detail" && ticketBackView === "reseller_dashboard") ? "bg-white/20 text-white" : "bg-emerald-600 text-white"}`}>
+                    {resellerTickets.filter((t: any) => t.status === "answered").length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => { setView("reseller_help"); setResellerSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95 text-left ${view === "reseller_help" ? "bg-emerald-600 text-white shadow-sm" : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"}`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>Ajuda</span>
+              </button>
+            </nav>
+            <div className="p-3 border-t border-border-base/50 shrink-0">
+              <button
+                onClick={() => { setResellerToken(null); setResellerData(null); setResellerUsername(""); setView("login"); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
@@ -3736,6 +3813,12 @@ export default function App() {
                 <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-5 shadow-md">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setResellerSidebarOpen(true)}
+                        className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors"
+                      >
+                        <Menu className="w-5 h-5" />
+                      </button>
                       <div className="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center">
                         <Store className="w-6 h-6 text-white" />
                       </div>
@@ -3744,12 +3827,6 @@ export default function App() {
                         <p className="text-emerald-100 text-xs">Área do Revendedor</p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => { setResellerToken(null); setResellerData(null); setResellerUsername(""); setView("login"); }}
-                      className="text-white/80 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors"
-                    >
-                      <LogOut className="w-5 h-5" />
-                    </button>
                   </div>
                   {/* Login + senha */}
                   <div className="mt-4 bg-white/10 rounded-xl px-4 py-3">
@@ -3777,7 +3854,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="p-4 space-y-4 max-w-lg mx-auto pb-12">
+                <div className="p-4 space-y-4 max-w-lg mx-auto pb-24 md:pb-12">
 
                   {/* ─ First-access setup ─ */}
                   {needsSetup && (
@@ -4342,6 +4419,195 @@ export default function App() {
               </motion.div>
               );
             })()}
+
+            {/* ── RESELLER HELP ── */}
+            {view === "reseller_help" && (
+              <motion.div
+                key="reseller_help"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
+              >
+                {/* Header */}
+                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-4 flex items-center gap-3 flex-shrink-0">
+                  <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors">
+                    <Menu className="w-5 h-5" />
+                  </button>
+                  <h1 className="text-lg font-semibold text-white">Central de Ajuda</h1>
+                </div>
+
+                <div className="flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-10">
+
+                  {/* ─ Acesso rápido ─ */}
+                  <div className="p-5 bg-bg-surface border-b border-border-base space-y-3">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Acesso Rápido</p>
+                    <a
+                      href="https://pweb.cloudbrasil.shop/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-4 px-5 rounded-2xl transition-colors shadow-md active:scale-[0.98]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+                          <LayoutDashboard className="w-5 h-5" />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-bold">Acessar Painel VPN</p>
+                          <p className="text-xs text-emerald-100">pweb.cloudbrasil.shop</p>
+                        </div>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-white/70" />
+                    </a>
+                    <a
+                      href="https://play.google.com/store/apps/details?id=google.android.a48"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between w-full bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-4 px-5 rounded-2xl transition-colors shadow-sm active:scale-[0.98]"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center">
+                          <Download className="w-5 h-5 text-emerald-600" />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm font-bold text-text-base">Baixar App CloudBRDT</p>
+                          <p className="text-xs text-text-muted">Para compartilhar com seus clientes</p>
+                        </div>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-text-muted" />
+                    </a>
+                  </div>
+
+                  {/* ─ Aviso importante ─ */}
+                  <div className="p-5 bg-amber-50 border-b border-amber-100">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="space-y-2">
+                        <p className="text-sm font-bold text-amber-800">Como funciona a sua revenda</p>
+                        <ul className="text-sm text-amber-700 space-y-1.5 list-none">
+                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> Toda a gestão de clientes (teste gratuito, criação de contas, renovações) é feita pelo <strong>Painel VPN Cloud Brasil</strong>.</li>
+                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> Seus clientes devem usar o <strong>app CloudBRDT</strong> para se conectar.</li>
+                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> O <strong>suporte ao seu cliente é 100% sua responsabilidade</strong>. Nós oferecemos suporte somente a você, revendedor.</li>
+                          <li className="flex items-start gap-1.5"><span className="text-amber-500 font-bold shrink-0">•</span> Dúvidas sobre sua conta de revenda? Use o botão "Abrir Chamado" acima.</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ─ Como dar suporte ao seu cliente ─ */}
+                  <div className="p-5 bg-bg-surface border-b border-border-base">
+                    <h2 className="font-semibold text-text-base flex items-center mb-4">
+                      <Users className="w-5 h-5 mr-2 text-emerald-600" />
+                      Como Dar Suporte ao Seu Cliente
+                    </h2>
+                    <ol className="space-y-3 text-sm text-text-muted pl-1">
+                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">1.</span><span>Peça ao cliente que <strong>baixe o app CloudBRDT</strong> pela Play Store (somente Android).</span></li>
+                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">2.</span><span>Forneça o <strong>usuário e senha</strong> criados por você no Painel VPN Cloud Brasil.</span></li>
+                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">3.</span><span>Oriente a usar <strong>chip TIM ou VIVO sem crédito</strong>, com dados móveis ligados e Wi-Fi desligado.</span></li>
+                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">4.</span><span>Se não conectar, peça para testar <strong>diferentes modos</strong> no app (Gcloud, Front, Flare, etc.).</span></li>
+                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">5.</span><span>Se o IP estiver bloqueado, oriente a <strong>ligar o Modo Avião</strong> por 10 segundos e desligar.</span></li>
+                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">6.</span><span>Se nada resolver, peça para <strong>desinstalar e reinstalar o app</strong> com Wi-Fi ligado.</span></li>
+                    </ol>
+                  </div>
+
+                  {/* ─ Solução de problemas ─ */}
+                  <div className="p-5 bg-bg-surface border-b border-border-base">
+                    <h2 className="font-semibold text-text-base flex items-center mb-4">
+                      <Settings2 className="w-5 h-5 mr-2 text-amber-500" />
+                      Problemas Comuns dos Clientes
+                    </h2>
+                    <div className="space-y-2">
+                      {[
+                        { title: "Cliente não consegue conectar", content: "Verifique: 1) Chip é TIM ou VIVO? 2) Wi-Fi está desligado? 3) Dados móveis ligados? 4) Trocou o modo de conexão no app? Se sim a tudo, peça para ligar o Modo Avião por 10s e tentar outro modo no app." },
+                        { title: "App sumiu as opções de conexão", content: "O app pode estar desatualizado. Peça ao cliente para desinstalar e reinstalar pela Play Store, abrir com Wi-Fi ligado para atualizar, ou clicar na seta de atualizar dentro do app." },
+                        { title: "Chip com crédito gastando saldo", content: "Se o chip tiver saldo, a operadora consome ele primeiro. Oriente o cliente a usar um chip pré-pago SEM crédito para não gastar." },
+                        { title: "Erro de usuário ou senha", content: "Verifique no Painel VPN se o usuário está ativo e a senha está correta. Se tiver acabado a validade, renove no painel antes de tentar de novo." },
+                        { title: "App não funciona com iPhone", content: "O CloudBRDT é exclusivo para Android. Não funciona em iPhone (iOS) e não há previsão de suporte." },
+                      ].map((step, i) => (
+                        <div key={i} className="bg-bg-surface-hover border border-border-base rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => setOpenResellerTrouble(openResellerTrouble === i ? null : i)}
+                            className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-bg-surface transition-colors"
+                          >
+                            <span className="font-medium text-sm text-text-base pr-4">{step.title}</span>
+                            {openResellerTrouble === i ? <ChevronUp className="w-4 h-4 text-text-muted flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />}
+                          </button>
+                          {openResellerTrouble === i && (
+                            <div className="px-4 pb-4 pt-1 text-sm text-text-muted border-t border-border-base bg-bg-surface/50">
+                              {step.content}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ─ FAQ da revenda ─ */}
+                  <div className="p-5 bg-bg-surface border-b border-border-base">
+                    <h2 className="font-semibold text-text-base flex items-center mb-4">
+                      <HelpCircle className="w-5 h-5 mr-2 text-emerald-600" />
+                      Dúvidas Frequentes da Revenda
+                    </h2>
+                    <div className="space-y-2">
+                      {[
+                        { title: "Como crio contas para meus clientes?", content: "Acesse o Painel VPN Cloud Brasil (pweb.cloudbrasil.shop) com suas credenciais de revendedor. Lá você cria contas, renova acessos e faz testes gratuitos para seus clientes. Todo o gerenciamento de clientes é feito pelo painel." },
+                        { title: "Como renovo a conta de um cliente?", content: "No Painel VPN, acesse o usuário do seu cliente e renove o plano dele. O valor cobrado é o da sua grade de revendedor. Você controla os preços que cobra do seu cliente." },
+                        { title: "Como faço teste gratuito para um cliente?", content: "No Painel VPN Cloud Brasil você consegue criar contas de teste. O teste é feito diretamente pelo painel, sem passar por aqui." },
+                        { title: "Minha revenda vencem em qual data?", content: "O vencimento da sua cota de revendedor é exibido na tela principal desta área (Área do Revendedor). Cada renovação acrescenta 30 dias a partir do vencimento atual." },
+                        { title: "O que acontece se minha revenda vencer?", content: "Ao vencer, você não consegue mais criar novas contas ou renovar clientes pelo painel. Renove sua cota aqui nesta área antes do vencimento para evitar interrupções." },
+                        { title: "Posso aumentar ou diminuir minha cota de logins?", content: "Sim. Na sua área do revendedor há a seção 'Solicitar Alteração de Logins'. Para diminuir é gratuito (sujeito à aprovação). Para aumentar, é calculado um valor proporcional aos dias restantes do seu vencimento." },
+                        { title: "Devo dar suporte técnico aos meus clientes?", content: "Sim, o suporte ao seu cliente é 100% sua responsabilidade. Nós fornecemos suporte apenas a você, revendedor. Use a seção 'Como Dar Suporte ao Seu Cliente' nesta tela como guia." },
+                        { title: "Funciona em iPhone?", content: "Não. O app CloudBRDT é exclusivo para Android. Não aceite clientes iPhone, pois não há suporte para iOS." },
+                        { title: "Quais operadoras são compatíveis?", content: "Apenas TIM e VIVO. Chips de Claro, Oi e outras operadoras não são compatíveis. Deixe isso claro para seus clientes antes de vender." },
+                      ].map((faq, i) => (
+                        <div key={i} className="bg-bg-surface-hover border border-border-base rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => setOpenResellerFaq(openResellerFaq === i ? null : i)}
+                            className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-bg-surface transition-colors"
+                          >
+                            <span className="font-medium text-sm text-text-base pr-4">{faq.title}</span>
+                            {openResellerFaq === i ? <ChevronUp className="w-4 h-4 text-text-muted flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />}
+                          </button>
+                          {openResellerFaq === i && (
+                            <div className="px-4 pb-4 pt-1 text-sm text-text-muted border-t border-border-base bg-bg-surface/50">
+                              {faq.content}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ─ Modo de uso do app ─ */}
+                  <div className="p-5 bg-bg-surface">
+                    <h2 className="font-semibold text-text-base flex items-center mb-4">
+                      <Smartphone className="w-5 h-5 mr-2 text-blue-600" />
+                      Passo a Passo do App (Para Repassar ao Cliente)
+                    </h2>
+                    <ol className="space-y-3 text-sm text-text-muted pl-1">
+                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">1.</span><span>Baixar o app <strong>CloudBRDT</strong> na Play Store (Android).</span></li>
+                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">2.</span><span>Fazer login com o <strong>usuário e senha</strong> fornecidos pelo revendedor.</span></li>
+                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">3.</span><span>Selecionar a opção compatível com a operadora (<strong>TIM ou VIVO</strong>).</span></li>
+                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">4.</span><span>Desligar o <strong>Wi-Fi</strong> e ligar os <strong>Dados Móveis</strong> (chip sem crédito).</span></li>
+                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">5.</span><span>Clicar em <strong>Conectar</strong> e aguardar.</span></li>
+                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">6.</span><span>Pronto! Internet ilimitada liberada.</span></li>
+                    </ol>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 bg-bg-surface border-t border-border-base flex-shrink-0">
+                  <p className="text-xs text-center text-text-muted mb-2 font-medium">Problema com sua conta de revendedor?</p>
+                  <button
+                    onClick={() => { setShowResellerTicketForm(true); setView("reseller_dashboard"); }}
+                    className="w-full bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-medium py-3 px-4 rounded-xl transition-colors flex items-center justify-center shadow-sm text-sm"
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Abrir Chamado de Suporte
+                  </button>
+                </div>
+              </motion.div>
+            )}
 
             {/* ── RESELLER PIX ── */}
             {view === "reseller_pix" && resellerPixData && (
@@ -5124,7 +5390,7 @@ export default function App() {
         </div>
 
         {/* Mobile bottom navigation — shown when logged in (not admin) */}
-        {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix"].includes(view) && (
+        {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help"].includes(view) && (
           <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
             <button
               onClick={() => setView("dashboard")}
@@ -5148,6 +5414,46 @@ export default function App() {
             <button
               onClick={() => setView("help")}
               className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "help" ? "text-primary-600" : "text-text-muted"}`}
+            >
+              <HelpCircle className="w-5 h-5" />
+              Ajuda
+            </button>
+          </nav>
+        )}
+
+        {/* Reseller Mobile bottom navigation */}
+        {resellerData && (["reseller_dashboard", "reseller_help"].includes(view) || (view === "ticket_detail" && ticketBackView === "reseller_dashboard")) && (
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
+            <button
+              onClick={() => setView("reseller_dashboard")}
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "reseller_dashboard" ? "text-emerald-600" : "text-text-muted"}`}
+            >
+              <LayoutDashboard className="w-5 h-5" />
+              Home
+            </button>
+            <button
+              onClick={async () => {
+                if (!resellerTicketsLoaded) {
+                  const r = await fetch(`/api/tickets/${resellerData?.reseller?.login}`);
+                  if (r.ok) setResellerTickets(await r.json());
+                  setResellerTicketsLoaded(true);
+                }
+                setShowResellerTicketForm(true);
+                setView("reseller_dashboard");
+              }}
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors relative ${(view === "ticket_detail" && ticketBackView === "reseller_dashboard") ? "text-emerald-600" : "text-text-muted"}`}
+            >
+              <MessageSquare className="w-5 h-5" />
+              Suporte
+              {resellerTickets.filter((t: any) => t.status === "answered").length > 0 && (
+                <span className="absolute top-2 right-[calc(50%-10px)] bg-emerald-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+                  {resellerTickets.filter((t: any) => t.status === "answered").length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setView("reseller_help")}
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "reseller_help" ? "text-emerald-600" : "text-text-muted"}`}
             >
               <HelpCircle className="w-5 h-5" />
               Ajuda
