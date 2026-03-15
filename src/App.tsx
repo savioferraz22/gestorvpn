@@ -2027,6 +2027,17 @@ export default function App() {
                               </div>
                             </button>
                             <button
+                              onClick={() => setShowPlanModal(true)}
+                              className="bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                            >
+                              <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
+                                <div className="w-10 h-10 bg-primary-100/50 text-primary-600 rounded-xl flex items-center justify-center border border-primary-200 shadow-sm backdrop-blur-sm">
+                                  <Package className="w-5 h-5" />
+                                </div>
+                                <span className="text-[11px]">Alterar Plano</span>
+                              </div>
+                            </button>
+                            <button
                               onClick={async () => {
                                 if (!currentUser) return;
                                 setLoading(true);
