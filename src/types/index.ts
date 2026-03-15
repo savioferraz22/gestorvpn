@@ -84,6 +84,12 @@ export interface AdminReports {
   totalSales: number;
   totalTests: number;
   conversionRate: number;
+  // Extended
+  avgTicket?: number;
+  previousRevenue?: number;
+  previousSales?: number;
+  topUsers?: { username: string; revenue: number; sales: number }[];
+  byType?: { type: string; count: number; revenue: number }[];
 }
 
 export interface ConfirmDialogState {

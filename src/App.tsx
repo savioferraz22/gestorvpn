@@ -712,13 +712,37 @@ export default function App() {
   // ── Push notification permission ──────────────────────────────────────────
   useEffect(() => {
     if (!currentUser) return;
-    if (!("Notification" in window)) { setPushPermission("unsupported"); return; }
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) { setPushPermission("unsupported"); return; }
     setPushPermission(Notification.permission);
     const dismissed = localStorage.getItem("push_soft_dismissed_at");
     if (dismissed && Date.now() - Number(dismissed) < 7 * 24 * 60 * 60 * 1000) {
       setPushSoftBannerDismissed(true);
     } else {
       setPushSoftBannerDismissed(false);
+    }
+    // Auto-resubscribe if permission already granted (handles stale subscriptions after SW updates)
+    if (Notification.permission === "granted") {
+      navigator.serviceWorker.ready.then(async (reg) => {
+        try {
+          const vapidRes = await fetch("/api/push/vapid-public-key");
+          const { publicKey } = await vapidRes.json();
+          if (!publicKey) return;
+          const conv = (b64: string) => {
+            const padding = "=".repeat((4 - (b64.length % 4)) % 4);
+            const raw = atob((b64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
+            return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+          };
+          let sub = await reg.pushManager.getSubscription();
+          if (!sub) {
+            sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: conv(publicKey) });
+          }
+          await fetch("/api/push/subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: currentUser.login, subscription: sub.toJSON() }),
+          });
+        } catch (e) { console.error("[push] auto-resubscribe:", e); }
+      });
     }
   }, [currentUser?.login]);
 

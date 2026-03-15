@@ -1485,11 +1485,53 @@ app.get("/api/admin/reports", async (req, res) => {
 
     const conversionRate = totalTests > 0 ? ((totalConverted / totalTests) * 100).toFixed(1) : "0.0";
 
+    // Top users by revenue
+    const userRevenue: Record<string, { revenue: number; sales: number }> = {};
+    (payments || []).forEach((p: any) => {
+      if (!userRevenue[p.username]) userRevenue[p.username] = { revenue: 0, sales: 0 };
+      const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
+      const amount = Number(meta?.amount) || Number(p.amount) || 0;
+      userRevenue[p.username].revenue += amount;
+      userRevenue[p.username].sales++;
+    });
+    const topUsers = Object.entries(userRevenue)
+      .map(([username, data]) => ({ username, ...data }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+
+    // By type breakdown
+    const byTypeMap: Record<string, { count: number; revenue: number }> = {};
+    (payments || []).forEach((p: any) => {
+      const type = p.type || 'unknown';
+      if (!byTypeMap[type]) byTypeMap[type] = { count: 0, revenue: 0 };
+      const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
+      const amount = Number(meta?.amount) || Number(p.amount) || 0;
+      byTypeMap[type].count++;
+      byTypeMap[type].revenue += amount;
+    });
+
+    // Previous period for comparison (same length before current period)
+    const prevSinceDate = new Date(Date.now() - 2 * period * 24 * 60 * 60 * 1000).toISOString();
+    const { data: prevPayments } = await getDb().from("payments").select("*").eq("status", "approved")
+      .gte("created_at", prevSinceDate).lt("created_at", sinceDate);
+    const previousRevenue = (prevPayments || []).reduce((sum: number, p: any) => {
+      const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
+      return sum + (Number(meta?.amount) || Number(p.amount) || 0);
+    }, 0);
+    const previousSales = (prevPayments || []).length;
+
+    const avgTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
+
     res.json({
       totalRevenue,
       totalSales,
       totalTests,
       conversionRate,
+      avgTicket,
+      previousRevenue,
+      previousSales,
+      topUsers,
+      byType: Object.entries(byTypeMap).map(([type, data]) => ({ type, ...data })),
       salesHistory: Object.keys(salesByDate).sort().map(date => ({
         date,
         count: salesByDate[date].count,
@@ -2368,6 +2410,22 @@ cron.schedule("0 9 * * *", async () => {
       }
     }
   } catch (e) { console.error("[cron] reseller expiry check failed:", e); }
+
+  // ── Trial users (2-day trial) ──
+  try {
+    const { data: trialDevices } = await db.from("devices").select("username, created_at");
+    for (const d of trialDevices || []) {
+      const exp = new Date(d.created_at);
+      exp.setDate(exp.getDate() + 2);
+      exp.setHours(0, 0, 0, 0);
+      const daysLeft = Math.round((exp.getTime() - today.getTime()) / 86400000);
+      if (daysLeft === 1) {
+        sendPush(d.username, "Seu teste gratuito vence amanhã! ⏰", "Gostou? Assine agora para não perder o acesso.");
+      } else if (daysLeft === 0) {
+        sendPush(d.username, "Seu teste gratuito venceu hoje", "Assine agora e continue usando sem interrupções.");
+      }
+    }
+  } catch (e) { console.error("[cron] trial expiry check failed:", e); }
 }, { timezone: "America/Sao_Paulo" });
 
 // ─────────────────────────────────────────────────────────────────────────────
