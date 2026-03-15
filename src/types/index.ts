@@ -20,7 +20,8 @@ export type AdminTab =
   | "refunds"
   | "change_requests"
   | "reports"
-  | "resellers";
+  | "resellers"
+  | "notifications";
 
 export interface Referral {
   id: string;

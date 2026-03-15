@@ -261,3 +261,26 @@ export async function updateUserAccess(username: string, action: string, newValu
     body: JSON.stringify({ username, action, newValue }),
   });
 }
+
+// ─── Web Push ──────────────────────────────────────────────────────────────
+
+export async function getVapidPublicKey(): Promise<string> {
+  const data = await apiFetch<{ publicKey: string }>("/api/push/vapid-public-key");
+  return data.publicKey;
+}
+
+export async function subscribePush(username: string, subscription: PushSubscription): Promise<void> {
+  await apiFetch<any>("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, subscription: subscription.toJSON() }),
+  });
+}
+
+export async function unsubscribePush(endpoint: string): Promise<void> {
+  await apiFetch<any>("/api/push/subscribe", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+}

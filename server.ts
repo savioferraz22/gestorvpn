@@ -4,6 +4,8 @@ import { MercadoPagoConfig, Payment } from "mercadopago";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import webpush from "web-push";
+import cron from "node-cron";
 
 // Note: Removed static import of vite to keep production bundle small
 
@@ -22,6 +24,36 @@ const supabase = createClient(
 
 function getDb() {
   return supabase;
+}
+
+// ─── Web Push (VAPID) ───────────────────────────────────────────────────────
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL || "mailto:suporte@vsplus.com.br",
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+}
+
+async function sendPush(username: string, title: string, body: string, url = "/") {
+  try {
+    const { data: subs } = await getDb()
+      .from("push_subscriptions")
+      .select("subscription, endpoint")
+      .eq("username", username);
+    if (!subs?.length) return;
+    await Promise.allSettled(
+      subs.map((row: any) =>
+        webpush
+          .sendNotification(row.subscription, JSON.stringify({ title, body, url }))
+          .catch(async (err: any) => {
+            if (err.statusCode === 410 || err.statusCode === 404) {
+              await getDb().from("push_subscriptions").delete().eq("endpoint", row.endpoint);
+            }
+          })
+      )
+    );
+  } catch { /* silently fail — push must never break the main request */ }
 }
 
 // ─── Admin Auth ────────────────────────────────────────────────────────────
@@ -269,6 +301,7 @@ async function approvePayment(paymentRecord: any) {
           console.log(`[reseller] renewrev ${newRev} month ${i + 1}:`, await rr.text());
         } catch (e) { console.error(`[reseller] renewrev failed:`, e); }
       }
+      sendPush(paymentRecord.username, "Revenda ativada! 🎉", "Sua conta de revenda está ativa e pronta para uso.");
     }
 
   } else if (paymentRecord.type === "reseller_renewal") {
@@ -285,6 +318,7 @@ async function approvePayment(paymentRecord: any) {
         console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, await rr.text());
       } catch (e) { console.error(`[reseller] renewrev failed:`, e); }
     }
+    sendPush(paymentRecord.username, "Revenda renovada! 🎉", "Sua revenda foi renovada com sucesso.");
 
   } else if (paymentRecord.type === "reseller_logins_increase") {
     // After paid login upgrade: create change_request for admin to confirm manually
@@ -299,6 +333,8 @@ async function approvePayment(paymentRecord: any) {
       });
       console.log(`[reseller_logins_increase] change_request created for ${paymentRecord.username}: ${newLogins} logins`);
     }
+    sendPush(paymentRecord.username, "Pagamento recebido!", "Aguardando confirmação do administrador para adicionar os logins.");
+    sendPush("__admin__", "Aumento de logins pago", `${paymentRecord.username} pagou pelo aumento de logins. Confirme no painel.`);
 
   } else if (paymentRecord.type === "new_device") {
     const { newUsername, remainingDays, groupId } = metadata;
@@ -377,6 +413,9 @@ async function approvePayment(paymentRecord: any) {
   if (["reseller_hire", "reseller_renewal", "reseller_logins_increase"].includes(paymentRecord.type)) {
     return;
   }
+
+  // Notify regular user that payment was approved
+  sendPush(paymentRecord.username, "Pagamento aprovado! ✅", "Seu acesso foi renovado com sucesso.");
 
   // Handle Loyalty Points
   const username = paymentRecord.username;
@@ -1238,10 +1277,12 @@ app.post("/api/admin/refunds/:id/approve", async (req, res) => {
       }
     }
 
-    await getDb().from("refund_requests").update({ 
-      status: 'realizado', 
-      refunded_at: refundedAt || new Date().toISOString() 
+    await getDb().from("refund_requests").update({
+      status: 'realizado',
+      refunded_at: refundedAt || new Date().toISOString()
     }).eq("id", id);
+
+    if (refund) sendPush(refund.username, "Reembolso aprovado! ✅", "Seu reembolso foi processado com sucesso.");
 
     res.json({ success: true });
   } catch (error: any) {
@@ -1252,7 +1293,9 @@ app.post("/api/admin/refunds/:id/approve", async (req, res) => {
 app.post("/api/admin/refunds/:id/reject", async (req, res) => {
   try {
     const { id } = req.params;
+    const { data: refund } = await getDb().from("refund_requests").select("username").eq("id", id).maybeSingle();
     await getDb().from("refund_requests").update({ status: 'rejeitado' }).eq("id", id);
+    if (refund) sendPush(refund.username, "Reembolso recusado", "Sua solicitação de reembolso foi negada.");
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1303,6 +1346,7 @@ app.post("/api/admin/change-requests/:id/approve", async (req, res) => {
     }
 
     await getDb().from("change_requests").update({ status: 'aprovado', approved_value: finalValue }).eq("id", id);
+    sendPush(request.username, "Solicitação aprovada! ✅", "Sua solicitação foi aprovada com sucesso.");
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1312,7 +1356,10 @@ app.post("/api/admin/change-requests/:id/approve", async (req, res) => {
 app.post("/api/admin/change-requests/:id/reject", async (req, res) => {
   try {
     const { id } = req.params;
-    await getDb().from("change_requests").update({ status: 'rejeitado' }).eq("id", id);
+    const { reason } = req.body;
+    const { data: request } = await getDb().from("change_requests").select("username").eq("id", id).maybeSingle();
+    await getDb().from("change_requests").update({ status: 'rejeitado', approved_value: reason || null }).eq("id", id);
+    if (request) sendPush(request.username, "Solicitação recusada", reason ? `Motivo: ${reason}` : "Sua solicitação foi recusada.");
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1459,6 +1506,9 @@ app.post("/api/tickets", async (req, res) => {
     await getDb().from("tickets").insert({ id: ticketId, username, category, subject });
     await getDb().from("ticket_messages").insert({ id: messageId, ticket_id: ticketId, sender: "user", message });
 
+    // Notify admin of new ticket
+    sendPush("__admin__", "Novo chamado aberto", `${username}: ${subject}`, "/");
+
     res.json({ success: true, ticketId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1493,6 +1543,15 @@ app.post("/api/tickets/:id/messages", async (req, res) => {
 
     const status = sender === "admin" ? "answered" : "open";
     await getDb().from("tickets").update({ status }).eq("id", id);
+
+    // Notify user when admin replies, notify admin when user replies
+    if (sender === "admin") {
+      const { data: ticket } = await getDb().from("tickets").select("username, subject").eq("id", id).single();
+      if (ticket) sendPush(ticket.username, "Nova resposta no suporte", `Seu chamado "${ticket.subject}" foi respondido.`, "/");
+    } else {
+      const { data: ticket } = await getDb().from("tickets").select("username, subject").eq("id", id).single();
+      if (ticket) sendPush("__admin__", "Resposta em chamado", `${ticket.username}: ${ticket.subject}`, "/");
+    }
 
     res.json({ success: true, messageId });
   } catch (error: any) {
@@ -1937,6 +1996,40 @@ app.post("/api/reseller/change-password", requireResellerAuth, async (req: any, 
   }
 });
 
+// ─── Web Push Endpoints ──────────────────────────────────────────────────────
+
+// GET /api/push/vapid-public-key — public key for frontend subscription (no auth required)
+app.get("/api/push/vapid-public-key", (_req, res) => {
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || "" });
+});
+
+// POST /api/push/subscribe — save or update a push subscription
+app.post("/api/push/subscribe", async (req, res) => {
+  try {
+    const { username, subscription } = req.body;
+    if (!username || !subscription?.endpoint) return res.status(400).json({ error: "Dados inválidos" });
+    await getDb().from("push_subscriptions").upsert(
+      { username, endpoint: subscription.endpoint, subscription },
+      { onConflict: "endpoint" }
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/push/subscribe — remove a push subscription
+app.delete("/api/push/subscribe", async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    if (!endpoint) return res.status(400).json({ error: "Endpoint obrigatório" });
+    await getDb().from("push_subscriptions").delete().eq("endpoint", endpoint);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Reseller Change Requests ────────────────────────────────────────────────
 
 const RESELLER_REQUEST_TYPES = ["reseller_password", "reseller_logins_decrease", "reseller_logins_increase"];
@@ -2090,6 +2183,7 @@ app.post("/api/admin/reseller-requests/:id/approve", async (req, res) => {
       .update({ status: "aprovado", approved_value: String(newLogins) })
       .eq("id", id);
 
+    sendPush(request.username, "Solicitação aprovada! ✅", `Sua alteração para ${newLogins} logins foi aprovada.`);
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -2101,9 +2195,11 @@ app.post("/api/admin/reseller-requests/:id/reject", async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
+    const { data: request } = await getDb().from("change_requests").select("username").eq("id", id).maybeSingle();
     await getDb().from("change_requests")
       .update({ status: "rejeitado", approved_value: reason || "Recusado pelo administrador." })
       .eq("id", id);
+    if (request) sendPush(request.username, "Solicitação recusada", reason ? `Motivo: ${reason}` : "Sua solicitação foi recusada.");
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -2130,6 +2226,7 @@ app.post("/api/admin/reseller-requests/:id/confirm", async (req, res) => {
     });
 
     await getDb().from("change_requests").update({ status: "confirmado" }).eq("id", id);
+    sendPush(request.username, "Logins adicionados! 🎉", `${newLogins} logins foram adicionados à sua revenda.`);
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -2204,6 +2301,65 @@ app.post("/api/admin/resellers/:username/adjust", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ─── Cron: Expiry Notifications ──────────────────────────────────────────────
+// Runs every day at 9h BRT to warn users/resellers whose access expires in 3 or 1 day
+
+cron.schedule("0 9 * * *", async () => {
+  const db = getDb();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // ── Regular clients ──
+  try {
+    const { data: groups } = await db
+      .from("user_groups")
+      .select("username, expires_at")
+      .not("expires_at", "is", null);
+
+    for (const g of groups || []) {
+      const exp = new Date(g.expires_at);
+      exp.setHours(0, 0, 0, 0);
+      const daysLeft = Math.round((exp.getTime() - today.getTime()) / 86400000);
+      if (daysLeft === 3) {
+        sendPush(g.username, "Seu acesso vence em 3 dias", "Renove agora para não perder o acesso.");
+      } else if (daysLeft === 1) {
+        sendPush(g.username, "Seu acesso vence amanhã! ⚠️", "Renove hoje para manter seu acesso ativo.");
+      }
+    }
+  } catch (e) { console.error("[cron] client expiry check failed:", e); }
+
+  // ── Resellers ──
+  try {
+    const { data: resellers } = await db
+      .from("payments")
+      .select("username")
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_adjustment"])
+      .eq("status", "approved");
+
+    const uniqueResellers = [...new Set((resellers || []).map((r: any) => r.username))];
+
+    for (const username of uniqueResellers) {
+      const { data: payments } = await db
+        .from("payments")
+        .select("*")
+        .eq("username", username)
+        .eq("status", "approved");
+
+      const info = calcResellerInfo(payments || []);
+      if (!info.expiresAt) continue;
+
+      const exp = new Date(info.expiresAt);
+      exp.setHours(0, 0, 0, 0);
+      const daysLeft = Math.round((exp.getTime() - today.getTime()) / 86400000);
+      if (daysLeft === 3) {
+        sendPush(username, "Sua revenda vence em 3 dias", "Renove sua revenda para não perder o acesso.");
+      } else if (daysLeft === 1) {
+        sendPush(username, "Sua revenda vence amanhã! ⚠️", "Renove hoje para manter sua revenda ativa.");
+      }
+    }
+  } catch (e) { console.error("[cron] reseller expiry check failed:", e); }
+}, { timezone: "America/Sao_Paulo" });
 
 // ─────────────────────────────────────────────────────────────────────────────
 

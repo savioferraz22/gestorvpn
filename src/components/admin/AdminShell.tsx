@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   LayoutDashboard, Users, Smartphone, MessageSquare, CreditCard,
   RefreshCw, ClipboardList, BarChart2, LogOut, ArrowLeft, Menu, X,
-  Shield, Store
+  Shield, Store, Bell, BellOff, BellRing
 } from "lucide-react";
 import type { AdminTab, AdminReports as AdminReportsData } from "../../types";
 import {
@@ -37,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Visão Geral", icon: <LayoutDashboard className="w-4 h-4" /> },
   { id: "users", label: "Usuários", icon: <Users className="w-4 h-4" /> },
   { id: "resellers", label: "Revendedores", icon: <Store className="w-4 h-4" /> },
+  { id: "notifications", label: "Notificações", icon: <Bell className="w-4 h-4" /> },
   { id: "devices", label: "Aparelhos", icon: <Smartphone className="w-4 h-4" /> },
   { id: "tickets", label: "Tickets", icon: <MessageSquare className="w-4 h-4" />, badgeKey: "tickets" },
   { id: "payments", label: "Pagamentos", icon: <CreditCard className="w-4 h-4" /> },
@@ -44,6 +45,98 @@ const NAV_ITEMS: NavItem[] = [
   { id: "change_requests", label: "Alterações", icon: <ClipboardList className="w-4 h-4" />, badgeKey: "changes" },
   { id: "reports", label: "Relatórios", icon: <BarChart2 className="w-4 h-4" /> },
 ];
+
+function AdminNotifications() {
+  const [permission, setPermission] = React.useState<NotificationPermission | "unsupported">("default");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!("Notification" in window)) { setPermission("unsupported"); return; }
+    setPermission(Notification.permission);
+  }, []);
+
+  const urlBase64ToUint8Array = (b64: string) => {
+    const padding = "=".repeat((4 - (b64.length % 4)) % 4);
+    const base64 = (b64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+  };
+
+  const activate = async () => {
+    setBusy(true);
+    try {
+      const perm = await Notification.requestPermission();
+      setPermission(perm);
+      if (perm === "granted") {
+        const vapidRes = await fetch("/api/push/vapid-public-key");
+        const { publicKey } = await vapidRes.json();
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) await existing.unsubscribe();
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: "__admin__", subscription: sub.toJSON() }),
+        });
+      }
+    } catch (e) { console.error(e); }
+    setBusy(false);
+  };
+
+  const deactivate = async () => {
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch("/api/push/subscribe", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+        await sub.unsubscribe();
+      }
+      setPermission("default");
+    } catch (e) { console.error(e); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="p-6 max-w-md mx-auto space-y-4">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-10 h-10 bg-primary-100 rounded-2xl flex items-center justify-center"><Bell className="w-5 h-5 text-primary-600" /></div>
+        <div>
+          <h2 className="font-bold text-text-base">Notificações Admin</h2>
+          <p className="text-xs text-text-muted">Receba alerts de novos tickets, solicitações e pagamentos</p>
+        </div>
+      </div>
+      {permission === "unsupported" && <p className="text-sm text-text-muted bg-bg-surface-hover rounded-2xl p-4">Seu navegador não suporta notificações push.</p>}
+      {permission === "granted" && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
+          <BellRing className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-emerald-800">Notificações ativas neste dispositivo</p>
+            <p className="text-xs text-emerald-700 mt-0.5">Você receberá alertas de novos tickets e pagamentos.</p>
+          </div>
+          <button onClick={deactivate} disabled={busy} className="text-xs text-red-600 hover:text-red-800 font-semibold px-2 py-1 rounded-lg border border-red-200 bg-white transition-colors">Desativar</button>
+        </div>
+      )}
+      {(permission === "default" || permission === "denied") && (
+        <div className="bg-bg-surface border border-border-base rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <BellOff className="w-5 h-5 text-text-muted" />
+            <p className="text-sm font-semibold text-text-base">{permission === "denied" ? "Notificações bloqueadas pelo navegador" : "Notificações desativadas"}</p>
+          </div>
+          {permission === "denied" ? (
+            <p className="text-xs text-text-muted">Acesse as configurações do navegador, encontre este site em Notificações e altere para <strong>Permitir</strong>.</p>
+          ) : (
+            <button onClick={activate} disabled={busy} className="w-full bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-sm transition-colors">
+              {busy ? "Ativando..." : "Ativar Notificações Admin"}
+            </button>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-text-muted bg-bg-surface-hover rounded-xl p-3">As notificações ficam vinculadas a <strong>este navegador/dispositivo</strong>. Para receber em outro dispositivo, acesse o painel lá e ative novamente.</p>
+    </div>
+  );
+}
 
 export function AdminShell({ onBack }: AdminShellProps) {
   const [isAuth, setIsAuth] = useState(() => !!getAdminToken());
@@ -301,6 +394,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
           {tab === "overview" && <AdminOverview {...sharedProps} />}
           {tab === "users" && <AdminUsers {...sharedProps} />}
           {tab === "resellers" && <AdminResellers />}
+          {tab === "notifications" && <AdminNotifications />}
           {tab === "devices" && <AdminDevices {...sharedProps} />}
           {tab === "tickets" && <AdminTickets {...sharedProps} />}
           {tab === "payments" && <AdminPayments {...sharedProps} />}

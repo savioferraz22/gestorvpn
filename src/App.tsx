@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2 } from "lucide-react";
+import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2 } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 
 type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
@@ -171,6 +171,10 @@ export default function App() {
   const [resellerTickets, setResellerTickets] = useState<any[]>([]);
   const [resellerTicketsLoaded, setResellerTicketsLoaded] = useState(false);
   const [ticketBackView, setTicketBackView] = useState<ViewState>("tickets");
+  // Push notifications
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">("default");
+  const [pushSoftBannerDismissed, setPushSoftBannerDismissed] = useState(false);
+  const [showPushInstructions, setShowPushInstructions] = useState(false);
   const [resellerSidebarOpen, setResellerSidebarOpen] = useState(false);
   const [showResellerNewTicketModal, setShowResellerNewTicketModal] = useState(false);
   const [resellerTicketSubject, setResellerTicketSubject] = useState("");
@@ -703,6 +707,68 @@ export default function App() {
     } finally {
       setIsVerifying(false);
     }
+  };
+
+  // ── Push notification permission ──────────────────────────────────────────
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!("Notification" in window)) { setPushPermission("unsupported"); return; }
+    setPushPermission(Notification.permission);
+    const dismissed = localStorage.getItem("push_soft_dismissed_at");
+    if (dismissed && Date.now() - Number(dismissed) < 7 * 24 * 60 * 60 * 1000) {
+      setPushSoftBannerDismissed(true);
+    } else {
+      setPushSoftBannerDismissed(false);
+    }
+  }, [currentUser?.login]);
+
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+  };
+
+  const requestPushPermission = async (username: string) => {
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+      if (permission === "granted") {
+        const vapidRes = await fetch("/api/push/vapid-public-key");
+        const { publicKey } = await vapidRes.json();
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) await existing.unsubscribe();
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, subscription: sub.toJSON() }),
+        });
+      } else if (permission === "denied") {
+        setShowPushInstructions(true);
+      }
+    } catch (e) { console.error("[push]", e); }
+  };
+
+  const disablePushNotifications = async () => {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch("/api/push/subscribe", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        await sub.unsubscribe();
+      }
+      setPushPermission("default");
+    } catch (e) { console.error("[push unsubscribe]", e); }
   };
 
   const fetchUserTickets = async () => {
@@ -1666,6 +1732,21 @@ export default function App() {
                     </motion.div>
                   )}
 
+                  {/* Push notification soft-ask banner */}
+                  {pushPermission === "default" && !pushSoftBannerDismissed && (
+                    <div className="bg-primary-50 border border-primary-200 rounded-2xl p-4 flex items-start gap-3">
+                      <Bell className="w-5 h-5 text-primary-500 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-primary-800">Ative as notificações</p>
+                        <p className="text-xs text-primary-700 mt-0.5">Receba avisos de vencimento, respostas de suporte e atualizações de solicitações.</p>
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={() => requestPushPermission(currentUser.login)} className="text-xs font-bold bg-primary-600 hover:bg-primary-700 text-white px-3 py-1.5 rounded-lg transition-colors">Ativar</button>
+                          <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-xs text-primary-600 hover:text-primary-800 px-3 py-1.5 transition-colors">Agora não</button>
+                        </div>
+                      </div>
+                      <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-text-muted hover:text-text-base transition-colors shrink-0"><X className="w-4 h-4" /></button>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                     {(groupUsersDetails.length > 0
@@ -1977,6 +2058,27 @@ export default function App() {
                               </div>
                               <span className="text-[11px]">Reembolso</span>
                             </button>
+                            {pushPermission !== "unsupported" && (
+                              <button
+                                onClick={() => {
+                                  if (pushPermission === "granted") {
+                                    disablePushNotifications();
+                                  } else if (pushPermission === "denied") {
+                                    setShowPushInstructions(true);
+                                  } else {
+                                    requestPushPermission(currentUser.login);
+                                  }
+                                }}
+                                className="bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                              >
+                                <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
+                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-sm ${pushPermission === "granted" ? "bg-emerald-100 text-emerald-600 border-emerald-200" : pushPermission === "denied" ? "bg-gray-100 text-gray-400 border-gray-200" : "bg-primary-100/50 text-primary-600 border-primary-200"}`}>
+                                    {pushPermission === "granted" ? <BellRing className="w-5 h-5" /> : pushPermission === "denied" ? <BellOff className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
+                                  </div>
+                                  <span className="text-[11px]">{pushPermission === "granted" ? "Notifs. Ativas" : pushPermission === "denied" ? "Notifs. Bloq." : "Notificações"}</span>
+                                </div>
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2758,6 +2860,62 @@ export default function App() {
                             </button>
                           </div>
                         </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Push Instructions Modal */}
+                <AnimatePresence>
+                  {showPushInstructions && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4"
+                      onClick={() => setShowPushInstructions(false)}
+                    >
+                      <motion.div
+                        initial={{ y: 40, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 40, opacity: 0 }}
+                        onClick={e => e.stopPropagation()}
+                        className="bg-bg-surface rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-amber-100 rounded-2xl flex items-center justify-center">
+                            <BellOff className="w-5 h-5 text-amber-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-text-base text-sm">Como reativar as notificações</h3>
+                            <p className="text-xs text-text-muted">O navegador bloqueou. Siga os passos abaixo:</p>
+                          </div>
+                        </div>
+                        <div className="space-y-3">
+                          <div className="bg-bg-surface-hover rounded-2xl p-3 space-y-1.5">
+                            <p className="text-xs font-bold text-text-base flex items-center gap-2"><Smartphone className="w-3.5 h-3.5 text-primary-500" /> Android (Chrome)</p>
+                            <ol className="text-xs text-text-muted space-y-1 list-none pl-4">
+                              <li>1. Toque nos 3 pontinhos ⋮ no Chrome</li>
+                              <li>2. Configurações → Configurações do site</li>
+                              <li>3. Notificações → encontre este site</li>
+                              <li>4. Mude para <strong className="text-text-base">Permitir</strong></li>
+                            </ol>
+                          </div>
+                          <div className="bg-bg-surface-hover rounded-2xl p-3 space-y-1.5">
+                            <p className="text-xs font-bold text-text-base flex items-center gap-2"><Settings2 className="w-3.5 h-3.5 text-primary-500" /> Desktop (Chrome)</p>
+                            <ol className="text-xs text-text-muted space-y-1 list-none pl-4">
+                              <li>1. Clique no ícone 🔒 na barra de endereço</li>
+                              <li>2. Notificações → <strong className="text-text-base">Permitir</strong></li>
+                              <li>3. Recarregue a página</li>
+                            </ol>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setShowPushInstructions(false)}
+                          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-2xl transition-colors text-sm"
+                        >
+                          Entendido
+                        </button>
                       </motion.div>
                     </motion.div>
                   )}
@@ -3917,6 +4075,22 @@ export default function App() {
                           Confirmar meu plano
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Push notification soft-ask banner (reseller) */}
+                  {pushPermission === "default" && !pushSoftBannerDismissed && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3">
+                      <Bell className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-emerald-800">Ative as notificações</p>
+                        <p className="text-xs text-emerald-700 mt-0.5">Receba avisos de vencimento da revenda, respostas de suporte e atualizações de solicitações.</p>
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={() => requestPushPermission(resellerData?.reseller?.login ?? "")} className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition-colors">Ativar</button>
+                          <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-xs text-emerald-600 hover:text-emerald-800 px-3 py-1.5 transition-colors">Agora não</button>
+                        </div>
+                      </div>
+                      <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-text-muted hover:text-text-base transition-colors shrink-0"><X className="w-4 h-4" /></button>
                     </div>
                   )}
 
