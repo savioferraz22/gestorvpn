@@ -33,27 +33,36 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
   );
+  console.log("[push] VAPID configured ✓");
+} else {
+  console.warn("[push] VAPID keys NOT set — push notifications disabled");
 }
 
 async function sendPush(username: string, title: string, body: string, url = "/") {
   try {
-    const { data: subs } = await getDb()
+    console.log(`[push] sendPush → username="${username}" title="${title}"`);
+    const { data: subs, error: subErr } = await getDb()
       .from("push_subscriptions")
       .select("subscription, endpoint")
       .eq("username", username);
-    if (!subs?.length) return;
+    if (subErr) { console.error("[push] Supabase query error:", subErr); return; }
+    if (!subs?.length) { console.log(`[push] No subscriptions found for "${username}"`); return; }
+    console.log(`[push] Found ${subs.length} subscription(s) for "${username}"`);
     await Promise.allSettled(
       subs.map((row: any) =>
         webpush
           .sendNotification(row.subscription, JSON.stringify({ title, body, url }))
+          .then(() => console.log(`[push] Delivered to endpoint: ${row.endpoint.slice(0, 60)}...`))
           .catch(async (err: any) => {
+            console.error(`[push] sendNotification error (status ${err.statusCode}):`, err.message);
             if (err.statusCode === 410 || err.statusCode === 404) {
               await getDb().from("push_subscriptions").delete().eq("endpoint", row.endpoint);
+              console.log("[push] Removed stale subscription.");
             }
           })
       )
     );
-  } catch { /* silently fail — push must never break the main request */ }
+  } catch (e) { console.error("[push] Unexpected error:", e); }
 }
 
 // ─── Admin Auth ────────────────────────────────────────────────────────────
