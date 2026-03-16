@@ -90,6 +90,8 @@ export interface AdminReports {
   previousSales?: number;
   topUsers?: { username: string; revenue: number; sales: number }[];
   byType?: { type: string; count: number; revenue: number }[];
+  topPlans?: { plan_months: number; plan_devices: number; plan_price: number; groups: number; users: number }[];
+  topReferrers?: { username: string; total: number; converted: number }[];
 }
 
 export interface ConfirmDialogState {

@@ -1530,6 +1530,36 @@ app.get("/api/admin/reports", async (req, res) => {
 
     const avgTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
 
+    // Top plans — snapshot atual dos planos ativos (group_plans + user_groups)
+    const { data: allGroupPlans } = await getDb().from("group_plans").select("plan_months, plan_devices, plan_price, group_id");
+    const { data: allGroupUsers } = await getDb().from("user_groups").select("group_id");
+    const groupUserCount: Record<string, number> = {};
+    (allGroupUsers || []).forEach((u: any) => {
+      groupUserCount[u.group_id] = (groupUserCount[u.group_id] || 0) + 1;
+    });
+    const planMap: Record<string, { plan_months: number; plan_devices: number; plan_price: number; groups: number; users: number }> = {};
+    (allGroupPlans || []).forEach((p: any) => {
+      const key = `${p.plan_months}m_${p.plan_devices}d`;
+      const users = groupUserCount[p.group_id] || 1;
+      if (!planMap[key]) planMap[key] = { plan_months: p.plan_months, plan_devices: p.plan_devices, plan_price: p.plan_price, groups: 0, users: 0 };
+      planMap[key].groups++;
+      planMap[key].users += users;
+    });
+    const topPlans = Object.values(planMap).sort((a, b) => b.users - a.users).slice(0, 6);
+
+    // Top referrers — all time
+    const { data: allReferrals } = await getDb().from("referrals").select("referrer_username, status");
+    const referrerMap: Record<string, { total: number; converted: number }> = {};
+    (allReferrals || []).forEach((r: any) => {
+      if (!referrerMap[r.referrer_username]) referrerMap[r.referrer_username] = { total: 0, converted: 0 };
+      referrerMap[r.referrer_username].total++;
+      if (r.status === 'bonus_received') referrerMap[r.referrer_username].converted++;
+    });
+    const topReferrers = Object.entries(referrerMap)
+      .map(([username, data]) => ({ username, ...data }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
     res.json({
       totalRevenue,
       totalSales,
@@ -1539,6 +1569,8 @@ app.get("/api/admin/reports", async (req, res) => {
       previousRevenue,
       previousSales,
       topUsers,
+      topPlans,
+      topReferrers,
       byType: Object.entries(byTypeMap).map(([type, data]) => ({ type, ...data })),
       salesHistory: Object.keys(salesByDate).sort().map(date => ({
         date,

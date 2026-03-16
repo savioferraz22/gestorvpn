@@ -1,5 +1,5 @@
 import React from "react";
-import { RefreshCw, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, Zap, Award, BarChart2 } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, Zap, Award, BarChart2, Layers, Share2 } from "lucide-react";
 import { fetchAdminReports } from "../../services/api";
 import type { AdminReports as AdminReportsData } from "../../types";
 
@@ -282,6 +282,82 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
                       </div>
                     </div>
                     <span className="text-[11px] text-text-muted shrink-0 font-medium">{u.sales}x</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Top Plans */}
+        {reports.topPlans && reports.topPlans.length > 0 && (
+          <div className="bg-bg-surface border border-border-base/50 rounded-2xl overflow-hidden shadow-sm">
+            <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-emerald-500" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">Top Planos (snapshot atual)</h3>
+            </div>
+            <div className="divide-y divide-border-base/40">
+              {reports.topPlans.map((p, i) => {
+                const maxUsers = reports.topPlans![0].users;
+                const pct = (p.users / maxUsers) * 100;
+                const label = `${p.plan_months} ${p.plan_months === 1 ? "mês" : "meses"} · ${p.plan_devices} ${p.plan_devices === 1 ? "aparelho" : "aparelhos"}`;
+                return (
+                  <div key={i} className="px-4 py-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-semibold text-text-base">{label}</p>
+                        <p className="text-xs font-bold text-emerald-600 ml-2 shrink-0">
+                          R$ {p.plan_price.toFixed(2).replace(".", ",")}
+                        </p>
+                      </div>
+                      <div className="h-1.5 bg-bg-base rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 min-w-[48px]">
+                      <p className="text-xs font-bold text-text-base">{p.users} {p.users === 1 ? "usuário" : "usuários"}</p>
+                      <p className="text-[9px] text-text-muted">{p.groups} {p.groups === 1 ? "grupo" : "grupos"}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Top Referrers */}
+        {reports.topReferrers && reports.topReferrers.length > 0 && (
+          <div className="bg-bg-surface border border-border-base/50 rounded-2xl overflow-hidden shadow-sm">
+            <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+              <Share2 className="w-4 h-4 text-fuchsia-500" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">Top Indicações</h3>
+            </div>
+            <div className="divide-y divide-border-base/40">
+              {reports.topReferrers.map((r, i) => {
+                const maxTotal = reports.topReferrers![0].total;
+                const pct = (r.total / maxTotal) * 100;
+                const convPct = r.total > 0 ? Math.round((r.converted / r.total) * 100) : 0;
+                const medals = ["🥇", "🥈", "🥉"];
+                return (
+                  <div key={r.username} className="px-4 py-3 flex items-center gap-3">
+                    <span className="text-base shrink-0">{medals[i] ?? `${i + 1}.`}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-sm font-semibold text-text-base truncate">{r.username}</p>
+                        <div className="flex items-center gap-2 ml-2 shrink-0">
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-lg">
+                            {r.converted} conv.
+                          </span>
+                          <span className="text-[10px] font-bold text-fuchsia-600">{r.total} ind.</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-bg-base rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-fuchsia-400 to-violet-500 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-[9px] text-text-muted shrink-0">{convPct}% conv.</span>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
