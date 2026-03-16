@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { RefreshCw } from "lucide-react";
-import { fetchAdminChangeRequests, approveChangeRequest, rejectChangeRequest } from "../../services/api";
+import { RefreshCw, Eye, EyeOff, KeyRound, Clock } from "lucide-react";
+import { fetchAdminChangeRequests, approveChangeRequest, rejectChangeRequest, fetchAdminUserDetails } from "../../services/api";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface Props {
@@ -27,6 +27,29 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const [pendingApprove, setPendingApprove] = useState<{ id: string; type: string; requestedValue: string } | null>(null);
   const [approvedValue, setApprovedValue] = useState("");
+  const [userDetails, setUserDetails] = useState<Record<string, any>>({});
+  const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
+  const [showPass, setShowPass] = useState<Record<string, boolean>>({});
+
+  async function loadUserDetails(username: string) {
+    if (userDetails[username] || loadingDetails[username]) return;
+    setLoadingDetails(p => ({ ...p, [username]: true }));
+    try {
+      const data = await fetchAdminUserDetails(username);
+      setUserDetails(p => ({ ...p, [username]: data }));
+    } catch { /* silently fail */ } finally {
+      setLoadingDetails(p => ({ ...p, [username]: false }));
+    }
+  }
+
+  function daysLeft(expira: string) {
+    if (!expira) return null;
+    const exp = new Date(expira);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    exp.setHours(0, 0, 0, 0);
+    return Math.round((exp.getTime() - today.getTime()) / 86400000);
+  }
 
   async function refresh() {
     setLoading(true);
@@ -92,12 +115,23 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
             <p className="text-sm font-medium text-text-muted">Nenhuma solicitação.</p>
           </div>
         ) : (
-          filtered.map((r: any) => (
+          filtered.map((r: any) => {
+            const ud = userDetails[r.username];
+            const u = ud?.user;
+            const pass = u?.senha || u?.pass || u?.password;
+            const days = u ? daysLeft(u.expira) : null;
+            return (
             <div key={r.id} className="bg-bg-surface border border-border-base/50 p-5 rounded-2xl flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-sm font-bold text-text-base mb-1">{r.username}</p>
-                  <div className="flex gap-2 items-center">
+                  <button
+                    className="text-sm font-bold text-text-base mb-1 hover:text-primary-600 transition-colors text-left"
+                    onClick={() => loadUserDetails(r.username)}
+                    title="Clique para ver senha e vencimento"
+                  >
+                    {r.username} {loadingDetails[r.username] ? "..." : ""}
+                  </button>
+                  <div className="flex gap-2 items-center flex-wrap">
                     <span className="text-[11px] font-medium text-text-muted bg-bg-surface-hover px-1.5 py-0.5 rounded border border-border-base/50">
                       {formatDate(r.created_at)}
                     </span>
@@ -114,6 +148,35 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                   {r.status === "aprovado" ? "Aprovado" : r.status === "aguardando" ? "Aguardando" : "Rejeitado"}
                 </span>
               </div>
+
+              {/* Client quick-info (loaded on demand) */}
+              {u && (
+                <div className="flex gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 bg-bg-base/60 border border-border-base/40 rounded-xl px-3 py-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                    <span className="text-xs font-mono font-bold text-text-base">
+                      {showPass[r.username] ? (pass || "N/A") : "••••••"}
+                    </span>
+                    <button onClick={() => setShowPass(p => ({ ...p, [r.username]: !p[r.username] }))} className="ml-0.5 text-text-muted hover:text-text-base">
+                      {showPass[r.username] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  </div>
+                  {days !== null && (
+                    <div className={`flex items-center gap-1.5 border rounded-xl px-3 py-1.5 ${days <= 1 ? "bg-red-50 border-red-100" : days <= 5 ? "bg-amber-50 border-amber-100" : "bg-bg-base/60 border-border-base/40"}`}>
+                      <Clock className={`w-3.5 h-3.5 shrink-0 ${days <= 1 ? "text-red-500" : days <= 5 ? "text-amber-500" : "text-text-muted"}`} />
+                      <span className={`text-xs font-bold ${days <= 1 ? "text-red-600" : days <= 5 ? "text-amber-600" : "text-text-base"}`}>
+                        {days < 0 ? "Expirado" : days === 0 ? "Vence hoje" : `${days}d restantes`}
+                      </span>
+                      <span className="text-[10px] text-text-muted">({u.expira?.slice(0, 10).split("-").reverse().join("/")})</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!u && !loadingDetails[r.username] && (
+                <button onClick={() => loadUserDetails(r.username)} className="text-[11px] text-primary-500 hover:text-primary-600 font-medium flex items-center gap-1 w-fit">
+                  <Eye className="w-3 h-3" /> Ver senha e vencimento
+                </button>
+              )}
 
               <div className="bg-bg-base/50 p-3.5 rounded-xl border border-border-base/50">
                 <p className="text-[10px] uppercase font-bold tracking-wider text-text-muted mb-1">Valor solicitado</p>
@@ -143,7 +206,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                 </div>
               )}
             </div>
-          ))
+          );})
         )}
       </div>
 

@@ -198,6 +198,13 @@ export async function fetchAdminUserDetails(username: string) {
   return apiFetch<any>(`/api/admin/users/${encodeURIComponent(username)}/details`, { headers: adminHeaders() });
 }
 
+export async function deleteAdminUser(username: string) {
+  return apiFetch<any>(`/api/admin/users/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    headers: adminHeaders(),
+  });
+}
+
 export async function fetchAdminResellers() {
   return apiFetch<any[]>("/api/admin/resellers", { headers: adminHeaders() });
 }

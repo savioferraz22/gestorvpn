@@ -72,6 +72,7 @@ export default function App() {
   const [paymentStatus, setPaymentStatus] = useState<"pending" | "approved">("pending");
   const [pixExpired, setPixExpired] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [renewalCountdown, setRenewalCountdown] = useState(0);
 
   // New User state
   const [newUsername, setNewUsername] = useState("");
@@ -439,12 +440,9 @@ export default function App() {
           const data = await res.json();
           if (data.status === "approved") {
             setPaymentStatus("approved");
+            setRenewalCountdown(12);
             clearInterval(interval);
             clearTimeout(timeout);
-            // Refresh user data after approval
-            if (currentUser) {
-              handleLogin(currentUser.login);
-            }
           }
         } catch (err) {
           console.error("Error checking status:", err);
@@ -462,7 +460,30 @@ export default function App() {
       if (interval) clearInterval(interval);
       if (timeout) clearTimeout(timeout);
     };
-  }, [paymentData, paymentStatus, pixExpired, currentUser]);
+  }, [paymentData, paymentStatus, pixExpired]);
+
+  // Renewal countdown after payment approval
+  useEffect(() => {
+    if (renewalCountdown <= 0) return;
+    if (renewalCountdown === 12 && currentUser) {
+      // Pre-fetch after 10s to ensure VPN API completed renewal
+      const prefetch = setTimeout(() => handleLogin(currentUser.login), 10000);
+      return () => clearTimeout(prefetch);
+    }
+    const tick = setInterval(() => {
+      setRenewalCountdown(c => {
+        if (c <= 1) {
+          clearInterval(tick);
+          setView("dashboard");
+          setPaymentData(null);
+          setPaymentStatus("pending");
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [renewalCountdown]);
 
   // Reseller PIX polling
   useEffect(() => {
@@ -3665,20 +3686,30 @@ export default function App() {
                       animate={{ scale: 1, opacity: 1 }}
                       className="text-center py-6"
                     >
-                      <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <CheckCircle2 className="w-10 h-10 text-primary-600" />
                       </div>
                       <h2 className="text-2xl font-bold text-text-base mb-2">
                         Pagamento Aprovado!
                       </h2>
-                      <p className="text-text-muted mb-6">
-                        Sua assinatura foi renovada com sucesso!
+                      <p className="text-text-muted mb-5 text-sm">
+                        Aguarde enquanto sincronizamos seu acesso...
+                      </p>
+                      {/* Progress bar */}
+                      <div className="w-full bg-primary-100 rounded-full h-2 mb-3 overflow-hidden">
+                        <div
+                          className="h-full bg-primary-600 rounded-full transition-all duration-1000"
+                          style={{ width: `${((12 - renewalCountdown) / 12) * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-text-muted mb-5">
+                        Redirecionando em <span className="font-bold text-primary-600">{renewalCountdown}s</span>...
                       </p>
                       <button
-                        onClick={() => setView("dashboard")}
-                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 rounded-xl transition-colors"
+                        onClick={() => { setView("dashboard"); setPaymentData(null); setPaymentStatus("pending"); setRenewalCountdown(0); }}
+                        className="w-full border border-border-base text-text-muted font-medium py-2.5 px-4 rounded-xl transition-colors hover:bg-bg-surface-hover text-sm"
                       >
-                        Voltar ao Painel
+                        Ir agora (dados podem estar desatualizados)
                       </button>
                     </motion.div>
                   ) : pixExpired ? (

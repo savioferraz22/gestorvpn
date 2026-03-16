@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Search, User, Smartphone, CreditCard, Star, RefreshCw, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
-import { fetchAdminUserDetails, updateUserAccess } from "../../services/api";
+import { Search, User, Smartphone, CreditCard, Star, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Trash2 } from "lucide-react";
+import { fetchAdminUserDetails, updateUserAccess, deleteAdminUser } from "../../services/api";
 import type { AdminTab } from "../../types";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface Props {
   navigateTo: (tab: AdminTab) => void;
@@ -25,6 +26,8 @@ export function AdminUsers({ navigateTo }: Props) {
   const [showReferrals, setShowReferrals] = useState(false);
   const [updatingAccess, setUpdatingAccess] = useState(false);
   const [accessMsg, setAccessMsg] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +43,21 @@ export function AdminUsers({ navigateTo }: Props) {
       setError(err.message || "Usuário não encontrado");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDeleteUser(username: string) {
+    setDeleting(true);
+    try {
+      await deleteAdminUser(username);
+      setUserData(null);
+      setQuery("");
+      setAccessMsg("");
+    } catch (err: any) {
+      setAccessMsg(err.message || "Erro ao excluir cliente");
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   }
 
@@ -158,13 +176,19 @@ export function AdminUsers({ navigateTo }: Props) {
                 Atualizar Acesso
               </button>
               <button
-                onClick={() => {
-                  navigateTo("tickets");
-                }}
+                onClick={() => navigateTo("tickets")}
                 className="flex items-center gap-1.5 text-sm bg-bg-surface-hover hover:bg-bg-base text-text-base border border-border-base px-4 py-2 rounded-xl font-medium transition-colors active:scale-95"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 Ver Tickets
+              </button>
+              <button
+                onClick={() => setConfirmDelete(true)}
+                disabled={deleting}
+                className="flex items-center gap-1.5 text-sm bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-2 rounded-xl font-medium transition-colors active:scale-95 disabled:opacity-60"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Excluir Cliente
               </button>
             </div>
           </div>
@@ -240,6 +264,14 @@ export function AdminUsers({ navigateTo }: Props) {
           <p className="text-text-muted text-sm font-medium">Digite um username para buscar</p>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDelete}
+        title="Excluir Cliente"
+        message={`Tem certeza que deseja excluir "${u?.login}" do sistema? Isso removerá todos os dados (pagamentos, dispositivos, histórico). O acesso no painel VPN deve ser removido manualmente.`}
+        onConfirm={() => u && handleDeleteUser(u.login)}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

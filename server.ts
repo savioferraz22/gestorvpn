@@ -263,6 +263,23 @@ function parseVpnExpira(expira: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// ─── Cancel stale pending payments (>30 min) ──────────────────────────────
+async function cancelStalePendingPayments() {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { data, error } = await getDb()
+      .from("payments")
+      .update({ status: "cancelled" })
+      .eq("status", "pending")
+      .lt("created_at", cutoff);
+    if (!error && data) console.log(`[payments] cancelled ${(data as any[]).length ?? "?"} stale pending payment(s)`);
+  } catch (e) { console.error("[payments] cancelStalePending error:", e); }
+}
+
+// Run once on startup + every 5 minutes
+cancelStalePendingPayments();
+setInterval(cancelStalePendingPayments, 5 * 60 * 1000);
+
 async function approvePayment(paymentRecord: any) {
   const paymentId = paymentRecord.id;
   const db = getDb();
@@ -1705,6 +1722,38 @@ app.delete("/api/admin/devices", async (req, res) => {
 app.delete("/api/admin/devices/:id", async (req, res) => {
   try {
     await getDb().from("devices").delete().eq("device_id", req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─── Delete client from our system ──────────────────────────────────────────
+app.delete("/api/admin/users/:username", requireAdminAuth, async (req, res) => {
+  const { username } = req.params;
+  if (!username) return res.status(400).json({ error: "Username obrigatório" });
+  try {
+    const db = getDb();
+    // Get group_id(s) for this user to delete group_plans
+    const { data: userGroups } = await db.from("user_groups").select("group_id").eq("username", username);
+    const groupIds = (userGroups || []).map((g: any) => g.group_id);
+    // Check if user is the only member of each group; if so, delete the group_plan too
+    for (const gid of groupIds) {
+      const { data: members } = await db.from("user_groups").select("username").eq("group_id", gid);
+      if ((members || []).length <= 1) {
+        await db.from("group_plans").delete().eq("group_id", gid);
+      }
+    }
+    await db.from("user_groups").delete().eq("username", username);
+    await db.from("payments").delete().eq("username", username);
+    await db.from("devices").delete().eq("username", username);
+    await db.from("trusted_devices").delete().eq("username", username);
+    await db.from("push_subscriptions").delete().eq("username", username);
+    await db.from("referrals").delete().eq("referrer_username", username);
+    await db.from("referrals").delete().eq("referred_username", username);
+    await db.from("change_requests").delete().eq("username", username);
+    // refunds table if exists
+    try { await db.from("refunds").delete().eq("username", username); } catch { /* ignore if table doesn't exist */ }
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
