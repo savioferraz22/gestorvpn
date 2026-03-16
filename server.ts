@@ -1441,25 +1441,28 @@ app.get("/api/admin/reports", async (req, res) => {
     const { data: devices } = await getDb().from("devices").select("*").gte("created_at", sinceDate);
 
     let totalRevenue = 0;
-    const totalSales = (payments || []).length;
+    let totalSales = 0;
     const totalTests = (devices || []).length;
 
     const salesByDate: Record<string, { count: number, revenue: number }> = {};
     const testsByDate: Record<string, number> = {};
-    
+
     dates.forEach(d => {
       salesByDate[d] = { count: 0, revenue: 0 };
       testsByDate[d] = 0;
     });
 
     (payments || []).forEach(p => {
-      let amount = 0;
-      if (p.metadata) {
-        // Handle metadata as object or string (sometimes needed depending on driver/JSONB)
-        const metadata = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
-        amount = Number(metadata.amount) || Number(p.amount) || 0;
-      }
+      const metadata = p.metadata
+        ? (typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata)
+        : {};
+      const amount = Number(metadata.amount) || Number(p.amount) || 0;
+
+      // Exclude zero-value adjustments from sales metrics
+      if (amount === 0) return;
+
       totalRevenue += amount;
+      totalSales++;
 
       const dateStr = (p.paid_at || p.created_at).split('T')[0];
       if (salesByDate[dateStr]) {
@@ -1485,12 +1488,22 @@ app.get("/api/admin/reports", async (req, res) => {
 
     const conversionRate = totalTests > 0 ? ((totalConverted / totalTests) * 100).toFixed(1) : "0.0";
 
+    // Helper: extract amount from a payment row
+    const getAmount = (p: any): number => {
+      const meta = p.metadata
+        ? (typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata)
+        : {};
+      return Number(meta?.amount) || Number(p.amount) || 0;
+    };
+
+    // Only count payments with real value for top users / by type
+    const paidPayments = (payments || []).filter((p: any) => getAmount(p) > 0);
+
     // Top users by revenue
     const userRevenue: Record<string, { revenue: number; sales: number }> = {};
-    (payments || []).forEach((p: any) => {
+    paidPayments.forEach((p: any) => {
       if (!userRevenue[p.username]) userRevenue[p.username] = { revenue: 0, sales: 0 };
-      const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
-      const amount = Number(meta?.amount) || Number(p.amount) || 0;
+      const amount = getAmount(p);
       userRevenue[p.username].revenue += amount;
       userRevenue[p.username].sales++;
     });
@@ -1499,26 +1512,21 @@ app.get("/api/admin/reports", async (req, res) => {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
-    // By type breakdown
+    // By type breakdown (only paid)
     const byTypeMap: Record<string, { count: number; revenue: number }> = {};
-    (payments || []).forEach((p: any) => {
+    paidPayments.forEach((p: any) => {
       const type = p.type || 'unknown';
       if (!byTypeMap[type]) byTypeMap[type] = { count: 0, revenue: 0 };
-      const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
-      const amount = Number(meta?.amount) || Number(p.amount) || 0;
       byTypeMap[type].count++;
-      byTypeMap[type].revenue += amount;
+      byTypeMap[type].revenue += getAmount(p);
     });
 
     // Previous period for comparison (same length before current period)
     const prevSinceDate = new Date(Date.now() - 2 * period * 24 * 60 * 60 * 1000).toISOString();
     const { data: prevPayments } = await getDb().from("payments").select("*").eq("status", "approved")
       .gte("created_at", prevSinceDate).lt("created_at", sinceDate);
-    const previousRevenue = (prevPayments || []).reduce((sum: number, p: any) => {
-      const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
-      return sum + (Number(meta?.amount) || Number(p.amount) || 0);
-    }, 0);
-    const previousSales = (prevPayments || []).length;
+    const previousRevenue = (prevPayments || []).reduce((sum: number, p: any) => sum + getAmount(p), 0);
+    const previousSales = (prevPayments || []).filter((p: any) => getAmount(p) > 0).length;
 
     const avgTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
 
