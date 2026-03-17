@@ -176,6 +176,12 @@ export default function App() {
   const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">("default");
   const [pushSoftBannerDismissed, setPushSoftBannerDismissed] = useState(false);
   const [showPushInstructions, setShowPushInstructions] = useState(false);
+
+  // In-app notification center
+  const [notifPanelOpen, setNotifPanelOpen] = useState(false);
+  const [seenNotifIds, setSeenNotifIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("vs_seen_notifs") || "[]")); } catch { return new Set(); }
+  });
   const [resellerSidebarOpen, setResellerSidebarOpen] = useState(false);
   const [showResellerNewTicketModal, setShowResellerNewTicketModal] = useState(false);
   const [resellerTicketSubject, setResellerTicketSubject] = useState("");
@@ -1409,6 +1415,37 @@ export default function App() {
     return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   };
 
+  // ─── In-app notification items (derived from live state) ──────────────────
+  const typeMap: Record<string, string> = { date: "Vencimento", username: "Usuário", uuid: "UUID", password: "Senha" };
+  const allNotifications: Array<{ id: string; title: string; body: string; created_at: string; onPress: () => void }> = [];
+  if (currentUser || resellerData) {
+    for (const t of tickets) {
+      if (t.status === "answered") {
+        allNotifications.push({ id: `ticket_${t.id}`, title: "Resposta no suporte", body: t.subject, created_at: t.updated_at || t.created_at, onPress: () => { setCurrentTicket(t); fetchMessages(t.id); setTicketBackView("tickets"); setView("ticket_detail"); setNotifPanelOpen(false); } });
+      }
+    }
+    for (const t of resellerTickets) {
+      if (t.status === "answered") {
+        allNotifications.push({ id: `rticket_${t.id}`, title: "Resposta no suporte", body: t.subject, created_at: t.updated_at || t.created_at, onPress: () => { setCurrentTicket(t); fetchMessages(t.id); setTicketBackView("reseller_tickets"); setView("ticket_detail"); setNotifPanelOpen(false); } });
+      }
+    }
+    for (const req of (currentUser?.changeRequests || [])) {
+      if (req.status === "aprovado" || req.status === "rejeitado") {
+        allNotifications.push({ id: `req_${req.id}`, title: req.status === "aprovado" ? "Solicitação aprovada ✓" : "Solicitação recusada", body: `Alteração de ${typeMap[req.type] || req.type}`, created_at: req.updated_at || req.created_at, onPress: () => { setView("dashboard"); setNotifPanelOpen(false); } });
+      }
+    }
+    allNotifications.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+  const unreadCount = allNotifications.filter(n => !seenNotifIds.has(n.id)).length;
+
+  function openNotifPanel() {
+    setNotifPanelOpen(true);
+    const newSeen = new Set([...seenNotifIds, ...allNotifications.map(n => n.id)]);
+    setSeenNotifIds(newSeen);
+    localStorage.setItem("vs_seen_notifs", JSON.stringify([...newSeen].slice(-100)));
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-[100dvh] bg-bg-base font-sans w-full relative flex">
       {/* Background decoration elements */}
@@ -1416,6 +1453,60 @@ export default function App() {
         <div className="absolute -top-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[500px] max-h-[500px] rounded-full bg-primary-500/10 blur-[80px]" />
         <div className="absolute bottom-[10%] -left-[10%] w-[60vw] h-[60vw] max-w-[400px] max-h-[400px] rounded-full bg-primary-400/10 blur-[60px]" />
       </div>
+
+      {/* ─── Notification Bell (fixed, visible in all logged-in views) ─── */}
+      {(currentUser || resellerData) && !["login", "create_user", "admin", "reseller_info", "pix_flow", "reseller_pix", "show_credentials"].includes(view) && (
+        <div className="fixed top-3.5 right-4 z-[70]">
+          <button
+            onClick={notifPanelOpen ? () => setNotifPanelOpen(false) : openNotifPanel}
+            className="relative w-9 h-9 rounded-xl bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white shadow-lg hover:bg-white/25 transition-all active:scale-95"
+          >
+            <Bell className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm leading-none">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {notifPanelOpen && (
+            <>
+              <div className="fixed inset-0 z-[-1]" onClick={() => setNotifPanelOpen(false)} />
+              <div className="absolute right-0 top-11 w-80 max-h-[70vh] bg-bg-surface rounded-2xl shadow-2xl border border-border-base overflow-hidden flex flex-col">
+                <div className="px-4 py-3 border-b border-border-base/70 flex justify-between items-center shrink-0">
+                  <p className="font-bold text-text-base text-sm">Notificações</p>
+                  {allNotifications.length > 0 && (
+                    <span className="text-[10px] text-text-muted font-medium">{allNotifications.length} no total</span>
+                  )}
+                </div>
+                <div className="overflow-y-auto flex-1">
+                  {allNotifications.length === 0 ? (
+                    <div className="py-10 px-4 text-center">
+                      <Bell className="w-8 h-8 text-text-muted mx-auto mb-2 opacity-30" />
+                      <p className="text-sm text-text-muted font-medium">Nenhuma notificação</p>
+                      <p className="text-xs text-text-muted/70 mt-1">Respostas de suporte e atualizações de solicitações aparecem aqui</p>
+                    </div>
+                  ) : (
+                    allNotifications.map(n => (
+                      <button
+                        key={n.id}
+                        onClick={n.onPress}
+                        className="w-full text-left px-4 py-3.5 hover:bg-bg-surface-hover transition-colors border-b border-border-base/40 last:border-0 flex items-start gap-3"
+                      >
+                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${seenNotifIds.has(n.id) ? "bg-border-base" : "bg-primary-500"}`} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-text-base leading-tight">{n.title}</p>
+                          <p className="text-xs text-text-muted mt-0.5 truncate">{n.body}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* User Sidebar — shown when logged in (not admin/public views) */}
       {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help", "reseller_tickets"].includes(view) && (
@@ -1765,13 +1856,6 @@ export default function App() {
 
                       </div>
                     </div>
-                    <button
-                      onClick={() => setUserSidebarOpen(true)}
-                      className="md:hidden text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
-                      title="Menu"
-                    >
-                      <Menu className="w-5 h-5" />
-                    </button>
                   </div>
                 </div>
                 <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
