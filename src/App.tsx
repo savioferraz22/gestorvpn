@@ -1981,6 +1981,11 @@ export default function App() {
                     <div className="bg-bg-surface-hover rounded-3xl p-5 border border-border-base flex flex-col gap-5 shadow-sm">
                       <div className="flex justify-between items-center bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm">
                         <div className="flex flex-col items-center flex-1">
+                          {groupData?.plan && (
+                            <p className="text-[11px] font-bold text-primary-600 bg-primary-50 border border-primary-100 px-2.5 py-0.5 rounded-full mb-1.5">
+                              {groupData.plan.plan_months} {groupData.plan.plan_months === 1 ? "mês" : "meses"} · {groupData.plan.plan_devices} {groupData.plan.plan_devices === 1 ? "aparelho" : "aparelhos"}
+                            </p>
+                          )}
                           <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Vencimento</p>
                           <p className="text-xl font-bold text-primary-600">{formatDate(currentUser.expira)}</p>
                           {(() => {
