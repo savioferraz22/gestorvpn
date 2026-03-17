@@ -147,6 +147,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [reportPeriod, setReportPeriod] = useState(30);
+  const [adminNotifOpen, setAdminNotifOpen] = useState(false);
 
   // Shared state for all admin data
   const [devices, setDevices] = useState<any[]>([]);
@@ -307,6 +308,53 @@ export function AdminShell({ onBack }: AdminShellProps) {
           <span className="text-text-muted text-sm hidden sm:block capitalize">{NAV_ITEMS.find(n => n.id === tab)?.label}</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Admin notification bell */}
+          {(() => {
+            const total = badges.tickets + badges.refunds + badges.changes;
+            const items = [
+              { label: "Tickets abertos", count: badges.tickets, tab: "tickets" as AdminTab },
+              { label: "Reembolsos aguardando", count: badges.refunds, tab: "refunds" as AdminTab },
+              { label: "Alterações aguardando", count: badges.changes, tab: "change_requests" as AdminTab },
+            ].filter(i => i.count > 0);
+            return (
+              <div className="relative">
+                <button
+                  onClick={() => setAdminNotifOpen(v => !v)}
+                  className="relative p-2 rounded-xl hover:bg-bg-surface-hover text-text-muted hover:text-text-base transition-colors border border-border-base/50"
+                >
+                  <Bell className="w-4 h-4" />
+                  {total > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                      {total > 9 ? "9+" : total}
+                    </span>
+                  )}
+                </button>
+                {adminNotifOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[48]" onClick={() => setAdminNotifOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1.5 w-72 bg-bg-surface rounded-2xl shadow-2xl border border-border-base overflow-hidden z-[49]">
+                      <div className="px-4 py-3 border-b border-border-base/70">
+                        <p className="font-bold text-text-base text-sm">Pendências</p>
+                      </div>
+                      {items.length === 0 ? (
+                        <div className="py-8 px-4 text-center">
+                          <Bell className="w-7 h-7 text-text-muted mx-auto mb-2 opacity-30" />
+                          <p className="text-sm text-text-muted font-medium">Nenhuma pendência</p>
+                        </div>
+                      ) : (
+                        items.map(i => (
+                          <button key={i.tab} onClick={() => { navigateTo(i.tab); setAdminNotifOpen(false); }} className="w-full text-left px-4 py-3 hover:bg-bg-surface-hover transition-colors border-b border-border-base/40 last:border-0 flex items-center justify-between">
+                            <span className="text-sm font-medium text-text-base">{i.label}</span>
+                            <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{i.count}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
           <button
             onClick={onBack}
             className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-base px-3 py-2 rounded-xl hover:bg-bg-surface-hover transition-colors border border-border-base/50"

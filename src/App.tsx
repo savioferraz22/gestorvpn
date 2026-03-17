@@ -1446,6 +1446,52 @@ export default function App() {
   }
   // ───────────────────────────────────────────────────────────────────────────
 
+  const notifBell = (currentUser || resellerData) ? (
+    <div className="relative z-10">
+      <button
+        onClick={notifPanelOpen ? () => setNotifPanelOpen(false) : openNotifPanel}
+        className="relative w-9 h-9 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center text-white transition-all active:scale-95"
+      >
+        <Bell style={{ width: 18, height: 18 }} />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm leading-none">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
+      {notifPanelOpen && (
+        <>
+          <div className="fixed inset-0 z-[48]" onClick={() => setNotifPanelOpen(false)} />
+          <div className="absolute right-0 top-full mt-1.5 w-80 max-h-[70vh] bg-bg-surface rounded-2xl shadow-2xl border border-border-base overflow-hidden flex flex-col z-[49]">
+            <div className="px-4 py-3 border-b border-border-base/70 flex justify-between items-center shrink-0">
+              <p className="font-bold text-text-base text-sm">Notificações</p>
+              {allNotifications.length > 0 && <span className="text-[10px] text-text-muted">{allNotifications.length} no total</span>}
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {allNotifications.length === 0 ? (
+                <div className="py-10 px-4 text-center">
+                  <Bell className="w-8 h-8 text-text-muted mx-auto mb-2 opacity-30" />
+                  <p className="text-sm text-text-muted font-medium">Nenhuma notificação</p>
+                  <p className="text-xs text-text-muted/70 mt-1">Respostas de suporte e atualizações de solicitações aparecem aqui</p>
+                </div>
+              ) : (
+                allNotifications.map(n => (
+                  <button key={n.id} onClick={n.onPress} className="w-full text-left px-4 py-3.5 hover:bg-bg-surface-hover transition-colors border-b border-border-base/40 last:border-0 flex items-start gap-3">
+                    <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${seenNotifIds.has(n.id) ? "bg-border-base" : "bg-primary-500"}`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-text-base leading-tight">{n.title}</p>
+                      <p className="text-xs text-text-muted mt-0.5 truncate">{n.body}</p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="min-h-[100dvh] bg-bg-base font-sans w-full relative flex">
       {/* Background decoration elements */}
@@ -1454,59 +1500,6 @@ export default function App() {
         <div className="absolute bottom-[10%] -left-[10%] w-[60vw] h-[60vw] max-w-[400px] max-h-[400px] rounded-full bg-primary-400/10 blur-[60px]" />
       </div>
 
-      {/* ─── Notification Bell (fixed, visible in all logged-in views) ─── */}
-      {(currentUser || resellerData) && !["login", "create_user", "admin", "reseller_info", "pix_flow", "reseller_pix", "show_credentials"].includes(view) && (
-        <div className="fixed top-3.5 right-4 z-[70]">
-          <button
-            onClick={notifPanelOpen ? () => setNotifPanelOpen(false) : openNotifPanel}
-            className="relative w-9 h-9 rounded-xl bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white shadow-lg hover:bg-white/25 transition-all active:scale-95"
-          >
-            <Bell className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm leading-none">
-                {unreadCount > 9 ? "9+" : unreadCount}
-              </span>
-            )}
-          </button>
-
-          {notifPanelOpen && (
-            <>
-              <div className="fixed inset-0 z-[-1]" onClick={() => setNotifPanelOpen(false)} />
-              <div className="absolute right-0 top-11 w-80 max-h-[70vh] bg-bg-surface rounded-2xl shadow-2xl border border-border-base overflow-hidden flex flex-col">
-                <div className="px-4 py-3 border-b border-border-base/70 flex justify-between items-center shrink-0">
-                  <p className="font-bold text-text-base text-sm">Notificações</p>
-                  {allNotifications.length > 0 && (
-                    <span className="text-[10px] text-text-muted font-medium">{allNotifications.length} no total</span>
-                  )}
-                </div>
-                <div className="overflow-y-auto flex-1">
-                  {allNotifications.length === 0 ? (
-                    <div className="py-10 px-4 text-center">
-                      <Bell className="w-8 h-8 text-text-muted mx-auto mb-2 opacity-30" />
-                      <p className="text-sm text-text-muted font-medium">Nenhuma notificação</p>
-                      <p className="text-xs text-text-muted/70 mt-1">Respostas de suporte e atualizações de solicitações aparecem aqui</p>
-                    </div>
-                  ) : (
-                    allNotifications.map(n => (
-                      <button
-                        key={n.id}
-                        onClick={n.onPress}
-                        className="w-full text-left px-4 py-3.5 hover:bg-bg-surface-hover transition-colors border-b border-border-base/40 last:border-0 flex items-start gap-3"
-                      >
-                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${seenNotifIds.has(n.id) ? "bg-border-base" : "bg-primary-500"}`} />
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-text-base leading-tight">{n.title}</p>
-                          <p className="text-xs text-text-muted mt-0.5 truncate">{n.body}</p>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
 
       {/* User Sidebar — shown when logged in (not admin/public views) */}
       {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help", "reseller_tickets"].includes(view) && (
@@ -1853,9 +1846,9 @@ export default function App() {
                       </div>
                       <div>
                         <h1 className="text-xl font-bold text-white tracking-tight leading-tight">Olá, {currentUser.login}</h1>
-
                       </div>
                     </div>
+                    {notifBell}
                   </div>
                 </div>
                 <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
@@ -3369,10 +3362,13 @@ export default function App() {
                     </button>
                     <h1 className="text-lg font-semibold text-white">Central de Ajuda</h1>
                   </div>
-                  <button onClick={() => { fetchUserTickets(); setView("tickets"); }} className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center font-medium">
-                    <MessageSquare className="w-4 h-4 mr-1" />
-                    Meus Tickets
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => { fetchUserTickets(); setView("tickets"); }} className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center font-medium">
+                      <MessageSquare className="w-4 h-4 mr-1" />
+                      Meus Tickets
+                    </button>
+                    {notifBell}
+                  </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-0 bg-bg-surface-hover pb-20 md:pb-0">
@@ -4164,6 +4160,7 @@ export default function App() {
                         <p className="text-emerald-100 text-xs">Área do Revendedor</p>
                       </div>
                     </div>
+                    {notifBell}
                   </div>
                   {/* Login + senha */}
                   <div className="mt-4 bg-white/10 rounded-xl px-4 py-3">
@@ -4904,11 +4901,14 @@ export default function App() {
                 className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col relative"
               >
                 {/* Header */}
-                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-4 flex items-center gap-3 flex-shrink-0">
-                  <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors">
-                    <Menu className="w-5 h-5" />
-                  </button>
-                  <h1 className="text-lg font-semibold text-white">Meus Chamados</h1>
+                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-4 flex items-center justify-between gap-3 flex-shrink-0">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors">
+                      <Menu className="w-5 h-5" />
+                    </button>
+                    <h1 className="text-lg font-semibold text-white">Meus Chamados</h1>
+                  </div>
+                  {notifBell}
                 </div>
 
                 <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-4">
@@ -5181,6 +5181,7 @@ export default function App() {
                     </button>
                     <h1 className="text-lg font-semibold text-white">Meus Tickets</h1>
                   </div>
+                  {notifBell}
                 </div>
 
                 <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-4">
@@ -5367,19 +5368,22 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  {currentTicket.status !== "closed" && (
-                    <button
-                      onClick={() => {
-                        confirmAction("Encerrar Ticket", "Tem certeza que deseja encerrar este ticket?", () => {
-                          handleCloseTicket();
-                        });
-                      }}
-                      className="text-xs bg-red-500 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0 ml-2 flex items-center font-medium shadow-sm"
-                    >
-                      <XCircle className="w-3.5 h-3.5 mr-1" />
-                      Encerrar
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {currentTicket.status !== "closed" && (
+                      <button
+                        onClick={() => {
+                          confirmAction("Encerrar Ticket", "Tem certeza que deseja encerrar este ticket?", () => {
+                            handleCloseTicket();
+                          });
+                        }}
+                        className="text-xs bg-red-500 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-lg transition-colors flex items-center font-medium shadow-sm"
+                      >
+                        <XCircle className="w-3.5 h-3.5 mr-1" />
+                        Encerrar
+                      </button>
+                    )}
+                    {view === "ticket_detail" && notifBell}
+                  </div>
                 </div>
 
                 <div className="flex flex-col flex-1 overflow-hidden relative">
