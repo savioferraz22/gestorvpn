@@ -1,26 +1,51 @@
 import React from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, RotateCcw } from "lucide-react";
 import { fetchAdminPayments } from "../../services/api";
+import { getAdminToken } from "../../services/api";
 
 interface Props {
   payments: any[];
   setPayments: (p: any[]) => void;
 }
 
-function formatDate(dateString: string) {
+function formatDateTime(dateString: string) {
   if (!dateString) return "N/A";
   let s = dateString;
   if (s.includes(" ") && !s.includes("T")) { s = s.replace(" ", "T"); if (!s.endsWith("Z")) s += "Z"; }
   const d = new Date(s);
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
 }
 
 export function AdminPayments({ payments, setPayments }: Props) {
   const [loading, setLoading] = React.useState(false);
+  const [reprocessing, setReprocessing] = React.useState(false);
+  const [reprocessMsg, setReprocessMsg] = React.useState("");
 
   async function refresh() {
     setLoading(true);
     try { setPayments(await fetchAdminPayments()); } catch (err) { console.warn(err); } finally { setLoading(false); }
+  }
+
+  async function reprocessCancelled() {
+    setReprocessing(true);
+    setReprocessMsg("");
+    try {
+      const token = getAdminToken();
+      const res = await fetch("/api/admin/payments/reprocess-cancelled", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setReprocessMsg(data.message || "Concluído");
+      if (data.recovered > 0) await refresh();
+    } catch (err: any) {
+      setReprocessMsg("Erro ao reprocessar");
+    } finally {
+      setReprocessing(false);
+    }
   }
 
   const approved = payments.filter(p => p.status === "approved");
@@ -34,10 +59,26 @@ export function AdminPayments({ payments, setPayments }: Props) {
     <div className="flex flex-col flex-1 overflow-hidden p-5 space-y-4">
       <div className="flex items-center justify-between shrink-0">
         <h2 className="font-bold text-text-base">Pagamentos ({payments.length})</h2>
-        <button onClick={refresh} disabled={loading} className="p-2 rounded-xl border border-border-base/50 hover:bg-bg-surface-hover transition-colors active:scale-95">
-          <RefreshCw className={`w-4 h-4 text-text-muted ${loading ? "animate-spin" : ""}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={reprocessCancelled}
+            disabled={reprocessing}
+            title="Reprocessar pagamentos cancelados que foram pagos no MP"
+            className="flex items-center gap-1.5 text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 px-3 py-2 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-60"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 ${reprocessing ? "animate-spin" : ""}`} />
+            {reprocessing ? "Verificando..." : "Recuperar"}
+          </button>
+          <button onClick={refresh} disabled={loading} className="p-2 rounded-xl border border-border-base/50 hover:bg-bg-surface-hover transition-colors active:scale-95">
+            <RefreshCw className={`w-4 h-4 text-text-muted ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
+      {reprocessMsg && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium px-4 py-2.5 rounded-xl shrink-0">
+          {reprocessMsg}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3 shrink-0">
         <div className="bg-green-50 border border-green-100 p-4 rounded-2xl text-center shadow-sm">
@@ -93,7 +134,7 @@ export function AdminPayments({ payments, setPayments }: Props) {
                   <span className="bg-bg-surface-hover px-2 py-1 rounded-md">
                     {p.type === "new_device" ? "Novo Aparelho" : "Renovação"}
                   </span>
-                  <span>{formatDate(p.paid_at || p.created_at)}</span>
+                  <span>{formatDateTime(p.paid_at || p.created_at)}</span>
                 </div>
               </div>
             );

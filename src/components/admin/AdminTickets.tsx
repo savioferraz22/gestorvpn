@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Search, RefreshCw, Send, X } from "lucide-react";
-import { fetchAdminTickets, fetchTicketMessages, sendTicketMessage, updateTicketStatus, fetchAdminUserDetails } from "../../services/api";
+import { Search, RefreshCw, Send, X, Pencil, Trash2, Check } from "lucide-react";
+import { fetchAdminTickets, fetchTicketMessages, sendTicketMessage, updateTicketStatus, fetchAdminUserDetails, editTicketMessage, deleteTicketMessage } from "../../services/api";
 import type { Ticket, TicketMessage, AdminTab } from "../../types";
 
 interface Props {
@@ -25,6 +25,8 @@ export function AdminTickets({ allTickets, setAllTickets, navigateTo }: Props) {
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editingMsgText, setEditingMsgText] = useState("");
   const [userDetails, setUserDetails] = useState<any>(null);
   const [showUserModal, setShowUserModal] = useState(false);
 
@@ -53,6 +55,24 @@ export function AdminTickets({ allTickets, setAllTickets, navigateTo }: Props) {
       await refresh();
       setSelectedTicket((t: any) => t ? { ...t, status: "answered" } : t);
     } catch (err) { console.warn(err); } finally { setSending(false); }
+  }
+
+  async function handleEditMsg(messageId: string) {
+    const trimmed = editingMsgText.trim();
+    if (!trimmed || !selectedTicket) return;
+    try {
+      await editTicketMessage(messageId, trimmed);
+      setEditingMsgId(null);
+      setEditingMsgText("");
+      setMessages(await fetchTicketMessages(selectedTicket.id));
+    } catch (err) { console.warn(err); }
+  }
+
+  async function handleDeleteMsg(messageId: string) {
+    try {
+      await deleteTicketMessage(messageId);
+      setMessages(prev => prev.filter((m: TicketMessage) => m.id !== messageId));
+    } catch (err) { console.warn(err); }
   }
 
   async function handleClose() {
@@ -106,20 +126,52 @@ export function AdminTickets({ allTickets, setAllTickets, navigateTo }: Props) {
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-          {messages.map(msg => (
-            <div key={msg.id} className={`flex ${msg.sender === "admin" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm ${
-                msg.sender === "admin"
-                  ? "bg-primary-600 text-white rounded-br-sm"
-                  : "bg-bg-surface border border-border-base/50 text-text-base rounded-bl-sm"
-              }`}>
-                <p className="font-medium leading-relaxed">{msg.message}</p>
-                <p className={`text-[10px] mt-1 ${msg.sender === "admin" ? "text-primary-200" : "text-text-muted"}`}>
-                  {msg.sender === "admin" ? "Admin" : msg.sender} · {formatDate(msg.created_at)}
-                </p>
+          {messages.map((msg: TicketMessage) => {
+            const isAdmin = msg.sender === "admin";
+            const isEditing = editingMsgId === msg.id;
+            const canAct = isAdmin && selectedTicket.status !== "closed";
+            return (
+              <div key={msg.id} className={`group flex flex-col ${isAdmin ? "items-end" : "items-start"}`}>
+                <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm ${
+                  isAdmin
+                    ? "bg-primary-600 text-white rounded-br-sm"
+                    : "bg-bg-surface border border-border-base/50 text-text-base rounded-bl-sm"
+                }`}>
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={editingMsgText}
+                        onChange={e => setEditingMsgText(e.target.value)}
+                        className="w-full text-sm bg-white/20 rounded-xl px-3 py-2 outline-none resize-none border border-white/30 focus:border-white/60 min-h-[60px]"
+                        autoFocus
+                        onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditMsg(msg.id); }
+                          if (e.key === "Escape") { setEditingMsgId(null); setEditingMsgText(""); }
+                        }}
+                      />
+                      <div className="flex gap-1.5 justify-end">
+                        <button onClick={() => { setEditingMsgId(null); setEditingMsgText(""); }} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors font-medium">Cancelar</button>
+                        <button onClick={() => handleEditMsg(msg.id)} disabled={!editingMsgText.trim()} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/30 hover:bg-white/40 transition-colors font-bold disabled:opacity-40 flex items-center gap-1"><Check className="w-3 h-3" />Salvar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="font-medium leading-relaxed">{msg.message}</p>
+                  )}
+                  {!isEditing && (
+                    <p className={`text-[10px] mt-1 ${isAdmin ? "text-primary-200" : "text-text-muted"}`}>
+                      {isAdmin ? "Admin" : msg.sender} · {formatDate(msg.created_at)}
+                    </p>
+                  )}
+                </div>
+                {canAct && !isEditing && (
+                  <div className="flex gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => { setEditingMsgId(msg.id); setEditingMsgText(msg.message); }} className="p-1 rounded-md text-text-muted hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Editar"><Pencil className="w-3 h-3" /></button>
+                    <button onClick={() => handleDeleteMsg(msg.id)} className="p-1 rounded-md text-text-muted hover:text-red-600 hover:bg-red-50 transition-colors" title="Excluir"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {selectedTicket.status !== "closed" && (

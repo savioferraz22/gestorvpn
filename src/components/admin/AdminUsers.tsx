@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Search, User, Smartphone, CreditCard, Star, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Trash2 } from "lucide-react";
-import { fetchAdminUserDetails, updateUserAccess, deleteAdminUser } from "../../services/api";
+import { fetchAdminUserDetails, renewAdminUser, deleteAdminUser } from "../../services/api";
 import type { AdminTab } from "../../types";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 
@@ -65,10 +65,10 @@ export function AdminUsers({ navigateTo }: Props) {
     setUpdatingAccess(true);
     setAccessMsg("");
     try {
-      await updateUserAccess(username, "renew", "");
-      setAccessMsg("Acesso atualizado com sucesso!");
+      const data = await renewAdminUser(username);
+      setAccessMsg(data.message || "Acesso renovado com sucesso!");
     } catch (err: any) {
-      setAccessMsg(err.message || "Erro ao atualizar acesso");
+      setAccessMsg(err.message || "Erro ao renovar acesso");
     } finally {
       setUpdatingAccess(false);
     }

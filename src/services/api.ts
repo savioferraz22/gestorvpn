@@ -122,6 +122,20 @@ export async function sendTicketMessage(ticketId: string, sender: "user" | "admi
   });
 }
 
+export async function editTicketMessage(messageId: string, message: string) {
+  return apiFetch<any>(`/api/tickets/messages/${messageId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+}
+
+export async function deleteTicketMessage(messageId: string) {
+  return apiFetch<any>(`/api/tickets/messages/${messageId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function updateTicketStatus(ticketId: string, status: string) {
   return apiFetch<any>(`/api/tickets/${ticketId}/status`, {
     method: "PATCH",
@@ -201,6 +215,13 @@ export async function fetchAdminUserDetails(username: string) {
 export async function deleteAdminUser(username: string) {
   return apiFetch<any>(`/api/admin/users/${encodeURIComponent(username)}`, {
     method: "DELETE",
+    headers: adminHeaders(),
+  });
+}
+
+export async function renewAdminUser(username: string) {
+  return apiFetch<any>(`/api/admin/users/${encodeURIComponent(username)}/renew`, {
+    method: "POST",
     headers: adminHeaders(),
   });
 }

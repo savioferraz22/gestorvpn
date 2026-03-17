@@ -164,6 +164,40 @@ app.get("/api/db-status", async (req, res) => {
 const VPN_API_URL = process.env.VPN_API_URL || "https://pweb.cloudbrasil.shop/core/apiatlas.php";
 const VPN_API_KEY = process.env.VPN_API_KEY || "LTm2H0TnZwKY560Vqj7gfbxeIL";
 
+// ─── VPN API helper with retry ───────────────────────────────────────────────
+async function callVpnApi(params: URLSearchParams, retries = 3, delayMs = 2000): Promise<string> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(VPN_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+      const text = await res.text();
+      // Detect Cloudflare/HTML error pages
+      if (text.toLowerCase().includes("<html")) {
+        throw new Error(`VPN API returned HTML (Cloudflare/rate-limit) on attempt ${attempt}`);
+      }
+      // Detect VPN API explicit errors
+      try {
+        const json = JSON.parse(text);
+        if (json?.status === "error" || json?.error) {
+          throw new Error(`VPN API error: ${json.msg || json.error}`);
+        }
+      } catch (parseErr) {
+        // Not JSON — plain text response is usually OK (e.g. "sucesso")
+        if (typeof parseErr === "object" && (parseErr as any)?.message?.startsWith("VPN API")) throw parseErr;
+      }
+      return text;
+    } catch (e: any) {
+      console.error(`[VPN] callVpnApi attempt ${attempt}/${retries} failed:`, e.message);
+      if (attempt < retries) await new Promise(r => setTimeout(r, delayMs));
+      else throw e;
+    }
+  }
+  throw new Error("callVpnApi: all retries exhausted");
+}
+
 async function fetchVpnUsers() {
   const params = new URLSearchParams();
   params.append("passapi", VPN_API_KEY);
@@ -263,10 +297,12 @@ function parseVpnExpira(expira: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// ─── Cancel stale pending payments (>30 min) ──────────────────────────────
+// ─── Cancel stale pending payments (>3 hours) ─────────────────────────────
+// NOTE: Window is 3 hours — PIX can be confirmed by the bank up to ~2h after generation.
+// The approvePayment() function also handles "cancelled" status so late webhooks still work.
 async function cancelStalePendingPayments() {
   try {
-    const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const cutoff = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
     const { data, error } = await getDb()
       .from("payments")
       .update({ status: "cancelled" })
@@ -276,19 +312,19 @@ async function cancelStalePendingPayments() {
   } catch (e) { console.error("[payments] cancelStalePending error:", e); }
 }
 
-// Run once on startup + every 5 minutes
+// Run once on startup + every 30 minutes
 cancelStalePendingPayments();
-setInterval(cancelStalePendingPayments, 5 * 60 * 1000);
+setInterval(cancelStalePendingPayments, 30 * 60 * 1000);
 
 async function approvePayment(paymentRecord: any) {
   const paymentId = paymentRecord.id;
   const db = getDb();
 
-  // Idempotency: only update if still pending (atomic guard against double-processing)
+  // Idempotency: update only if pending OR cancelled (cancelled may happen if webhook arrived late)
   const { data: updated } = await db.from("payments")
     .update({ status: "approved", paid_at: new Date().toISOString() })
     .eq("id", paymentId)
-    .eq("status", "pending")
+    .in("status", ["pending", "cancelled"])
     .select("id");
 
   if (!updated || updated.length === 0) {
@@ -311,9 +347,12 @@ async function approvePayment(paymentRecord: any) {
       createParams.append("userlimite", String(resellerLogins || 10));
       if (resellerWhatsapp) createParams.append("whatsapp", resellerWhatsapp);
       try {
-        const createRes = await fetch(VPN_API_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: createParams.toString() });
-        console.log(`[reseller] createrev for ${newRev}:`, await createRes.text());
-      } catch (e) { console.error(`[reseller] createrev failed:`, e); }
+        const text = await callVpnApi(createParams);
+        console.log(`[reseller] createrev for ${newRev}:`, text);
+      } catch (e: any) {
+        console.error(`[reseller] createrev failed after retries:`, e.message);
+        sendPush("__admin__", "⚠️ Falha ao criar revendedor", `Falha ao criar ${newRev} no painel VPN. Pagamento: ${paymentId}. Erro: ${e.message}`);
+      }
 
       // Renew N times to set expiry (each call adds ~30 days)
       const months = Number(resellerMonths) || 1;
@@ -323,9 +362,12 @@ async function approvePayment(paymentRecord: any) {
         renewP.append("module", "renewrev");
         renewP.append("user", newRev);
         try {
-          const rr = await fetch(VPN_API_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: renewP.toString() });
-          console.log(`[reseller] renewrev ${newRev} month ${i + 1}:`, await rr.text());
-        } catch (e) { console.error(`[reseller] renewrev failed:`, e); }
+          const text = await callVpnApi(renewP);
+          console.log(`[reseller] renewrev ${newRev} month ${i + 1}:`, text);
+        } catch (e: any) {
+          console.error(`[reseller] renewrev failed after retries:`, e.message);
+          sendPush("__admin__", "⚠️ Falha ao renovar revendedor", `Falha ao renovar ${newRev} (mês ${i + 1}) no painel VPN. Erro: ${e.message}`);
+        }
       }
       sendPush(paymentRecord.username, "Revenda ativada! 🎉", "Sua conta de revenda está ativa e pronta para uso.");
     }
@@ -340,9 +382,12 @@ async function approvePayment(paymentRecord: any) {
       renewP.append("module", "renewrev");
       renewP.append("user", resellerUser);
       try {
-        const rr = await fetch(VPN_API_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: renewP.toString() });
-        console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, await rr.text());
-      } catch (e) { console.error(`[reseller] renewrev failed:`, e); }
+        const text = await callVpnApi(renewP);
+        console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, text);
+      } catch (e: any) {
+        console.error(`[reseller] renewrev failed after retries:`, e.message);
+        sendPush("__admin__", "⚠️ Falha ao renovar revendedor", `Falha ao renovar ${resellerUser} (mês ${i + 1}) no painel VPN. Pagamento: ${paymentId}. Erro: ${e.message}`);
+      }
     }
     sendPush(paymentRecord.username, "Revenda renovada! 🎉", "Sua revenda foi renovada com sucesso.");
 
@@ -377,15 +422,11 @@ async function approvePayment(paymentRecord: any) {
       params.append("days", remainingDays.toString());
 
       try {
-        const vpnRes = await fetch(VPN_API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: params.toString(),
-        });
-        const vpnText = await vpnRes.text();
+        const vpnText = await callVpnApi(params);
         console.log(`VPN Create Response for ${newUsername}:`, vpnText);
-      } catch (e) {
-        console.error(`Failed to create VPN user ${newUsername}:`, e);
+      } catch (e: any) {
+        console.error(`Failed to create VPN user ${newUsername} after retries:`, e.message);
+        sendPush("__admin__", "⚠️ Falha ao criar usuário VPN", `Falha ao criar ${newUsername} no painel VPN. Pagamento: ${paymentId}. Erro: ${e.message}`);
       }
 
       // Add to group (ignore duplicate key — safe on retry)
@@ -413,6 +454,7 @@ async function approvePayment(paymentRecord: any) {
     }
 
     // Renew users in VPN Panel
+    let renewFailed = false;
     for (const user of usersToRenew) {
       for (let i = 0; i < monthsToRenew; i++) {
         const params = new URLSearchParams();
@@ -421,17 +463,18 @@ async function approvePayment(paymentRecord: any) {
         params.append("user", user);
 
         try {
-          const vpnRes = await fetch(VPN_API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: params.toString(),
-          });
-          const vpnText = await vpnRes.text();
+          const vpnText = await callVpnApi(params);
           console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, vpnText);
-        } catch (e) {
-          console.error(`Failed to renew VPN user ${user}:`, e);
+        } catch (e: any) {
+          console.error(`Failed to renew VPN user ${user} after retries:`, e.message);
+          renewFailed = true;
+          sendPush("__admin__", "⚠️ Falha ao renovar acesso VPN", `Falha ao renovar ${user} (mês ${i + 1}). Pagamento: ${paymentId}. Erro: ${e.message}`);
         }
       }
+    }
+    if (renewFailed) {
+      // Mark payment with a flag so admin can re-trigger renewal
+      await db.from("payments").update({ metadata: JSON.stringify({ ...metadata, vpnRenewFailed: true }) }).eq("id", paymentId);
     }
   }
 
@@ -927,7 +970,9 @@ app.post("/api/pix/new-device", async (req, res) => {
       description: `Novo Aparelho - ${newUsername} (${remainingDays} dias)`,
       payment_method_id: "pix",
       payer: {
-        email: process.env.MP_EMAIL || "pagamento@cloudbrasil.shop",
+        email: `${mainUsername}@cloudbrasil.shop`,
+        first_name: mainUsername,
+        last_name: "VS+",
       },
       notification_url: `${process.env.APP_URL}/api/webhook`,
     };
@@ -1059,7 +1104,9 @@ app.post("/api/pix", async (req, res) => {
       description: `Renovação VPN - Grupo ${groupRecord.group_id.substring(0, 8)}${discountApplied ? ' (Desconto Fidelidade)' : ''}`,
       payment_method_id: "pix",
       payer: {
-        email: "pagamento@cloudbrasil.shop", // Dummy email as required by MP
+        email: `${username}@cloudbrasil.shop`,
+        first_name: username,
+        last_name: "VS+",
       },
       notification_url: `${process.env.APP_URL}/api/webhook`,
     };
@@ -1151,6 +1198,44 @@ app.post("/api/webhook", async (req, res) => {
   } catch (error) {
     console.error("Webhook error:", error);
     res.status(500).send("Error");
+  }
+});
+
+// ─── Reprocess cancelled payments that were actually paid in MP ──────────────
+// Useful to recover payments cancelled prematurely by the stale-payment job
+app.post("/api/admin/payments/reprocess-cancelled", async (_req, res) => {
+  try {
+    const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { data: cancelled } = await getDb()
+      .from("payments")
+      .select("*")
+      .eq("status", "cancelled")
+      .gte("created_at", since);
+
+    if (!cancelled || cancelled.length === 0) {
+      return res.json({ recovered: 0, message: "Nenhum pagamento cancelado recente." });
+    }
+
+    const client = getMpClient();
+    const paymentApi = new Payment(client);
+    let recovered = 0;
+
+    for (const p of cancelled) {
+      try {
+        const mpRes = await paymentApi.get({ id: p.id });
+        if (mpRes.status === "approved") {
+          await approvePayment(p);
+          recovered++;
+          console.log(`[reprocess] Recovered payment ${p.id} for ${p.username}`);
+        }
+      } catch (e) {
+        console.warn(`[reprocess] Failed to check payment ${p.id}:`, e);
+      }
+    }
+
+    res.json({ recovered, checked: cancelled.length, message: `${recovered} pagamento(s) recuperado(s) de ${cancelled.length} cancelados.` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -1667,6 +1752,32 @@ app.post("/api/tickets/:id/messages", async (req, res) => {
   }
 });
 
+// Edit a ticket message (update text only)
+app.patch("/api/tickets/messages/:messageId", async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { message } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: "Mensagem inválida" });
+    const { error } = await getDb().from("ticket_messages").update({ message: message.trim() }).eq("id", messageId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Hard-delete a ticket message (no trace)
+app.delete("/api/tickets/messages/:messageId", async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { error } = await getDb().from("ticket_messages").delete().eq("id", messageId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.patch("/api/tickets/:id/status", async (req, res) => {
   try {
     const { id } = req.params;
@@ -1757,6 +1868,24 @@ app.delete("/api/admin/users/:username", requireAdminAuth, async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: renew user VPN access directly (bypasses the change-request flow)
+app.post("/api/admin/users/:username/renew", requireAdminAuth, async (req, res) => {
+  const { username } = req.params;
+  if (!username) return res.status(400).json({ error: "Username obrigatório" });
+  try {
+    const params = new URLSearchParams();
+    params.append("passapi", VPN_API_KEY);
+    params.append("module", "renewuser");
+    params.append("user", username);
+    const text = await callVpnApi(params);
+    console.log(`[admin] renewuser ${username}:`, text);
+    res.json({ success: true, message: `Acesso de ${username} renovado com sucesso.`, vpnResponse: text });
+  } catch (e: any) {
+    console.error(`[admin] renewuser ${username} failed:`, e.message);
+    res.status(500).json({ error: `Falha ao renovar no painel VPN: ${e.message}` });
   }
 });
 
@@ -1995,7 +2124,7 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
         transaction_amount: amount,
         description: `Nova Revenda VS+ — ${loginsNum} logins por ${monthsNum} ${monthsNum === 1 ? "mês" : "meses"}`,
         payment_method_id: "pix",
-        payer: { email: "revendedor@cloudbrasil.shop" },
+        payer: { email: `${username}@cloudbrasil.shop`, first_name: username, last_name: "VS+" },
         notification_url: `${process.env.APP_URL}/api/webhook`,
       }
     });
@@ -2063,7 +2192,7 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
         transaction_amount: amount,
         description: `Renovação Revenda VS+ — ${logins} logins por ${monthsNum} ${monthsNum === 1 ? "mês" : "meses"}${discountApplied ? " (Desconto Fidelidade)" : ""}`,
         payment_method_id: "pix",
-        payer: { email: "revendedor@cloudbrasil.shop" },
+        payer: { email: `${username}@cloudbrasil.shop`, first_name: username, last_name: "VS+" },
         notification_url: `${process.env.APP_URL}/api/webhook`,
       }
     });
@@ -2253,7 +2382,7 @@ app.post("/api/reseller/pix/logins-upgrade", requireResellerAuth, async (req: an
         transaction_amount: amount,
         description: `Adição de ${loginDiff} logins — VS+ Revenda (${daysLeft} dias restantes)`,
         payment_method_id: "pix",
-        payer: { email: "revendedor@cloudbrasil.shop" },
+        payer: { email: `${username}@cloudbrasil.shop`, first_name: username, last_name: "VS+" },
         notification_url: `${process.env.APP_URL}/api/webhook`,
       }
     });

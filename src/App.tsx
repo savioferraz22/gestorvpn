@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2 } from "lucide-react";
+import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2, Pencil, Check } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 
 type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
@@ -219,6 +219,8 @@ export default function App() {
   const [currentTicket, setCurrentTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editingMsgText, setEditingMsgText] = useState("");
   const [ticketForm, setTicketForm] = useState({ category: "Suporte Técnico", subject: "", message: "" });
   const [showNewTicketModal, setShowNewTicketModal] = useState(false);
 
@@ -975,6 +977,29 @@ export default function App() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleEditMessage = async (messageId: string) => {
+    const trimmed = editingMsgText.trim();
+    if (!trimmed || !currentTicket) return;
+    try {
+      await fetch(`/api/tickets/messages/${messageId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: trimmed }),
+      });
+      setEditingMsgId(null);
+      setEditingMsgText("");
+      fetchMessages(currentTicket.id);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!currentTicket) return;
+    try {
+      await fetch(`/api/tickets/messages/${messageId}`, { method: "DELETE" });
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    } catch (err) { console.error(err); }
   };
 
   const handleCloseTicket = async () => {
@@ -5274,27 +5299,73 @@ export default function App() {
                       {messages.map((m, i) => {
                         const isMe = (view === "admin_ticket_detail" && m.sender === "admin") || (view === "ticket_detail" && m.sender === "user");
                         const isConsecutive = i > 0 && messages[i - 1].sender === m.sender;
-                        
+                        const isEditing = editingMsgId === m.id;
+                        const canAct = isMe && currentTicket.status !== "closed";
+
                         return (
-                          <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${isConsecutive ? "mt-1" : "mt-4"}`}>
+                          <div key={m.id} className={`group flex flex-col ${isMe ? "items-end" : "items-start"} ${isConsecutive ? "mt-1" : "mt-4"}`}>
                             <div className={`max-w-[85%] sm:max-w-[75%] px-4 py-3 shadow-sm ${isMe
-                              ? (view === "admin_ticket_detail" 
-                                  ? `bg-bg-surface border border-border-base text-text-base rounded-2xl ${!isConsecutive ? "rounded-tr-sm" : ""}` 
+                              ? (view === "admin_ticket_detail"
+                                  ? `bg-bg-surface border border-border-base text-text-base rounded-2xl ${!isConsecutive ? "rounded-tr-sm" : ""}`
                                   : `bg-primary-600 text-white rounded-2xl ${!isConsecutive ? "rounded-tr-sm" : ""}`)
                               : `bg-bg-surface border border-border-base text-text-base rounded-2xl ${!isConsecutive ? "rounded-tl-sm" : ""}`
                               }`}>
-                              
+
                               {!isMe && !isConsecutive && (
                                 <p className="text-[10px] font-bold uppercase tracking-wider mb-1 text-primary-500">
                                   {view === "admin_ticket_detail" ? "Cliente" : "Suporte"}
                                 </p>
                               )}
-                              
-                              <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.message}</p>
-                              <p className={`text-[10px] mt-2 text-right ${isMe ? (view === "admin_ticket_detail" ? "text-text-muted" : "text-white/70") : "text-text-muted"}`}>
-                                {formatTime(m.created_at)}
-                              </p>
+
+                              {isEditing ? (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={editingMsgText}
+                                    onChange={e => setEditingMsgText(e.target.value)}
+                                    className="w-full text-sm bg-white/20 rounded-xl px-3 py-2 outline-none resize-none border border-white/30 focus:border-white/60 min-h-[60px]"
+                                    autoFocus
+                                    onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditMessage(m.id); }
+                                      if (e.key === "Escape") { setEditingMsgId(null); setEditingMsgText(""); }
+                                    }}
+                                  />
+                                  <div className="flex gap-1.5 justify-end">
+                                    <button
+                                      onClick={() => { setEditingMsgId(null); setEditingMsgText(""); }}
+                                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors font-medium"
+                                    >Cancelar</button>
+                                    <button
+                                      onClick={() => handleEditMessage(m.id)}
+                                      disabled={!editingMsgText.trim()}
+                                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white/30 hover:bg-white/40 transition-colors font-bold disabled:opacity-40 flex items-center gap-1"
+                                    ><Check className="w-3 h-3" />Salvar</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.message}</p>
+                              )}
+
+                              {!isEditing && (
+                                <p className={`text-[10px] mt-2 text-right ${isMe ? (view === "admin_ticket_detail" ? "text-text-muted" : "text-white/70") : "text-text-muted"}`}>
+                                  {formatTime(m.created_at)}
+                                </p>
+                              )}
                             </div>
+
+                            {canAct && !isEditing && (
+                              <div className="flex gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => { setEditingMsgId(m.id); setEditingMsgText(m.message); }}
+                                  className="p-1 rounded-md text-text-muted hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                                  title="Editar"
+                                ><Pencil className="w-3 h-3" /></button>
+                                <button
+                                  onClick={() => handleDeleteMessage(m.id)}
+                                  className="p-1 rounded-md text-text-muted hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  title="Excluir"
+                                ><Trash2 className="w-3 h-3" /></button>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
