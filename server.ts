@@ -538,6 +538,27 @@ async function approvePayment(paymentRecord: any) {
   }
 }
 
+// ─── Auto-check payment against MP after 1 min and 5 min ─────────────────────
+function schedulePaymentCheck(paymentId: string) {
+  const delays = [60_000, 300_000]; // 1 minute, 5 minutes
+  for (const delay of delays) {
+    setTimeout(async () => {
+      try {
+        const { data: p } = await getDb().from("payments").select("*").eq("id", paymentId).maybeSingle();
+        if (!p || p.status === "approved") return; // already handled
+        const mpPayment = new Payment(getMpClient());
+        const mpRes = await mpPayment.get({ id: paymentId });
+        if (mpRes.status === "approved") {
+          await approvePayment(p);
+          console.log(`[auto-check] Payment ${paymentId} approved at ${delay / 1000}s check`);
+        }
+      } catch (e) {
+        console.warn(`[auto-check] Error checking payment ${paymentId} at ${delay / 1000}s:`, e);
+      }
+    }, delay);
+  }
+}
+
 // Pricing formula:
 // Base: R$15/month for 1 device
 // Each additional month: +R$10 total
@@ -991,6 +1012,7 @@ app.post("/api/pix/new-device", async (req, res) => {
       type: "new_device",
       metadata: { newUsername, remainingDays, groupId, amount: proratedPrice, paidOnTime }
     });
+    schedulePaymentCheck(mpRes.id.toString());
 
     res.json({
       transactionId: mpRes.id.toString(),
@@ -1126,6 +1148,7 @@ app.post("/api/pix", async (req, res) => {
       type: "renewal",
       metadata: mdata
     });
+    schedulePaymentCheck(mpRes.id.toString());
 
     res.json({
       paymentId: mpRes.id.toString(),
@@ -1201,39 +1224,39 @@ app.post("/api/webhook", async (req, res) => {
   }
 });
 
-// ─── Reprocess cancelled payments that were actually paid in MP ──────────────
-// Useful to recover payments cancelled prematurely by the stale-payment job
-app.post("/api/admin/payments/reprocess-cancelled", async (_req, res) => {
+// ─── Reprocess pending/cancelled payments that were actually paid in MP ───────
+// Checks both "pending" and "cancelled" payments against Mercado Pago
+app.post("/api/admin/payments/reprocess-cancelled", requireAdminAuth, async (_req, res) => {
   try {
-    const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const { data: cancelled } = await getDb()
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: stale } = await getDb()
       .from("payments")
       .select("*")
-      .eq("status", "cancelled")
+      .in("status", ["pending", "cancelled"])
       .gte("created_at", since);
 
-    if (!cancelled || cancelled.length === 0) {
-      return res.json({ recovered: 0, message: "Nenhum pagamento cancelado recente." });
+    if (!stale || stale.length === 0) {
+      return res.json({ recovered: 0, message: "Nenhum pagamento pendente ou cancelado nos últimos 7 dias." });
     }
 
     const client = getMpClient();
     const paymentApi = new Payment(client);
     let recovered = 0;
 
-    for (const p of cancelled) {
+    for (const p of stale) {
       try {
         const mpRes = await paymentApi.get({ id: p.id });
         if (mpRes.status === "approved") {
           await approvePayment(p);
           recovered++;
-          console.log(`[reprocess] Recovered payment ${p.id} for ${p.username}`);
+          console.log(`[reprocess] Recovered payment ${p.id} for ${p.username} (was: ${p.status})`);
         }
       } catch (e) {
         console.warn(`[reprocess] Failed to check payment ${p.id}:`, e);
       }
     }
 
-    res.json({ recovered, checked: cancelled.length, message: `${recovered} pagamento(s) recuperado(s) de ${cancelled.length} cancelados.` });
+    res.json({ recovered, checked: stale.length, message: `${recovered} pagamento(s) recuperado(s) de ${stale.length} verificados.` });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -2140,6 +2163,7 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
       type: "reseller_hire",
       metadata: { resellerUsername: username, resellerPassword: password, resellerWhatsapp: whatsapp || "", resellerLogins: loginsNum, resellerMonths: monthsNum, amount },
     });
+    schedulePaymentCheck(mpRes.id.toString());
 
     res.json({
       paymentId: mpRes.id.toString(),
@@ -2208,6 +2232,7 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
       type: "reseller_renewal",
       metadata: { resellerUsername: username, resellerLogins: logins, resellerMonths: monthsNum, amount, discountApplied, paidOnTime: true },
     });
+    schedulePaymentCheck(mpRes.id.toString());
 
     res.json({
       paymentId: mpRes.id.toString(),
@@ -2398,6 +2423,7 @@ app.post("/api/reseller/pix/logins-upgrade", requireResellerAuth, async (req: an
       type: "reseller_logins_increase",
       metadata: { newLogins: loginsNum, currentLogins: info.logins, loginDiff, daysLeft, amount },
     });
+    schedulePaymentCheck(mpRes.id.toString());
 
     res.json({
       paymentId: mpRes.id.toString(),
