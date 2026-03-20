@@ -435,6 +435,22 @@ async function approvePayment(paymentRecord: any) {
       } catch (e: any) {
         console.warn(`[approvePayment] user_groups insert for ${newUsername} (may be duplicate):`, e?.message);
       }
+
+      // Update group plan to reflect the new device count
+      try {
+        const { data: currentPlan } = await db.from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
+        if (currentPlan) {
+          const newDevices = (currentPlan.plan_devices || 1) + 1;
+          const newPrice = calculatePlanPrice(currentPlan.plan_months || 1, newDevices);
+          await db.from("group_plans").update({
+            plan_devices: newDevices,
+            plan_price: newPrice,
+          }).eq("group_id", groupId);
+          console.log(`[approvePayment] Group ${groupId} plan updated: ${currentPlan.plan_devices} → ${newDevices} devices, price R$${newPrice}`);
+        }
+      } catch (e: any) {
+        console.warn(`[approvePayment] Failed to update group_plans for ${groupId}:`, e?.message);
+      }
     }
   } else {
     // Renewal logic
