@@ -1333,6 +1333,14 @@ app.post("/api/user/update-access", async (req, res) => {
       return res.status(404).json({ error: "Usuário não encontrado no painel" });
     }
 
+    // Block all change requests for expired users
+    if (userExists.expira) {
+      const expiryDate = new Date(userExists.expira.replace(' ', 'T'));
+      if (expiryDate < new Date()) {
+        return res.status(400).json({ error: "Seu acesso está expirado. Renove seu plano para fazer solicitações." });
+      }
+    }
+
     // Check if there is already a pending request of this type
     const { data: existingRequest } = await getDb().from("change_requests").select("*").eq("username", username).eq("type", action).eq("status", "aguardando").maybeSingle();
     if (existingRequest) {
@@ -1347,8 +1355,8 @@ app.post("/api/user/update-access", async (req, res) => {
       const diffFromCurrent = Math.abs(newDateObj.getTime() - expirationDate.getTime());
       const diffDaysFromCurrent = Math.ceil(diffFromCurrent / (1000 * 60 * 60 * 24));
 
-      if (diffDaysFromCurrent > 15) {
-        return res.status(400).json({ error: "A nova data não pode ter mais de 15 dias de diferença da data atual." });
+      if (diffDaysFromCurrent > 7) {
+        return res.status(400).json({ error: "A nova data não pode ter mais de 7 dias de diferença da data atual." });
       }
 
       const { data: lastChange } = await getDb().from("change_requests").select("created_at").eq("username", username).eq("type", "date").eq("status", "aprovado").order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -1536,12 +1544,20 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
     // Get change requests
     const { data: changeRequests } = await getDb().from("change_requests").select("*").eq("username", username).order("created_at", { ascending: false });
 
-    // Get plan info
+    // Get plan info + all group members
     const { data: group } = await getDb().from("user_groups").select("*").eq("username", username).maybeSingle();
     let plan = null;
+    let groupMembers: any[] = [];
     if (group) {
       const { data: p } = await getDb().from("group_plans").select("*").eq("group_id", group.group_id).maybeSingle();
       plan = p;
+      const { data: gm } = await getDb().from("user_groups").select("username").eq("group_id", group.group_id);
+      if (gm && gm.length > 1) {
+        const allVpnUsers = await fetchVpnUsers();
+        groupMembers = (gm || [])
+          .filter(m => m.username !== username)
+          .map(m => ({ username: m.username, ...allVpnUsers.find((u: any) => u.login === m.username) }));
+      }
     }
 
     // Get loyalty points (calculated from payment history — always in sync with history display)
@@ -1558,7 +1574,8 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
       changeRequests: changeRequests || [],
       plan,
       points,
-      referrals: referrals || []
+      referrals: referrals || [],
+      groupMembers,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2687,6 +2704,35 @@ cron.schedule("0 9 * * *", async () => {
     }
   } catch (e) { console.error("[cron] trial expiry check failed:", e); }
 }, { timezone: "America/Sao_Paulo" });
+
+// ─── Background: sync pending/cancelled payments every 10 minutes ────────────
+setInterval(async () => {
+  try {
+    const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(); // last 48h
+    const { data: stale } = await getDb()
+      .from("payments")
+      .select("*")
+      .in("status", ["pending", "cancelled"])
+      .gte("created_at", since);
+
+    if (!stale || stale.length === 0) return;
+
+    const paymentApi = new Payment(getMpClient());
+    for (const p of stale) {
+      try {
+        const mpRes = await paymentApi.get({ id: p.id });
+        if (mpRes.status === "approved") {
+          await approvePayment(p);
+          console.log(`[bg-sync] Recovered payment ${p.id} for ${p.username}`);
+        }
+      } catch (e) {
+        // Silently skip individual failures
+      }
+    }
+  } catch (e) {
+    console.warn("[bg-sync] payment sync error:", e);
+  }
+}, 10 * 60 * 1000); // every 10 minutes
 
 // ─────────────────────────────────────────────────────────────────────────────
 

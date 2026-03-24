@@ -1036,8 +1036,8 @@ export default function App() {
       return;
     }
 
-    if (!/^[a-zA-Z0-9]{1,10}$/.test(newUsername)) {
-      setError("Usuário inválido. Use apenas letras e números, até 10 caracteres.");
+    if (!/^[a-zA-Z0-9]{4,10}$/.test(newUsername)) {
+      setError("Usuário inválido. Use entre 4 e 10 letras/números.");
       return;
     }
 
@@ -2349,35 +2349,43 @@ export default function App() {
 
                       <div className="space-y-3">
                         {currentUser.changeRequests?.map((req: any) => (
-                          <div key={req.id} className="bg-bg-surface p-3 rounded-2xl border border-border-base flex justify-between items-center shadow-sm">
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-1.5">
-                                <p className="text-xs font-bold text-text-base">
-                                  {req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : 'Alteração de Senha'}
+                          <div key={req.id} className="bg-bg-surface p-3 rounded-2xl border border-border-base shadow-sm space-y-2">
+                            <div className="flex justify-between items-start gap-2">
+                              <div className="flex flex-col gap-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="text-xs font-bold text-text-base">
+                                    {req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : 'Alteração de Senha'}
+                                  </p>
+                                  <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-md font-bold border border-primary-200">{getDeviceLabel(req.username)}</span>
+                                </div>
+                                <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
+                                  {req.type === 'uuid' ? 'Aguarda ação do admin' : `Valor: ${req.requested_value}`}
                                 </p>
-                                <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-md font-bold border border-primary-200">{getDeviceLabel(req.username)}</span>
                               </div>
-                              <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
-                                {req.type === 'uuid' ? 'Aguarda ação do admin' : `Valor: ${req.requested_value}`}
-                              </p>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-lg font-bold ${req.status === 'aprovado' ? 'bg-green-100/50 text-green-700 border border-green-200' :
+                                  req.status === 'aguardando' ? 'bg-amber-100/50 text-amber-700 border border-amber-200' :
+                                    'bg-red-100/50 text-red-700 border border-red-200'
+                                  }`}>
+                                  {req.status === 'aprovado' ? 'Aprovado' : req.status === 'aguardando' ? 'Aguardando' : 'Rejeitado'}
+                                </span>
+                                {req.status === 'aguardando' && (
+                                  <button
+                                    onClick={() => confirmAction("Cancelar solicitação", "Tem certeza que deseja cancelar esta solicitação?", () => cancelChangeRequest(req.id))}
+                                    className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors border border-red-100"
+                                    title="Cancelar solicitação"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-lg font-bold ${req.status === 'aprovado' ? 'bg-green-100/50 text-green-700 border border-green-200' :
-                                req.status === 'aguardando' ? 'bg-amber-100/50 text-amber-700 border border-amber-200' :
-                                  'bg-red-100/50 text-red-700 border border-red-200'
-                                }`}>
-                                {req.status === 'aprovado' ? 'Aprovado' : req.status === 'aguardando' ? 'Aguardando' : 'Rejeitado'}
-                              </span>
-                              {req.status === 'aguardando' && (
-                                <button
-                                  onClick={() => confirmAction("Cancelar solicitação", "Tem certeza que deseja cancelar esta solicitação?", () => cancelChangeRequest(req.id))}
-                                  className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors border border-red-100"
-                                  title="Cancelar solicitação"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
+                            {req.status === 'rejeitado' && req.approved_value && (
+                              <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                                <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-0.5">Motivo da recusa</p>
+                                <p className="text-xs text-red-700 font-medium">{req.approved_value}</p>
+                              </div>
+                            )}
                           </div>
                         ))}
                         {currentUser.refundRequest && (
@@ -3513,8 +3521,10 @@ export default function App() {
                             disabled={loading}
                             maxLength={10}
                           />
-                          <p className="text-[11px] text-text-muted mt-1.5 px-1 font-medium">
-                            Apenas letras e números (máx 10 cara.).
+                          <p className={`text-[11px] mt-1.5 px-1 font-medium ${newUsername.length > 0 && newUsername.length < 4 ? "text-red-500" : "text-text-muted"}`}>
+                            {newUsername.length > 0 && newUsername.length < 4
+                              ? `Mínimo 4 caracteres (${newUsername.length}/4)`
+                              : "Apenas letras e números (4 a 10 caracteres)"}
                           </p>
                         </div>
 
@@ -5446,7 +5456,7 @@ export default function App() {
                             </div>
 
                             {canAct && !isEditing && (
-                              <div className="flex gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex gap-1 mt-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                 <button
                                   onClick={() => { setEditingMsgId(m.id); setEditingMsgText(m.message); }}
                                   className="p-1 rounded-md text-text-muted hover:text-primary-600 hover:bg-primary-50 transition-colors"

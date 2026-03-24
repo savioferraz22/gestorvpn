@@ -160,6 +160,29 @@ export function AdminUsers({ navigateTo }: Props) {
               </div>
             )}
 
+            {userData.groupMembers?.length > 0 && (
+              <div className="border border-border-base/50 rounded-xl overflow-hidden">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-text-muted px-3 pt-3 pb-1 flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5" /> Outros aparelhos do mesmo plano
+                </p>
+                <div className="divide-y divide-border-base/30">
+                  {userData.groupMembers.map((m: any) => (
+                    <div key={m.username} className="px-3 py-2.5 flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-bold text-text-base">{m.username}</p>
+                        <p className="text-xs text-text-muted">{m.expira ? `Vence: ${m.expira?.slice(0, 10).split("-").reverse().join("/")}` : "—"}</p>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
+                        m.status === "Ativo" || m.status === "online"
+                          ? "bg-green-50 text-green-700 border-green-200"
+                          : "bg-red-50 text-red-700 border-red-200"
+                      }`}>{m.status || "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {accessMsg && (
               <p className={`text-sm font-medium ${accessMsg.includes("sucesso") ? "text-green-600" : "text-red-600"}`}>
                 {accessMsg}

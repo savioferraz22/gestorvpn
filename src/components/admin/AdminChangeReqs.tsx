@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { RefreshCw, Eye, EyeOff, KeyRound, Clock } from "lucide-react";
 import { fetchAdminChangeRequests, approveChangeRequest, rejectChangeRequest, fetchAdminUserDetails } from "../../services/api";
-import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface Props {
   changeRequests: any[];
@@ -25,6 +24,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
   const [loading, setLoading] = useState(false);
   const [filterType, setFilterType] = useState("all");
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const [pendingApprove, setPendingApprove] = useState<{ id: string; type: string; requestedValue: string } | null>(null);
   const [approvedValue, setApprovedValue] = useState("");
   const [userDetails, setUserDetails] = useState<Record<string, any>>({});
@@ -68,7 +68,9 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
 
   async function handleReject(id: string) {
     try {
-      await rejectChangeRequest(id);
+      await rejectChangeRequest(id, rejectReason.trim() || undefined);
+      setConfirmReject(null);
+      setRejectReason("");
       await refresh();
     } catch (err) { console.warn(err); }
   }
@@ -245,13 +247,41 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
         </div>
       )}
 
-      <ConfirmDialog
-        isOpen={!!confirmReject}
-        title="Rejeitar Alteração"
-        message="Rejeitar esta solicitação?"
-        onConfirm={() => { if (confirmReject) handleReject(confirmReject); }}
-        onCancel={() => setConfirmReject(null)}
-      />
+      {/* Reject modal with reason */}
+      {confirmReject && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-bg-surface rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <h3 className="font-bold text-text-base">Rejeitar Solicitação</h3>
+            <div>
+              <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
+                Motivo da recusa <span className="text-text-muted font-normal normal-case">(opcional)</span>
+              </label>
+              <textarea
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="Ex: Data inválida, não disponível no período..."
+                className="w-full px-4 py-3 rounded-xl border border-border-base focus:ring-2 focus:ring-red-400/40 outline-none text-sm bg-bg-surface resize-none"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setConfirmReject(null); setRejectReason(""); }}
+                className="flex-1 border border-border-base py-2.5 rounded-xl text-sm font-bold text-text-base hover:bg-bg-surface-hover transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleReject(confirmReject)}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm active:scale-95"
+              >
+                Rejeitar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

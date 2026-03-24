@@ -164,7 +164,7 @@ export function AdminTickets({ allTickets, setAllTickets, navigateTo }: Props) {
                   )}
                 </div>
                 {canAct && !isEditing && (
-                  <div className="flex gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1 mt-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button onClick={() => { setEditingMsgId(msg.id); setEditingMsgText(msg.message); }} className="p-1 rounded-md text-text-muted hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Editar"><Pencil className="w-3 h-3" /></button>
                     <button onClick={() => handleDeleteMsg(msg.id)} className="p-1 rounded-md text-text-muted hover:text-red-600 hover:bg-red-50 transition-colors" title="Excluir"><Trash2 className="w-3 h-3" /></button>
                   </div>

@@ -197,10 +197,11 @@ export async function approveChangeRequest(id: string, approvedValue: string) {
   });
 }
 
-export async function rejectChangeRequest(id: string) {
+export async function rejectChangeRequest(id: string, reason?: string) {
   return apiFetch<any>(`/api/admin/change-requests/${id}/reject`, {
     method: "POST",
     headers: adminHeaders(),
+    body: JSON.stringify({ reason: reason || "" }),
   });
 }
 
