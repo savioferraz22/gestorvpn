@@ -470,9 +470,27 @@ async function approvePayment(paymentRecord: any) {
     }
 
     // Renew users in VPN Panel
+    // If a user's access is already expired, renewuser would add 30 days from the
+    // past expiry date, giving fewer days than paid. We compensate by adding extra
+    // calls to bring the expiry up to today first.
+    const allVpnUsers = await fetchVpnUsers();
     let renewFailed = false;
     for (const user of usersToRenew) {
-      for (let i = 0; i < monthsToRenew; i++) {
+      // Calculate compensation calls for expired users
+      let compensationCalls = 0;
+      const vpnUser = allVpnUsers.find((u: any) => u.login === user);
+      if (vpnUser?.expira) {
+        const expiry = new Date(vpnUser.expira.replace(' ', 'T'));
+        const now = new Date();
+        if (expiry < now) {
+          const deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
+          compensationCalls = Math.ceil(deficitDays / 30);
+          console.log(`[renew] ${user} expired ${deficitDays}d ago — adding ${compensationCalls} compensation call(s)`);
+        }
+      }
+
+      const totalCalls = compensationCalls + monthsToRenew;
+      for (let i = 0; i < totalCalls; i++) {
         const params = new URLSearchParams();
         params.append("passapi", VPN_API_KEY);
         params.append("module", "renewuser");
@@ -480,11 +498,12 @@ async function approvePayment(paymentRecord: any) {
 
         try {
           const vpnText = await callVpnApi(params);
-          console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, vpnText);
+          const label = i < compensationCalls ? `compensation ${i + 1}` : `month ${i - compensationCalls + 1}`;
+          console.log(`VPN Renew Response for ${user} (${label}):`, vpnText);
         } catch (e: any) {
           console.error(`Failed to renew VPN user ${user} after retries:`, e.message);
           renewFailed = true;
-          sendPush("__admin__", "⚠️ Falha ao renovar acesso VPN", `Falha ao renovar ${user} (mês ${i + 1}). Pagamento: ${paymentId}. Erro: ${e.message}`);
+          sendPush("__admin__", "⚠️ Falha ao renovar acesso VPN", `Falha ao renovar ${user}. Pagamento: ${paymentId}. Erro: ${e.message}`);
         }
       }
     }
