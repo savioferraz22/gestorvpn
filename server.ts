@@ -255,12 +255,16 @@ function parseMetadata(raw: any): any {
 }
 
 // Calculate loyalty points from payment + refund history (single source of truth)
+const RESELLER_PAYMENT_TYPES = ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment", "reseller_logins_increase"];
+const REGULAR_PAYMENT_TYPES = ["renewal", "new_device"];
+
 async function calculateLoyaltyPoints(username: string): Promise<number> {
   const { data: payments } = await getDb()
     .from("payments")
     .select("metadata, paid_at")
     .eq("username", username)
     .eq("status", "approved")
+    .in("type", REGULAR_PAYMENT_TYPES)
     .order("paid_at", { ascending: true, nullsFirst: false });
 
   let points = 0;
@@ -514,7 +518,7 @@ async function approvePayment(paymentRecord: any) {
   }
 
   // Reseller payments don't earn loyalty/referral bonuses
-  if (["reseller_hire", "reseller_renewal", "reseller_logins_increase"].includes(paymentRecord.type)) {
+  if (RESELLER_PAYMENT_TYPES.includes(paymentRecord.type)) {
     return;
   }
 
@@ -812,8 +816,8 @@ app.post("/api/user", async (req, res) => {
     // Get group-wide active or recent refund request
     const { data: refundRequest } = await getDb().from("refund_requests").select("*").in("username", groupUsernames).order("created_at", { ascending: false }).limit(1).maybeSingle();
 
-    // Get group-wide active change requests
-    const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).eq("status", "aguardando");
+    // Get group-wide active change requests (only regular user types)
+    const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).in("type", ["date", "username", "uuid", "password"]);
 
     // Get recent date change request (last 30 days) for the group
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -826,11 +830,12 @@ app.post("/api/user", async (req, res) => {
       .limit(1)
       .maybeSingle();
 
-    // Get last payment date to calculate 7 days
+    // Get last payment date to calculate 7 days (only regular user payments)
     const { data: lastPayment } = await getDb().from("payments")
       .select("created_at, paid_at")
       .eq("username", username)
       .eq("status", "approved")
+      .in("type", REGULAR_PAYMENT_TYPES)
       .order("paid_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
@@ -840,8 +845,8 @@ app.post("/api/user", async (req, res) => {
       lastPaymentDate = lastPayment.paid_at || lastPayment.created_at;
     }
 
-    // Get payment history (only confirmed payments)
-    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).eq("status", "approved").order("paid_at", { ascending: false, nullsFirst: false });
+    // Get payment history (only regular user payments, exclude reseller)
+    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).eq("status", "approved").in("type", REGULAR_PAYMENT_TYPES).order("paid_at", { ascending: false, nullsFirst: false });
 
     res.json({ ...user, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments });
   } catch (error: any) {
@@ -902,7 +907,7 @@ app.post("/api/create-free", async (req, res) => {
       return res.status(403).json({ error: "Este aparelho já gerou um teste gratuito.", existing_username: existingDevice.username });
     }
 
-    // Check if user exists
+    // Check if user exists (both regular users AND resellers)
     const users = await fetchVpnUsers();
 
     if (Array.isArray(users)) {
@@ -916,6 +921,15 @@ app.post("/api/create-free", async (req, res) => {
         if (!referrerExists) {
           return res.status(404).json({ error: "Usuário indicador não encontrado. Verifique e tente novamente." });
         }
+      }
+    }
+
+    // Also check resellers — prevent collision with reseller usernames
+    const resellers = await fetchVpnResellers();
+    if (Array.isArray(resellers)) {
+      const resellerExists = resellers.find((r: any) => r.login?.toLowerCase() === username.toLowerCase());
+      if (resellerExists) {
+        return res.status(409).json({ error: "Este usuário já existe. Por favor, escolha outro." });
       }
     }
 
@@ -974,7 +988,13 @@ app.post("/api/pix/new-device", async (req, res) => {
   try {
     const { groupId, mainUsername, newUsername } = req.body;
 
-    // 1. Get main user expiration
+    // 1. Check new username not taken by a reseller
+    const resellers = await fetchVpnResellers();
+    if (resellers.find((r: any) => r.login?.toLowerCase() === newUsername?.toLowerCase())) {
+      return res.status(409).json({ error: "Este nome de usuário já está em uso. Escolha outro." });
+    }
+
+    // 2. Get main user expiration
     const users = await fetchVpnUsers();
     const mainUser = users.find((u: any) => u.login === mainUsername);
 
@@ -1554,14 +1574,21 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
     // Get devices
     const { data: devices } = await getDb().from("devices").select("*").eq("username", username);
 
-    // Get payments
-    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).order("created_at", { ascending: false });
+    // Get payments (separate regular from reseller to avoid confusion)
+    // Check if username is a reseller
+    const allResellers = await fetchVpnResellers();
+    const isReseller = allResellers.some((r: any) => r.login?.toLowerCase() === username.toLowerCase());
+    const paymentTypeFilter = isReseller ? RESELLER_PAYMENT_TYPES : REGULAR_PAYMENT_TYPES;
+    const { data: payments } = await getDb().from("payments").select("*").eq("username", username).in("type", paymentTypeFilter).order("created_at", { ascending: false });
 
     // Get refunds
     const { data: refunds } = await getDb().from("refund_requests").select("*").eq("username", username).order("created_at", { ascending: false });
 
-    // Get change requests
-    const { data: changeRequests } = await getDb().from("change_requests").select("*").eq("username", username).order("created_at", { ascending: false });
+    // Get change requests (separate by user type)
+    const changeRequestTypes = isReseller
+      ? ["reseller_password", "reseller_logins_decrease", "reseller_logins_increase"]
+      : ["date", "username", "uuid", "password"];
+    const { data: changeRequests } = await getDb().from("change_requests").select("*").eq("username", username).in("type", changeRequestTypes).order("created_at", { ascending: false });
 
     // Get plan info + all group members
     const { data: group } = await getDb().from("user_groups").select("*").eq("username", username).maybeSingle();
@@ -2186,10 +2213,14 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
     const loginsNum = Math.max(10, parseInt(logins));
     const monthsNum = Math.max(1, parseInt(months));
 
-    // Make sure username isn't already taken
+    // Make sure username isn't already taken (check both resellers AND regular users)
     const resellers = await fetchVpnResellers();
     const existing = resellers.find((r: any) => r.login?.toLowerCase() === username.toLowerCase());
     if (existing) return res.status(409).json({ error: "Usuário já existe. Escolha outro nome de usuário." });
+
+    const regularUsers = await fetchVpnUsers();
+    const existingRegular = regularUsers.find((u: any) => u.login?.toLowerCase() === username.toLowerCase());
+    if (existingRegular) return res.status(409).json({ error: "Este nome de usuário já está em uso por um cliente. Escolha outro." });
 
     const amount = calcResellerPrice(monthsNum, loginsNum);
     const client = getMpClient();
