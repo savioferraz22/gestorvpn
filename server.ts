@@ -474,40 +474,43 @@ async function approvePayment(paymentRecord: any) {
     }
 
     // Renew users in VPN Panel
-    // If a user's access is already expired, renewuser would add 30 days from the
-    // past expiry date, giving fewer days than paid. We compensate by adding extra
-    // calls to bring the expiry up to today first.
+    // renewuser adds 30 days to the CURRENT expiry date. If the user is expired,
+    // those 30 days start from the past date, resulting in fewer days from today.
+    // We detect this and pass extra "dias" parameter to compensate the deficit.
     const allVpnUsers = await fetchVpnUsers();
     let renewFailed = false;
     for (const user of usersToRenew) {
-      // Calculate compensation calls for expired users
-      let compensationCalls = 0;
+      // Check if user is expired and calculate deficit
+      let deficitDays = 0;
       const vpnUser = allVpnUsers.find((u: any) => u.login === user);
       if (vpnUser?.expira) {
         const expiry = new Date(vpnUser.expira.replace(' ', 'T'));
         const now = new Date();
         if (expiry < now) {
-          const deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
-          compensationCalls = Math.ceil(deficitDays / 30);
-          console.log(`[renew] ${user} expired ${deficitDays}d ago — adding ${compensationCalls} compensation call(s)`);
+          deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
+          console.log(`[renew] ${user} expired ${deficitDays}d ago — adding deficit to first renewal call`);
         }
       }
 
-      const totalCalls = compensationCalls + monthsToRenew;
-      for (let i = 0; i < totalCalls; i++) {
+      for (let i = 0; i < monthsToRenew; i++) {
         const params = new URLSearchParams();
         params.append("passapi", VPN_API_KEY);
         params.append("module", "renewuser");
         params.append("user", user);
+        // On the first call for an expired user, add the deficit so the panel
+        // gives 30 + deficit days instead of just 30 (if the panel supports it)
+        if (i === 0 && deficitDays > 0) {
+          params.append("dias", String(30 + deficitDays));
+          params.append("days", String(30 + deficitDays));
+        }
 
         try {
           const vpnText = await callVpnApi(params);
-          const label = i < compensationCalls ? `compensation ${i + 1}` : `month ${i - compensationCalls + 1}`;
-          console.log(`VPN Renew Response for ${user} (${label}):`, vpnText);
+          console.log(`VPN Renew Response for ${user} (Month ${i + 1}${i === 0 && deficitDays > 0 ? `, +${deficitDays}d deficit` : ""}):`, vpnText);
         } catch (e: any) {
           console.error(`Failed to renew VPN user ${user} after retries:`, e.message);
           renewFailed = true;
-          sendPush("__admin__", "⚠️ Falha ao renovar acesso VPN", `Falha ao renovar ${user}. Pagamento: ${paymentId}. Erro: ${e.message}`);
+          sendPush("__admin__", "⚠️ Falha ao renovar acesso VPN", `Falha ao renovar ${user} (mês ${i + 1}). Pagamento: ${paymentId}. Erro: ${e.message}`);
         }
       }
     }
