@@ -474,39 +474,41 @@ async function approvePayment(paymentRecord: any) {
     }
 
     // Renew users in VPN Panel
-    // renewuser adds 30 days to the CURRENT expiry date. If the user is expired,
-    // those 30 days start from the past date, resulting in fewer days from today.
-    // We detect this and pass extra "dias" parameter to compensate the deficit.
+    // renewuser adds 30 days to the CURRENT expiry. If the user is expired,
+    // those days start from the past date → fewer days than paid.
+    // We detect this, renew normally, then create an automatic date_correction
+    // request for the admin to fix the date in the VPN panel.
     const allVpnUsers = await fetchVpnUsers();
     let renewFailed = false;
-    for (const user of usersToRenew) {
-      // Check if user is expired and calculate deficit
-      let deficitDays = 0;
-      const vpnUser = allVpnUsers.find((u: any) => u.login === user);
-      if (vpnUser?.expira) {
-        const expiry = new Date(vpnUser.expira.replace(' ', 'T'));
-        const now = new Date();
-        if (expiry < now) {
-          deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
-          console.log(`[renew] ${user} expired ${deficitDays}d ago — adding deficit to first renewal call`);
-        }
-      }
+    let needsDateCorrection = false;
+    let correctExpiryDate = "";
 
+    // Check if any user in the group is expired before renewal
+    const mainVpnUser = allVpnUsers.find((u: any) => u.login === usersToRenew[0]);
+    if (mainVpnUser?.expira) {
+      const expiry = new Date(mainVpnUser.expira.replace(' ', 'T'));
+      const now = new Date();
+      if (expiry < now) {
+        needsDateCorrection = true;
+        // Correct date = today + (30 * months)
+        const correctDate = new Date(now);
+        correctDate.setDate(correctDate.getDate() + (30 * monthsToRenew));
+        correctExpiryDate = correctDate.toISOString().split("T")[0]; // YYYY-MM-DD
+        const deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
+        console.log(`[renew] ${usersToRenew[0]} expired ${deficitDays}d ago — will create date_correction to ${correctExpiryDate}`);
+      }
+    }
+
+    for (const user of usersToRenew) {
       for (let i = 0; i < monthsToRenew; i++) {
         const params = new URLSearchParams();
         params.append("passapi", VPN_API_KEY);
         params.append("module", "renewuser");
         params.append("user", user);
-        // On the first call for an expired user, add the deficit so the panel
-        // gives 30 + deficit days instead of just 30 (if the panel supports it)
-        if (i === 0 && deficitDays > 0) {
-          params.append("dias", String(30 + deficitDays));
-          params.append("days", String(30 + deficitDays));
-        }
 
         try {
           const vpnText = await callVpnApi(params);
-          console.log(`VPN Renew Response for ${user} (Month ${i + 1}${i === 0 && deficitDays > 0 ? `, +${deficitDays}d deficit` : ""}):`, vpnText);
+          console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, vpnText);
         } catch (e: any) {
           console.error(`Failed to renew VPN user ${user} after retries:`, e.message);
           renewFailed = true;
@@ -515,8 +517,27 @@ async function approvePayment(paymentRecord: any) {
       }
     }
     if (renewFailed) {
-      // Mark payment with a flag so admin can re-trigger renewal
       await db.from("payments").update({ metadata: JSON.stringify({ ...metadata, vpnRenewFailed: true }) }).eq("id", paymentId);
+    }
+
+    // Create automatic date correction request for each user if they were expired
+    if (needsDateCorrection && correctExpiryDate && !renewFailed) {
+      for (const user of usersToRenew) {
+        try {
+          await db.from("change_requests").insert({
+            id: crypto.randomUUID(),
+            username: user,
+            type: "date_correction",
+            requested_value: correctExpiryDate,
+            status: "aguardando",
+          });
+          console.log(`[date_correction] Created for ${user} → ${correctExpiryDate}`);
+        } catch (e: any) {
+          console.warn(`[date_correction] Failed to create for ${user}:`, e.message);
+        }
+      }
+      sendPush("__admin__", "📅 Correção de vencimento pendente",
+        `${paymentRecord.username} renovou com acesso vencido. Data correta: ${correctExpiryDate.split("-").reverse().join("/")}`);
     }
   }
 
@@ -819,8 +840,8 @@ app.post("/api/user", async (req, res) => {
     // Get group-wide active or recent refund request
     const { data: refundRequest } = await getDb().from("refund_requests").select("*").in("username", groupUsernames).order("created_at", { ascending: false }).limit(1).maybeSingle();
 
-    // Get group-wide active change requests (only regular user types)
-    const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).in("type", ["date", "username", "uuid", "password"]);
+    // Get group-wide active change requests (only regular user types + date_correction)
+    const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).in("type", ["date", "username", "uuid", "password", "date_correction"]);
 
     // Get recent date change request (last 30 days) for the group
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -1590,7 +1611,7 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
     // Get change requests (separate by user type)
     const changeRequestTypes = isReseller
       ? ["reseller_password", "reseller_logins_decrease", "reseller_logins_increase"]
-      : ["date", "username", "uuid", "password"];
+      : ["date", "username", "uuid", "password", "date_correction"];
     const { data: changeRequests } = await getDb().from("change_requests").select("*").eq("username", username).in("type", changeRequestTypes).order("created_at", { ascending: false });
 
     // Get plan info + all group members

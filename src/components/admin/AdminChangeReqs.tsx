@@ -16,7 +16,7 @@ function formatDate(dateString: string) {
 }
 
 function typeLabel(type: string) {
-  const map: Record<string, string> = { date: "Vencimento", username: "Usuário", uuid: "UUID", password: "Senha" };
+  const map: Record<string, string> = { date: "Vencimento", username: "Usuário", uuid: "UUID", password: "Senha", date_correction: "📅 Correção de Vencimento" };
   return map[type] || type;
 }
 
@@ -104,6 +104,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
           className="text-sm bg-bg-surface border border-border-base/50 rounded-xl px-3 py-2.5 outline-none font-bold cursor-pointer"
         >
           <option value="all">Todos os tipos</option>
+          <option value="date_correction">Correção de Vencimento</option>
           <option value="date">Vencimento</option>
           <option value="username">Usuário</option>
           <option value="uuid">UUID</option>
@@ -137,7 +138,11 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                     <span className="text-[11px] font-medium text-text-muted bg-bg-surface-hover px-1.5 py-0.5 rounded border border-border-base/50">
                       {formatDate(r.created_at)}
                     </span>
-                    <span className="text-[10px] uppercase font-bold text-primary-600 bg-primary-50 px-2 py-0.5 rounded border border-primary-100">
+                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
+                      r.type === "date_correction"
+                        ? "text-blue-700 bg-blue-50 border-blue-200"
+                        : "text-primary-600 bg-primary-50 border-primary-100"
+                    }`}>
                       {typeLabel(r.type)}
                     </span>
                   </div>
@@ -180,10 +185,17 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                 </button>
               )}
 
-              <div className="bg-bg-base/50 p-3.5 rounded-xl border border-border-base/50">
-                <p className="text-[10px] uppercase font-bold tracking-wider text-text-muted mb-1">Valor solicitado</p>
-                <p className="font-bold text-text-base text-lg bg-white/50 p-1.5 rounded">{r.requested_value}</p>
-                {r.approved_value && r.approved_value !== r.requested_value && (
+              <div className={`p-3.5 rounded-xl border ${r.type === "date_correction" ? "bg-blue-50/50 border-blue-200" : "bg-bg-base/50 border-border-base/50"}`}>
+                <p className="text-[10px] uppercase font-bold tracking-wider text-text-muted mb-1">
+                  {r.type === "date_correction" ? "Data correta de vencimento" : "Valor solicitado"}
+                </p>
+                <p className={`font-bold text-lg bg-white/50 p-1.5 rounded ${r.type === "date_correction" ? "text-blue-700" : "text-text-base"}`}>
+                  {r.type === "date_correction" ? r.requested_value.split("-").reverse().join("/") : r.requested_value}
+                </p>
+                {r.type === "date_correction" && r.status === "aguardando" && (
+                  <p className="text-xs text-blue-600 mt-2 font-medium">Gerada automaticamente — cliente renovou com acesso vencido. Ajuste a data no painel VPN.</p>
+                )}
+                {r.approved_value && r.approved_value !== r.requested_value && r.type !== "date_correction" && (
                   <div className="mt-3">
                     <p className="text-[10px] uppercase font-bold tracking-wider text-text-muted mb-1">Valor aprovado</p>
                     <p className="font-bold text-green-600 text-lg bg-white/50 p-1.5 rounded border border-green-100">{r.approved_value}</p>

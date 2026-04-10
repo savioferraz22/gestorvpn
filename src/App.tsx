@@ -1416,7 +1416,7 @@ export default function App() {
   };
 
   // ─── In-app notification items (derived from live state) ──────────────────
-  const typeMap: Record<string, string> = { date: "Vencimento", username: "Usuário", uuid: "UUID", password: "Senha" };
+  const typeMap: Record<string, string> = { date: "Vencimento", username: "Usuário", uuid: "UUID", password: "Senha", date_correction: "Correção de Vencimento" };
   const allNotifications: Array<{ id: string; title: string; body: string; created_at: string; onPress: () => void }> = [];
   if (currentUser || resellerData) {
     for (const t of tickets) {
@@ -2066,6 +2066,17 @@ export default function App() {
                           <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Vencimento</p>
                           <p className="text-xl font-bold text-primary-600">{formatDate(currentUser.expira)}</p>
                           {(() => {
+                            const dateCorrection = currentUser.changeRequests?.find((r: any) => r.type === "date_correction" && r.status === "aguardando");
+                            if (dateCorrection) {
+                              const correctedDate = dateCorrection.requested_value.split("-").reverse().join("/");
+                              return (
+                                <div className="mt-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-center">
+                                  <p className="text-[11px] font-bold text-blue-700">Acesso liberado</p>
+                                  <p className="text-[10px] text-blue-600 mt-0.5">Vencimento será corrigido para <span className="font-bold">{correctedDate}</span></p>
+                                  <p className="text-[9px] text-blue-500 mt-0.5">Aguardando aprovação do administrador</p>
+                                </div>
+                              );
+                            }
                             const expiry = new Date(currentUser.expira);
                             const now = new Date();
                             const diffMs = expiry.getTime() - now.getTime();
@@ -2354,7 +2365,7 @@ export default function App() {
                               <div className="flex flex-col gap-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <p className="text-xs font-bold text-text-base">
-                                    {req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : 'Alteração de Senha'}
+                                    {req.type === 'date_correction' ? 'Correção de Vencimento' : req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : 'Alteração de Senha'}
                                   </p>
                                   <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-md font-bold border border-primary-200">{getDeviceLabel(req.username)}</span>
                                 </div>
@@ -2369,7 +2380,7 @@ export default function App() {
                                   }`}>
                                   {req.status === 'aprovado' ? 'Aprovado' : req.status === 'aguardando' ? 'Aguardando' : 'Rejeitado'}
                                 </span>
-                                {req.status === 'aguardando' && (
+                                {req.status === 'aguardando' && req.type !== 'date_correction' && (
                                   <button
                                     onClick={() => confirmAction("Cancelar solicitação", "Tem certeza que deseja cancelar esta solicitação?", () => cancelChangeRequest(req.id))}
                                     className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors border border-red-100"
@@ -2380,6 +2391,13 @@ export default function App() {
                                 )}
                               </div>
                             </div>
+                            {req.type === 'date_correction' && req.status === 'aguardando' && (
+                              <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+                                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-0.5">Data correta de vencimento</p>
+                                <p className="text-xs text-blue-700 font-bold">{req.requested_value.split("-").reverse().join("/")}</p>
+                                <p className="text-[10px] text-blue-500 mt-1">Gerada automaticamente. Seu acesso já está liberado.</p>
+                              </div>
+                            )}
                             {req.status === 'rejeitado' && req.approved_value && (
                               <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2">
                                 <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-0.5">Motivo da recusa</p>
