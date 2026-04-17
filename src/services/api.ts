@@ -259,6 +259,28 @@ export async function confirmResellerRequest(id: string) {
   return apiFetch<any>(`/api/admin/reseller-requests/${id}/confirm`, { method: "POST", headers: adminHeaders() });
 }
 
+export async function fetchAdminResellerDetails(username: string) {
+  return apiFetch<any>(`/api/admin/resellers/${encodeURIComponent(username)}/details`, { headers: adminHeaders() });
+}
+
+export async function fetchAdminPaymentAttempts(paymentId: string) {
+  return apiFetch<any>(`/api/admin/payments/${encodeURIComponent(paymentId)}/attempts`, { headers: adminHeaders() });
+}
+
+export async function retryPaymentApplication(paymentId: string) {
+  return apiFetch<any>(`/api/admin/payments/${encodeURIComponent(paymentId)}/retry`, {
+    method: "POST",
+    headers: adminHeaders(),
+  });
+}
+
+export async function retryFailedPayments() {
+  return apiFetch<any>("/api/admin/payments/retry-failed", {
+    method: "POST",
+    headers: adminHeaders(),
+  });
+}
+
 // ─── Payments ──────────────────────────────────────────────────────────────
 
 export async function createPixPayment(body: Record<string, any>) {

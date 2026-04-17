@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Search, RefreshCw, Edit2, Check, X, Loader2, Users, ClipboardList } from "lucide-react";
+import { Search, RefreshCw, Edit2, Check, X, Loader2, Users, ClipboardList, AlertCircle, ChevronDown, ChevronUp, History, RotateCw, CheckCircle2, Clock } from "lucide-react";
 import {
   fetchAdminResellers, adjustReseller,
   fetchAdminResellerRequests, approveResellerRequest, rejectResellerRequest, confirmResellerRequest,
+  fetchAdminResellerDetails, retryPaymentApplication,
 } from "../../services/api";
 
 function formatDate(iso: string | null) {
@@ -52,6 +53,53 @@ export function AdminResellers() {
   const [rejectReason, setRejectReason] = useState("");
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+
+  // Expanded audit trail state (per-reseller)
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expandedDetails, setExpandedDetails] = useState<any | null>(null);
+  const [expandedLoading, setExpandedLoading] = useState(false);
+  const [expandedError, setExpandedError] = useState("");
+  const [retryingPaymentId, setRetryingPaymentId] = useState<string | null>(null);
+  const [retryMsg, setRetryMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+
+  async function toggleExpand(username: string) {
+    if (expanded === username) {
+      setExpanded(null);
+      setExpandedDetails(null);
+      return;
+    }
+    setExpanded(username);
+    setExpandedDetails(null);
+    setExpandedLoading(true);
+    setExpandedError("");
+    try {
+      const data = await fetchAdminResellerDetails(username);
+      setExpandedDetails(data);
+    } catch (e: any) {
+      setExpandedError(e.message || "Erro ao carregar histórico");
+    } finally {
+      setExpandedLoading(false);
+    }
+  }
+
+  async function handleRetryPayment(paymentId: string, username: string) {
+    setRetryingPaymentId(paymentId);
+    setRetryMsg(null);
+    try {
+      const r = await retryPaymentApplication(paymentId);
+      setRetryMsg({ id: paymentId, msg: r.ok ? "Reaplicação concluída!" : (r.message || "Reaplicação enviada."), ok: !!r.ok });
+      // Refresh the expanded view to show the new attempts
+      if (expanded === username) {
+        const data = await fetchAdminResellerDetails(username);
+        setExpandedDetails(data);
+      }
+      await load();
+    } catch (e: any) {
+      setRetryMsg({ id: paymentId, msg: e.message || "Erro ao reaplicar", ok: false });
+    } finally {
+      setRetryingPaymentId(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -353,11 +401,20 @@ export function AdminResellers() {
             const soon = days !== null && days > 0 && days <= 7;
             const isEditing = editing === r.login;
 
+            const isExpanded = expanded === r.login;
             return (
               <div key={r.login} className="bg-bg-surface border border-border-base rounded-2xl p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-text-base">{r.login}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-text-base">{r.login}</p>
+                      {r.hasFailedApplication && (
+                        <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md border bg-red-50 text-red-700 border-red-200">
+                          <AlertCircle className="w-3 h-3" />
+                          Falha no painel
+                        </span>
+                      )}
+                    </div>
                     {!isEditing ? (
                       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
                         <span>
@@ -403,13 +460,22 @@ export function AdminResellers() {
 
                   <div className="flex items-center gap-1.5 shrink-0">
                     {!isEditing ? (
-                      <button
-                        onClick={() => startEdit(r)}
-                        className="p-2 rounded-xl hover:bg-bg-surface-hover text-text-muted hover:text-text-base transition-colors"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      <>
+                        <button
+                          onClick={() => toggleExpand(r.login)}
+                          className={`p-2 rounded-xl hover:bg-bg-surface-hover text-text-muted hover:text-text-base transition-colors ${isExpanded ? "bg-bg-surface-hover text-text-base" : ""}`}
+                          title={isExpanded ? "Ocultar histórico" : "Ver histórico"}
+                        >
+                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <History className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => startEdit(r)}
+                          className="p-2 rounded-xl hover:bg-bg-surface-hover text-text-muted hover:text-text-base transition-colors"
+                          title="Editar"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </>
                     ) : (
                       <>
                         <button
@@ -432,6 +498,127 @@ export function AdminResellers() {
                     )}
                   </div>
                 </div>
+
+                {/* Expanded audit trail: timeline of payments + attempts */}
+                {isExpanded && (
+                  <div className="mt-4 pt-4 border-t border-border-base space-y-3">
+                    {expandedLoading ? (
+                      <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-text-muted" /></div>
+                    ) : expandedError ? (
+                      <p className="text-xs text-red-500">{expandedError}</p>
+                    ) : expandedDetails ? (
+                      <>
+                        {/* Summary */}
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="bg-bg-surface-hover rounded-xl p-2 text-center">
+                            <p className="text-[10px] uppercase text-text-muted font-bold">Logins</p>
+                            <p className="font-bold text-text-base">{expandedDetails.plan?.logins ?? "—"}</p>
+                          </div>
+                          <div className="bg-bg-surface-hover rounded-xl p-2 text-center">
+                            <p className="text-[10px] uppercase text-text-muted font-bold">Vence em</p>
+                            <p className="font-bold text-text-base">{formatDate(expandedDetails.plan?.expiresAt)}</p>
+                          </div>
+                          <div className="bg-bg-surface-hover rounded-xl p-2 text-center">
+                            <p className="text-[10px] uppercase text-text-muted font-bold">Meses pagos</p>
+                            <p className="font-bold text-text-base">{expandedDetails.plan?.totalMonthsPaid ?? 0}</p>
+                          </div>
+                        </div>
+
+                        {/* Timeline */}
+                        <div className="space-y-2">
+                          <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Timeline de Pagamentos</p>
+                          {(expandedDetails.history ?? []).length === 0 ? (
+                            <p className="text-xs text-text-muted text-center py-2">Nenhum pagamento registrado.</p>
+                          ) : (
+                            (expandedDetails.history ?? []).map((h: any) => {
+                              const typeLabel =
+                                h.type === "reseller_hire" ? "Contratação" :
+                                h.type === "reseller_renewal" ? `Renovação${h.monthsPaid ? ` (${h.monthsPaid}m)` : ""}` :
+                                h.type === "reseller_setup" ? "Configuração inicial" :
+                                h.type === "reseller_adjustment" ? "Ajuste manual" : h.type;
+                              const applicationStatus = h.hasFailedAttempts
+                                ? { label: "Falha", cls: "bg-red-50 text-red-700 border-red-200", icon: <AlertCircle className="w-3 h-3" /> }
+                                : h.vpnApplied
+                                  ? { label: "Aplicado", cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="w-3 h-3" /> }
+                                  : (h.type === "reseller_setup" || h.type === "reseller_adjustment")
+                                    ? { label: "Ajuste", cls: "bg-blue-50 text-blue-700 border-blue-200", icon: <Edit2 className="w-3 h-3" /> }
+                                    : { label: "Pendente", cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="w-3 h-3" /> };
+                              const payRetryMsg = retryMsg?.id === h.paymentId ? retryMsg : null;
+                              const canRetry = h.hasFailedAttempts || (h.type === "reseller_renewal" && !h.vpnApplied);
+                              return (
+                                <div key={h.paymentId} className="rounded-xl border border-border-base bg-bg-surface-hover p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="text-sm font-semibold text-text-base">{typeLabel}</p>
+                                        {h.discountApplied && <span className="text-[10px] text-emerald-600 font-bold">🎉 -20%</span>}
+                                        <span className={`inline-flex items-center gap-1 text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md border ${applicationStatus.cls}`}>
+                                          {applicationStatus.icon}
+                                          {applicationStatus.label}
+                                        </span>
+                                      </div>
+                                      <p className="text-[10px] text-text-muted mt-0.5">
+                                        {h.paidAt ? new Date(h.paidAt).toLocaleString("pt-BR") : (h.createdAt ? new Date(h.createdAt).toLocaleString("pt-BR") : "—")}
+                                      </p>
+                                      <p className="text-[11px] text-text-muted mt-1 font-mono truncate" title={h.paymentId}>ID: {h.paymentId}</p>
+                                      {h.daysAdded > 0 && (
+                                        <p className="text-xs text-text-base mt-1">
+                                          <span className="font-bold text-emerald-600">+{h.daysAdded} dias</span>
+                                          {h.expiresAfter && <span className="text-text-muted"> → venc. {formatDate(h.expiresAfter)}</span>}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      {h.amount != null && <p className="font-bold text-emerald-600 text-sm">R${h.amount}</p>}
+                                    </div>
+                                  </div>
+
+                                  {/* Attempts detail */}
+                                  {Array.isArray(h.attempts) && h.attempts.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-border-base/60 space-y-1">
+                                      <p className="text-[10px] uppercase text-text-muted font-bold">Tentativas no painel VPN</p>
+                                      {h.attempts.map((a: any) => (
+                                        <div key={a.id} className="flex items-center justify-between gap-2 text-[11px]">
+                                          <span className="font-mono text-text-muted">
+                                            #{a.attempt_number ?? "?"} {a.module}
+                                          </span>
+                                          <span className={`font-semibold ${a.status === "success" ? "text-emerald-600" : a.status === "failed" ? "text-red-600" : "text-amber-600"}`}>
+                                            {a.status}
+                                          </span>
+                                          <span className="text-text-muted truncate flex-1 text-right" title={a.error_message || a.response_text || ""}>
+                                            {a.error_message || a.response_text || "—"}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {canRetry && (
+                                    <div className="mt-2 pt-2 border-t border-border-base/60 flex items-center justify-between gap-2">
+                                      {payRetryMsg ? (
+                                        <p className={`text-[11px] font-medium ${payRetryMsg.ok ? "text-emerald-600" : "text-red-600"}`}>{payRetryMsg.msg}</p>
+                                      ) : (
+                                        <p className="text-[11px] text-text-muted">Aplicação incompleta no painel VPN.</p>
+                                      )}
+                                      <button
+                                        disabled={retryingPaymentId === h.paymentId}
+                                        onClick={() => handleRetryPayment(h.paymentId, r.login)}
+                                        className="text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                                      >
+                                        {retryingPaymentId === h.paymentId ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCw className="w-3 h-3" />}
+                                        Reaplicar
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                )}
               </div>
             );
           })}

@@ -143,6 +143,9 @@ export default function App() {
   const [resellerUsername, setResellerUsername] = useState("");
   const [resellerToken, setResellerToken] = useState<string | null>(null);
   const [resellerData, setResellerData] = useState<any>(null); // { reseller, payments, users }
+  const [resellerDetails, setResellerDetails] = useState<any>(null); // { plan, history[], nextRenewal }
+  const [resellerDetailsLoading, setResellerDetailsLoading] = useState(false);
+  const [resellerRetryingPayment, setResellerRetryingPayment] = useState<string | null>(null);
   const [resellerLoading, setResellerLoading] = useState(false);
   const [resellerError, setResellerError] = useState("");
   // New hire form
@@ -598,6 +601,7 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || `Erro ${res.status}: verifique se o servidor foi reiniciado.`);
       setResellerToken(data.token);
       setResellerData(data);
+      loadResellerDetails(data.token);
       setView("reseller_dashboard");
     } catch (err: any) {
       setResellerError(err.message);
@@ -616,6 +620,23 @@ export default function App() {
         setResellerData(data);
       }
     } catch { /* silent */ }
+    // Also refresh detailed plan/history view
+    loadResellerDetails(token);
+  };
+
+  const loadResellerDetails = async (token: string) => {
+    setResellerDetailsLoading(true);
+    try {
+      const res = await fetch("/api/reseller/me/details", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResellerDetails(data);
+      }
+    } catch { /* silent */ } finally {
+      setResellerDetailsLoading(false);
+    }
   };
 
   const fetchGroupData = async () => {
@@ -1639,7 +1660,7 @@ export default function App() {
             </nav>
             <div className="p-3 border-t border-border-base/50 shrink-0">
               <button
-                onClick={() => { setResellerToken(null); setResellerData(null); setResellerUsername(""); setView("login"); }}
+                onClick={() => { setResellerToken(null); setResellerData(null); setResellerDetails(null); setResellerUsername(""); setView("login"); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
@@ -4598,8 +4619,112 @@ export default function App() {
                     <ChevronRight className="w-4 h-4 text-text-muted" />
                   </button>
 
-                  {/* ─ Payment history ─ */}
-                  {rPayments.length > 0 && (
+                  {/* ─ Payment history (detailed) ─ */}
+                  {(resellerDetails?.history?.length ?? 0) > 0 ? (
+                    <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Histórico Detalhado</p>
+                        <button
+                          onClick={() => resellerToken && loadResellerDetails(resellerToken)}
+                          disabled={resellerDetailsLoading}
+                          className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 disabled:opacity-50"
+                        >
+                          {resellerDetailsLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                          Atualizar
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {resellerDetails.history.map((h: any) => {
+                          const typeLabel =
+                            h.type === "reseller_hire" ? "Contratação" :
+                            h.type === "reseller_renewal" ? `Renovação${h.monthsPaid ? ` (${h.monthsPaid}m)` : ""}` :
+                            h.type === "reseller_setup" ? "Configuração inicial" :
+                            h.type === "reseller_adjustment" ? "Ajuste manual (admin)" : h.type;
+                          const date = h.paidAt || h.createdAt;
+                          const expiresAfter = h.expiresAfter ? new Date(h.expiresAfter).toLocaleDateString("pt-BR") : null;
+                          const applicationStatus = h.hasFailedAttempts
+                            ? { label: "Falha na aplicação", cls: "bg-red-50 text-red-700 border-red-200", icon: <AlertCircle className="w-3 h-3" /> }
+                            : h.vpnApplied
+                              ? { label: "Aplicado no painel", cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="w-3 h-3" /> }
+                              : h.type === "reseller_setup" || h.type === "reseller_adjustment"
+                                ? { label: "Ajuste", cls: "bg-blue-50 text-blue-700 border-blue-200", icon: <Settings2 className="w-3 h-3" /> }
+                                : { label: "Pendente", cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="w-3 h-3" /> };
+                          return (
+                            <div key={h.paymentId} className="rounded-xl border border-border-base bg-bg-surface-hover p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-sm font-semibold text-text-base">{typeLabel}</p>
+                                    {h.discountApplied && <span className="text-[10px] text-emerald-600 font-bold">🎉 -20%</span>}
+                                  </div>
+                                  <p className="text-[10px] text-text-muted mt-0.5">{date ? new Date(date).toLocaleString("pt-BR") : "—"}</p>
+                                  {h.daysAdded > 0 && (
+                                    <p className="text-xs text-text-base mt-1">
+                                      <span className="font-bold text-emerald-600">+{h.daysAdded} dias</span>
+                                      {expiresAfter && <span className="text-text-muted"> → venc. {expiresAfter}</span>}
+                                    </p>
+                                  )}
+                                  {h.logins != null && h.type === "reseller_hire" && (
+                                    <p className="text-[10px] text-text-muted">{h.logins} logins contratados</p>
+                                  )}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  {h.amount != null && <p className="font-bold text-emerald-600 text-sm">R${h.amount}</p>}
+                                  <span className={`inline-flex items-center gap-1 text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md border mt-1 ${applicationStatus.cls}`}>
+                                    {applicationStatus.icon}
+                                    {applicationStatus.label}
+                                  </span>
+                                </div>
+                              </div>
+                              {h.hasFailedAttempts && (
+                                <div className="mt-2 pt-2 border-t border-border-base/60 flex items-center justify-between gap-2">
+                                  <p className="text-[11px] text-red-600">A renovação no painel VPN falhou. Solicite a reaplicação.</p>
+                                  <button
+                                    disabled={resellerRetryingPayment === h.paymentId}
+                                    onClick={async () => {
+                                      if (!resellerToken) return;
+                                      setResellerRetryingPayment(h.paymentId);
+                                      setResellerError("");
+                                      try {
+                                        // Opens a ticket so admin is notified and can monitor the retry.
+                                        const tres = await fetch("/api/tickets", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${resellerToken}` },
+                                          body: JSON.stringify({
+                                            category: "renovacao",
+                                            subject: `Reaplicar renovação - pagamento ${h.paymentId}`,
+                                            message: `Pagamento ${h.paymentId} (${typeLabel}, R$${h.amount ?? "—"}) está marcado como falha na aplicação no painel VPN. Solicito reaplicação.`,
+                                          }),
+                                        }).catch(() => null);
+                                        if (tres && tres.ok) {
+                                          showAlertDialog("Solicitação registrada. Um administrador irá reaplicar a renovação em breve.", "Solicitação enviada");
+                                        } else {
+                                          showAlertDialog("Não foi possível abrir a solicitação automaticamente. Entre em contato pelo suporte.", "Falha na solicitação");
+                                        }
+                                      } catch (err: any) {
+                                        setResellerError(err.message || "Falha ao solicitar reaplicação");
+                                      } finally {
+                                        setResellerRetryingPayment(null);
+                                      }
+                                    }}
+                                    className="text-[10px] font-bold bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                                  >
+                                    {resellerRetryingPayment === h.paymentId ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                    Solicitar reaplicação
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {resellerDetails?.plan?.totalMonthsPaid > 0 && (
+                        <p className="text-[10px] text-text-muted text-center mt-3">
+                          Total de meses contratados: <span className="font-bold text-text-base">{resellerDetails.plan.totalMonthsPaid}</span>
+                        </p>
+                      )}
+                    </div>
+                  ) : rPayments.length > 0 ? (
                     <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
                       <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-3">Histórico de Pagamentos</p>
                       <div className="space-y-1">
@@ -4622,7 +4747,7 @@ export default function App() {
                         })}
                       </div>
                     </div>
-                  )}
+                  ) : null}
 
                   {resellerError && (
                     <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm text-red-600 font-medium">{resellerError}</div>

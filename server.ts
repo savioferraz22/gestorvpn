@@ -254,6 +254,36 @@ function parseMetadata(raw: any): any {
   return raw;
 }
 
+// Normalize and validate payment metadata. This runs when we read metadata
+// before acting on it — it guards against stale/forged values like
+// resellerMonths: "3" (string), -1, 999, or NaN that would otherwise silently
+// skew day calculations and panel applications.
+function normalizeMetadata(raw: any): any {
+  const m = parseMetadata(raw);
+  const out: any = { ...m };
+
+  // resellerMonths: integer 1..12
+  if (m.resellerMonths !== undefined) {
+    const n = parseInt(m.resellerMonths);
+    out.resellerMonths = Number.isFinite(n) ? Math.max(1, Math.min(12, n)) : 1;
+  }
+  // resellerLogins: integer 10..1000
+  if (m.resellerLogins !== undefined) {
+    const n = parseInt(m.resellerLogins);
+    out.resellerLogins = Number.isFinite(n) ? Math.max(10, Math.min(1000, n)) : 10;
+  }
+  // amount: finite positive number
+  if (m.amount !== undefined) {
+    const n = Number(m.amount);
+    out.amount = Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  // boolean-ish flags — keep as strict booleans
+  for (const k of ["discountApplied", "vpnApplied", "vpnRenewFailed", "isManualSetup", "isAdminAdjustment", "vpnFullyApplied"]) {
+    if (m[k] !== undefined) out[k] = !!m[k];
+  }
+  return out;
+}
+
 // Calculate loyalty points from payment + refund history (single source of truth)
 const RESELLER_PAYMENT_TYPES = ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment", "reseller_logins_increase"];
 const REGULAR_PAYMENT_TYPES = ["renewal", "new_device"];
@@ -320,6 +350,104 @@ async function cancelStalePendingPayments() {
 cancelStalePendingPayments();
 setInterval(cancelStalePendingPayments, 30 * 60 * 1000);
 
+// ─── VPN operation applier with audit trail ─────────────────────────────────
+// Every call to the VPN panel (renewuser, renewrev, createuser, createrev) goes
+// through here. Records a payment_attempts row before and updates after so we
+// can: (1) detect what already succeeded and skip it on retry (idempotency);
+// (2) surface failures to the admin UI; (3) reprocess failed attempts without
+// risking double-application in the panel.
+async function applyVpnOperation(opts: {
+  paymentId: string;
+  module: string;
+  targetUsername: string;
+  extraParams?: Record<string, string>;
+}): Promise<{ success: boolean; response?: string; error?: string; attemptId: string }> {
+  const db = getDb();
+  const attemptId = crypto.randomUUID();
+
+  const { data: prior } = await db
+    .from("payment_attempts")
+    .select("id")
+    .eq("payment_id", opts.paymentId)
+    .eq("module", opts.module)
+    .eq("target_username", opts.targetUsername);
+  const attemptNumber = (prior?.length || 0) + 1;
+
+  await db.from("payment_attempts").insert({
+    id: attemptId,
+    payment_id: opts.paymentId,
+    target_username: opts.targetUsername,
+    module: opts.module,
+    status: "pending",
+    attempt_number: attemptNumber,
+  });
+
+  const params = new URLSearchParams();
+  params.append("passapi", VPN_API_KEY);
+  params.append("module", opts.module);
+  params.append("user", opts.targetUsername);
+  if (opts.extraParams) {
+    for (const [k, v] of Object.entries(opts.extraParams)) {
+      params.append(k, v);
+    }
+  }
+
+  try {
+    const response = await callVpnApi(params);
+    await db.from("payment_attempts")
+      .update({ status: "success", response_text: response, applied_at: new Date().toISOString() })
+      .eq("id", attemptId);
+    return { success: true, response, attemptId };
+  } catch (e: any) {
+    const errMsg = e?.message || String(e);
+    await db.from("payment_attempts")
+      .update({ status: "failed", error_message: errMsg })
+      .eq("id", attemptId);
+    return { success: false, error: errMsg, attemptId };
+  }
+}
+
+// Count successful VPN operations for a payment. Used for idempotency:
+// skip operations that already succeeded so retries never double-apply.
+async function countSuccessfulAttempts(paymentId: string, module: string, targetUsername?: string): Promise<number> {
+  let query: any = getDb()
+    .from("payment_attempts")
+    .select("id")
+    .eq("payment_id", paymentId)
+    .eq("module", module)
+    .eq("status", "success");
+  if (targetUsername) query = query.eq("target_username", targetUsername);
+  const { data } = await query;
+  return data?.length || 0;
+}
+
+// Refresh the reseller_plans cache from approved payments + successful attempts.
+// Called after every approvePayment and after admin adjustments. Reading this
+// cache is O(1) vs recomputing calcResellerInfo across full payment history.
+async function upsertResellerPlan(username: string) {
+  const db = getDb();
+  const { data: payments } = await db
+    .from("payments")
+    .select("*")
+    .eq("username", username)
+    .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+    .eq("status", "approved")
+    .order("created_at", { ascending: true })
+    .limit(200);
+
+  const info = await calcResellerInfoWithAttempts(payments || []);
+  const lastPayment = (payments || [])[((payments || []).length - 1)];
+  await db.from("reseller_plans").upsert({
+    username,
+    current_logins: info.logins,
+    current_expires_at: info.expiresAt,
+    total_months_paid: info.totalMonths,
+    last_renewal_at: lastPayment?.paid_at || null,
+    last_payment_id: lastPayment?.id || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "username" });
+}
+
 async function approvePayment(paymentRecord: any) {
   const paymentId = paymentRecord.id;
   const db = getDb();
@@ -336,64 +464,64 @@ async function approvePayment(paymentRecord: any) {
     return;
   }
 
-  // Parse metadata safely
-  const metadata = parseMetadata(paymentRecord.metadata);
+  // Parse + normalize metadata (clamps resellerMonths/logins, coerces types).
+  // Defends against bad data landing in JSONB that would otherwise silently
+  // over- or under-apply renewals.
+  const metadata = normalizeMetadata(paymentRecord.metadata);
+
+  // Track whether every VPN panel operation triggered by this payment succeeded.
+  // A partial failure flips this false and the admin gets a retry button in the UI.
+  let vpnFullyApplied = true;
+  const recordFailure = (msg: string) => {
+    vpnFullyApplied = false;
+    sendPush("__admin__", "⚠️ Falha ao aplicar renovação", msg);
+  };
 
   if (paymentRecord.type === "reseller_hire") {
     // Create new reseller in VPN panel, then renew N months
     const { resellerUsername: newRev, resellerPassword: newRevPass, resellerWhatsapp, resellerLogins, resellerMonths } = metadata;
     if (newRev && newRevPass) {
-      const createParams = new URLSearchParams();
-      createParams.append("passapi", VPN_API_KEY);
-      createParams.append("module", "createrev");
-      createParams.append("user", newRev);
-      createParams.append("pass", newRevPass);
-      createParams.append("userlimite", String(resellerLogins || 10));
-      if (resellerWhatsapp) createParams.append("whatsapp", resellerWhatsapp);
-      try {
-        const text = await callVpnApi(createParams);
-        console.log(`[reseller] createrev for ${newRev}:`, text);
-      } catch (e: any) {
-        console.error(`[reseller] createrev failed after retries:`, e.message);
-        sendPush("__admin__", "⚠️ Falha ao criar revendedor", `Falha ao criar ${newRev} no painel VPN. Pagamento: ${paymentId}. Erro: ${e.message}`);
+      // createrev is idempotent-by-attempt-count: if we already succeeded, skip.
+      const createDone = await countSuccessfulAttempts(paymentId, "createrev", newRev);
+      if (createDone === 0) {
+        const extra: Record<string, string> = { pass: newRevPass, userlimite: String(resellerLogins || 10) };
+        if (resellerWhatsapp) extra.whatsapp = resellerWhatsapp;
+        const r = await applyVpnOperation({ paymentId, module: "createrev", targetUsername: newRev, extraParams: extra });
+        if (!r.success) recordFailure(`createrev ${newRev} falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+        else console.log(`[reseller] createrev for ${newRev}:`, r.response);
       }
 
-      // Renew N times to set expiry (each call adds ~30 days)
-      const months = Number(resellerMonths) || 1;
-      for (let i = 0; i < months; i++) {
-        const renewP = new URLSearchParams();
-        renewP.append("passapi", VPN_API_KEY);
-        renewP.append("module", "renewrev");
-        renewP.append("user", newRev);
-        try {
-          const text = await callVpnApi(renewP);
-          console.log(`[reseller] renewrev ${newRev} month ${i + 1}:`, text);
-        } catch (e: any) {
-          console.error(`[reseller] renewrev failed after retries:`, e.message);
-          sendPush("__admin__", "⚠️ Falha ao renovar revendedor", `Falha ao renovar ${newRev} (mês ${i + 1}) no painel VPN. Erro: ${e.message}`);
+      // renewrev N times, skipping any already-successful attempts for idempotency.
+      const months = Math.max(1, Math.min(12, Number(resellerMonths) || 1));
+      const alreadyRenewed = await countSuccessfulAttempts(paymentId, "renewrev", newRev);
+      for (let i = alreadyRenewed; i < months; i++) {
+        const r = await applyVpnOperation({ paymentId, module: "renewrev", targetUsername: newRev });
+        if (!r.success) {
+          recordFailure(`renewrev ${newRev} (mês ${i + 1}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+          break; // stop the loop on failure so retry picks up exactly here
         }
+        console.log(`[reseller] renewrev ${newRev} month ${i + 1}:`, r.response);
       }
-      sendPush(paymentRecord.username, "Revenda ativada! 🎉", "Sua conta de revenda está ativa e pronta para uso.");
+      if (vpnFullyApplied) sendPush(paymentRecord.username, "Revenda ativada! 🎉", "Sua conta de revenda está ativa e pronta para uso.");
     }
 
   } else if (paymentRecord.type === "reseller_renewal") {
-    // Renew existing reseller N months
+    // Renew existing reseller N months, skipping any already-successful attempts.
+    // CRITICAL: this is what fixes the "paid 1 month, got 2" bug — renewrev is
+    // never called more than metadata.resellerMonths times per payment, even
+    // across retries, webhook duplicates, or admin-triggered reprocessing.
     const resellerUser = metadata.resellerUsername || paymentRecord.username;
-    const months = Number(metadata.resellerMonths) || 1;
-    for (let i = 0; i < months; i++) {
-      const renewP = new URLSearchParams();
-      renewP.append("passapi", VPN_API_KEY);
-      renewP.append("module", "renewrev");
-      renewP.append("user", resellerUser);
-      try {
-        const text = await callVpnApi(renewP);
-        console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, text);
-      } catch (e: any) {
-        console.error(`[reseller] renewrev failed after retries:`, e.message);
-        sendPush("__admin__", "⚠️ Falha ao renovar revendedor", `Falha ao renovar ${resellerUser} (mês ${i + 1}) no painel VPN. Pagamento: ${paymentId}. Erro: ${e.message}`);
+    const months = Math.max(1, Math.min(12, Number(metadata.resellerMonths) || 1));
+    const alreadyRenewed = await countSuccessfulAttempts(paymentId, "renewrev", resellerUser);
+    for (let i = alreadyRenewed; i < months; i++) {
+      const r = await applyVpnOperation({ paymentId, module: "renewrev", targetUsername: resellerUser });
+      if (!r.success) {
+        recordFailure(`renewrev ${resellerUser} (mês ${i + 1}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+        break;
       }
+      console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, r.response);
     }
-    sendPush(paymentRecord.username, "Revenda renovada! 🎉", "Sua revenda foi renovada com sucesso.");
+    if (vpnFullyApplied) sendPush(paymentRecord.username, "Revenda renovada! 🎉", "Sua revenda foi renovada com sucesso.");
 
   } else if (paymentRecord.type === "reseller_logins_increase") {
     // After paid login upgrade: create change_request for admin to confirm manually
@@ -415,22 +543,17 @@ async function approvePayment(paymentRecord: any) {
     const { newUsername, remainingDays, groupId } = metadata;
 
     if (newUsername && remainingDays && groupId) {
-      // Create user in VPN Panel
-      const password = Math.floor(100000 + Math.random() * 900000).toString();
-      const params = new URLSearchParams();
-      params.append("passapi", VPN_API_KEY);
-      params.append("module", "createuser");
-      params.append("user", newUsername);
-      params.append("pass", password);
-      params.append("limit", "1");
-      params.append("days", remainingDays.toString());
-
-      try {
-        const vpnText = await callVpnApi(params);
-        console.log(`VPN Create Response for ${newUsername}:`, vpnText);
-      } catch (e: any) {
-        console.error(`Failed to create VPN user ${newUsername} after retries:`, e.message);
-        sendPush("__admin__", "⚠️ Falha ao criar usuário VPN", `Falha ao criar ${newUsername} no painel VPN. Pagamento: ${paymentId}. Erro: ${e.message}`);
+      const createDone = await countSuccessfulAttempts(paymentId, "createuser", newUsername);
+      if (createDone === 0) {
+        const password = Math.floor(100000 + Math.random() * 900000).toString();
+        const r = await applyVpnOperation({
+          paymentId,
+          module: "createuser",
+          targetUsername: newUsername,
+          extraParams: { pass: password, limit: "1", days: String(remainingDays) },
+        });
+        if (!r.success) recordFailure(`createuser ${newUsername} falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+        else console.log(`VPN Create Response for ${newUsername}:`, r.response);
       }
 
       // Add to group (ignore duplicate key — safe on retry)
@@ -473,55 +596,44 @@ async function approvePayment(paymentRecord: any) {
       }
     }
 
-    // Renew users in VPN Panel
     // renewuser adds 30 days to the CURRENT expiry. If the user is expired,
     // those days start from the past date → fewer days than paid.
     // We detect this, renew normally, then create an automatic date_correction
     // request for the admin to fix the date in the VPN panel.
     const allVpnUsers = await fetchVpnUsers();
-    let renewFailed = false;
     let needsDateCorrection = false;
     let correctExpiryDate = "";
 
-    // Check if any user in the group is expired before renewal
     const mainVpnUser = allVpnUsers.find((u: any) => u.login === usersToRenew[0]);
     if (mainVpnUser?.expira) {
       const expiry = new Date(mainVpnUser.expira.replace(' ', 'T'));
       const now = new Date();
       if (expiry < now) {
         needsDateCorrection = true;
-        // Correct date = today + (30 * months)
         const correctDate = new Date(now);
         correctDate.setDate(correctDate.getDate() + (30 * monthsToRenew));
-        correctExpiryDate = correctDate.toISOString().split("T")[0]; // YYYY-MM-DD
+        correctExpiryDate = correctDate.toISOString().split("T")[0];
         const deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
         console.log(`[renew] ${usersToRenew[0]} expired ${deficitDays}d ago — will create date_correction to ${correctExpiryDate}`);
       }
     }
 
+    // Apply renewuser N times per user, with idempotency: already-successful
+    // attempts are counted and skipped so retries never double-renew.
     for (const user of usersToRenew) {
-      for (let i = 0; i < monthsToRenew; i++) {
-        const params = new URLSearchParams();
-        params.append("passapi", VPN_API_KEY);
-        params.append("module", "renewuser");
-        params.append("user", user);
-
-        try {
-          const vpnText = await callVpnApi(params);
-          console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, vpnText);
-        } catch (e: any) {
-          console.error(`Failed to renew VPN user ${user} after retries:`, e.message);
-          renewFailed = true;
-          sendPush("__admin__", "⚠️ Falha ao renovar acesso VPN", `Falha ao renovar ${user} (mês ${i + 1}). Pagamento: ${paymentId}. Erro: ${e.message}`);
+      const alreadyRenewed = await countSuccessfulAttempts(paymentId, "renewuser", user);
+      for (let i = alreadyRenewed; i < monthsToRenew; i++) {
+        const r = await applyVpnOperation({ paymentId, module: "renewuser", targetUsername: user });
+        if (!r.success) {
+          recordFailure(`renewuser ${user} (mês ${i + 1}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+          break;
         }
+        console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, r.response);
       }
-    }
-    if (renewFailed) {
-      await db.from("payments").update({ metadata: JSON.stringify({ ...metadata, vpnRenewFailed: true }) }).eq("id", paymentId);
     }
 
     // Create automatic date correction request for each user if they were expired
-    if (needsDateCorrection && correctExpiryDate && !renewFailed) {
+    if (needsDateCorrection && correctExpiryDate && vpnFullyApplied) {
       for (const user of usersToRenew) {
         try {
           await db.from("change_requests").insert({
@@ -539,6 +651,19 @@ async function approvePayment(paymentRecord: any) {
       sendPush("__admin__", "📅 Correção de vencimento pendente",
         `${paymentRecord.username} renovou com acesso vencido. Data correta: ${correctExpiryDate.split("-").reverse().join("/")}`);
     }
+  }
+
+  // Persist VPN application status on the payment so the admin UI can show
+  // which payments were confirmed financially but failed to apply on the panel.
+  await db.from("payments")
+    .update({ metadata: { ...metadata, vpnApplied: vpnFullyApplied } })
+    .eq("id", paymentId);
+
+  // Refresh the reseller plan cache after any reseller-affecting payment.
+  if (paymentRecord.type === "reseller_hire" || paymentRecord.type === "reseller_renewal") {
+    const target = metadata.resellerUsername || paymentRecord.username;
+    try { await upsertResellerPlan(target); }
+    catch (e: any) { console.error(`[reseller_plans] upsert failed for ${target}:`, e?.message); }
   }
 
   // Reseller payments don't earn loyalty/referral bonuses
@@ -579,48 +704,105 @@ async function approvePayment(paymentRecord: any) {
 
   // Handle Referral Bonus
   const { data: referral } = await db.from("referrals").select("*").eq("referred_username", paymentRecord.username).eq("status", "testing").maybeSingle();
-  
-  if (referral) {
-    // Give 1 month free to referrer
-    const params = new URLSearchParams();
-    params.append("passapi", VPN_API_KEY);
-    params.append("module", "renewuser");
-    params.append("user", referral.referrer_username);
 
-    try {
-      await fetch(VPN_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
+  if (referral) {
+    // Give 1 month free to referrer. Goes through applyVpnOperation so failures
+    // show up in the audit trail and can be retried.
+    const already = await countSuccessfulAttempts(paymentId, "renewuser", referral.referrer_username);
+    if (already === 0) {
+      const r = await applyVpnOperation({
+        paymentId,
+        module: "renewuser",
+        targetUsername: referral.referrer_username,
       });
-      // Update referral status
-      await db.from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
-    } catch (e) {
-      console.error(`Failed to award referral bonus to ${referral.referrer_username}:`, e);
+      if (r.success) {
+        await db.from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
+      } else {
+        console.error(`Failed to award referral bonus to ${referral.referrer_username}:`, r.error);
+      }
     }
   }
 }
 
 // ─── Auto-check payment against MP after 1 min and 5 min ─────────────────────
-function schedulePaymentCheck(paymentId: string) {
-  const delays = [60_000, 300_000]; // 1 minute, 5 minutes
-  for (const delay of delays) {
-    setTimeout(async () => {
-      try {
-        const { data: p } = await getDb().from("payments").select("*").eq("id", paymentId).maybeSingle();
-        if (!p || p.status === "approved") return; // already handled
-        const mpPayment = new Payment(getMpClient());
-        const mpRes = await mpPayment.get({ id: paymentId });
-        if (mpRes.status === "approved") {
-          await approvePayment(p);
-          console.log(`[auto-check] Payment ${paymentId} approved at ${delay / 1000}s check`);
-        }
-      } catch (e) {
-        console.warn(`[auto-check] Error checking payment ${paymentId} at ${delay / 1000}s:`, e);
-      }
-    }, delay);
+// Persists the schedule to `scheduled_checks` so pending checks survive a restart.
+// The worker (runScheduledChecksTick) runs every 30s and executes anything due.
+async function schedulePaymentCheck(paymentId: string) {
+  const delaysMs = [60_000, 300_000]; // 1 minute, 5 minutes
+  try {
+    const rows = delaysMs.map(d => ({
+      id: crypto.randomUUID(),
+      payment_id: paymentId,
+      run_at: new Date(Date.now() + d).toISOString(),
+      status: "pending",
+    }));
+    await getDb().from("scheduled_checks").insert(rows);
+  } catch (e) {
+    // If the insert fails (e.g. table missing in dev), fall back to in-memory setTimeout
+    // so the current process at least behaves like before.
+    console.warn(`[auto-check] Failed to persist scheduled check for ${paymentId}, using setTimeout fallback:`, e);
+    for (const delay of delaysMs) {
+      setTimeout(() => runPaymentCheck(paymentId, delay / 1000), delay);
+    }
   }
 }
+
+// Actually check one payment against MP and approve if due.
+async function runPaymentCheck(paymentId: string, ctxTag: string | number): Promise<void> {
+  try {
+    const { data: p } = await getDb().from("payments").select("*").eq("id", paymentId).maybeSingle();
+    if (!p || p.status === "approved") return; // already handled
+    const mpPayment = new Payment(getMpClient());
+    const mpRes = await mpPayment.get({ id: paymentId });
+    if (mpRes.status === "approved") {
+      await approvePayment(p);
+      console.log(`[auto-check] Payment ${paymentId} approved (ctx=${ctxTag})`);
+    }
+  } catch (e) {
+    console.warn(`[auto-check] Error checking payment ${paymentId} (ctx=${ctxTag}):`, e);
+  }
+}
+
+// Worker tick: find due scheduled_checks, run them, mark done.
+// Called on an interval below so missed checks from restart are picked up.
+async function runScheduledChecksTick(): Promise<void> {
+  try {
+    const { data: due } = await getDb()
+      .from("scheduled_checks")
+      .select("*")
+      .eq("status", "pending")
+      .lte("run_at", new Date().toISOString())
+      .limit(50);
+
+    for (const row of due || []) {
+      try {
+        // Claim the row first to avoid duplicate execution across workers/restarts.
+        const { data: claimed } = await getDb()
+          .from("scheduled_checks")
+          .update({ status: "running" })
+          .eq("id", row.id)
+          .eq("status", "pending")
+          .select("id")
+          .maybeSingle();
+        if (!claimed) continue; // someone else took it
+
+        await runPaymentCheck(row.payment_id, `scheduled:${row.id}`);
+        await getDb().from("scheduled_checks").update({ status: "done" }).eq("id", row.id);
+      } catch (e) {
+        console.warn(`[scheduled_checks] row ${row.id} failed:`, e);
+        await getDb().from("scheduled_checks").update({ status: "failed" }).eq("id", row.id);
+      }
+    }
+  } catch (e) {
+    console.warn("[scheduled_checks] tick error:", e);
+  }
+}
+
+// Start the scheduled-checks worker. 30s cadence is fine: MP delay between
+// payment and webhook is usually >10s, and missing a check by 30s max is ok.
+setInterval(() => { runScheduledChecksTick().catch(() => {}); }, 30_000);
+// Also kick off once at boot to pick up anything missed while the process was down.
+setTimeout(() => { runScheduledChecksTick().catch(() => {}); }, 5_000);
 
 // Pricing formula:
 // Base: R$15/month for 1 device
@@ -1275,6 +1457,46 @@ app.get("/api/status/:paymentId", async (req, res) => {
   }
 });
 
+// Verify Mercado Pago webhook HMAC signature.
+// MP signs the template `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` with
+// HMAC-SHA256(MP_WEBHOOK_SECRET). The signature arrives in the x-signature
+// header as `ts=<ts>,v1=<hex>`. If no secret is configured (dev mode), we log
+// a warning and accept — production must set MP_WEBHOOK_SECRET.
+function verifyMpSignature(req: any, dataId: string): { ok: boolean; reason?: string } {
+  const secret = process.env.MP_WEBHOOK_SECRET;
+  if (!secret) {
+    console.warn("[webhook] MP_WEBHOOK_SECRET not set — skipping HMAC validation (development mode only)");
+    return { ok: true, reason: "no-secret-configured" };
+  }
+  const sigHeader = String(req.headers["x-signature"] || "");
+  const requestId = String(req.headers["x-request-id"] || "");
+  if (!sigHeader || !requestId) return { ok: false, reason: "missing-headers" };
+
+  const parts: Record<string, string> = {};
+  for (const piece of sigHeader.split(",")) {
+    const [k, v] = piece.trim().split("=");
+    if (k && v) parts[k.trim()] = v.trim();
+  }
+  const ts = parts.ts;
+  const v1 = parts.v1;
+  if (!ts || !v1) return { ok: false, reason: "malformed-signature" };
+
+  // Reject signatures older than 5 minutes to prevent replay attacks.
+  const tsMs = Number(ts) * 1000;
+  if (!Number.isFinite(tsMs) || Math.abs(Date.now() - tsMs) > 5 * 60 * 1000) {
+    return { ok: false, reason: "stale-timestamp" };
+  }
+
+  const template = `id:${dataId};request-id:${requestId};ts:${ts};`;
+  const expected = crypto.createHmac("sha256", secret).update(template).digest("hex");
+  try {
+    const match = crypto.timingSafeEqual(Buffer.from(v1, "hex"), Buffer.from(expected, "hex"));
+    return match ? { ok: true } : { ok: false, reason: "signature-mismatch" };
+  } catch {
+    return { ok: false, reason: "signature-length-mismatch" };
+  }
+}
+
 // 3. Webhook for Mercado Pago
 app.post("/api/webhook", async (req, res) => {
   try {
@@ -1282,6 +1504,13 @@ app.post("/api/webhook", async (req, res) => {
 
     if (type === "payment" && data?.id) {
       const paymentId = data.id.toString();
+
+      // HMAC validation — reject unsigned/forged requests before touching anything.
+      const sig = verifyMpSignature(req, paymentId);
+      if (!sig.ok) {
+        console.warn(`[webhook] rejected: ${sig.reason} (paymentId=${paymentId})`);
+        return res.status(401).send("Invalid signature");
+      }
 
       const { data: paymentRecord } = await getDb().from("payments").select("*").eq("id", paymentId).maybeSingle();
 
@@ -1340,6 +1569,176 @@ app.post("/api/admin/payments/reprocess-cancelled", requireAdminAuth, async (_re
     res.status(500).json({ error: error.message });
   }
 });
+
+// ─── Retry failed VPN applications ───────────────────────────────────────────
+// For every approved payment with at least one failed/missing attempt, re-run
+// approvePayment. applyVpnOperation + countSuccessfulAttempts make this safe:
+// operations that already succeeded are skipped.
+async function retryFailedApplications(opts: { sincePaymentId?: string } = {}): Promise<{ retried: number; succeeded: number; stillFailed: number }> {
+  const db = getDb();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  // Approved payments where the last known state flagged VPN as not applied.
+  let q = db.from("payments").select("*").eq("status", "approved").gte("paid_at", since);
+  if (opts.sincePaymentId) q = q.eq("id", opts.sincePaymentId);
+  const { data: candidates } = await q;
+
+  let retried = 0, succeeded = 0, stillFailed = 0;
+  for (const p of candidates || []) {
+    const meta = parseMetadata(p.metadata);
+    // Only retry those explicitly flagged as not-applied, OR where we can see
+    // from payment_attempts that something failed.
+    const { data: fails } = await db.from("payment_attempts")
+      .select("id").eq("payment_id", p.id).eq("status", "failed");
+    const hasFails = (fails?.length || 0) > 0;
+    const flaggedNotApplied = meta.vpnApplied === false || meta.vpnRenewFailed === true;
+    if (!hasFails && !flaggedNotApplied) continue;
+
+    retried++;
+    try {
+      // Reset status to "approved" synthetically — approvePayment's idempotency
+      // guard won't re-fire since it's already approved, so call a "re-apply"
+      // path: re-run the VPN ops by temporarily demoting status? No — instead
+      // we call a dedicated re-application function that skips the payment
+      // status update.
+      await reapplyPaymentVpnOperations(p);
+      // Check if it's now fully applied.
+      const { data: stillFails } = await db.from("payment_attempts")
+        .select("id").eq("payment_id", p.id).eq("status", "failed");
+      if ((stillFails?.length || 0) === 0) {
+        succeeded++;
+        await db.from("payments")
+          .update({ metadata: { ...meta, vpnApplied: true, vpnRenewFailed: false } })
+          .eq("id", p.id);
+      } else {
+        stillFailed++;
+      }
+    } catch (e: any) {
+      stillFailed++;
+      console.error(`[retry] ${p.id}:`, e?.message);
+    }
+  }
+  return { retried, succeeded, stillFailed };
+}
+
+// Re-runs just the VPN application phase for an already-approved payment.
+// Safe to call repeatedly — applyVpnOperation + countSuccessfulAttempts skip
+// operations that already succeeded for this payment.
+async function reapplyPaymentVpnOperations(paymentRecord: any) {
+  const paymentId = paymentRecord.id;
+  const db = getDb();
+  const metadata = parseMetadata(paymentRecord.metadata);
+
+  if (paymentRecord.type === "reseller_hire") {
+    const { resellerUsername: newRev, resellerPassword: newRevPass, resellerWhatsapp, resellerLogins, resellerMonths } = metadata;
+    if (!newRev) return;
+    const createDone = await countSuccessfulAttempts(paymentId, "createrev", newRev);
+    if (createDone === 0 && newRevPass) {
+      const extra: Record<string, string> = { pass: newRevPass, userlimite: String(resellerLogins || 10) };
+      if (resellerWhatsapp) extra.whatsapp = resellerWhatsapp;
+      await applyVpnOperation({ paymentId, module: "createrev", targetUsername: newRev, extraParams: extra });
+    }
+    const months = Math.max(1, Math.min(12, Number(resellerMonths) || 1));
+    const already = await countSuccessfulAttempts(paymentId, "renewrev", newRev);
+    for (let i = already; i < months; i++) {
+      const r = await applyVpnOperation({ paymentId, module: "renewrev", targetUsername: newRev });
+      if (!r.success) break;
+    }
+    await upsertResellerPlan(newRev);
+
+  } else if (paymentRecord.type === "reseller_renewal") {
+    const resellerUser = metadata.resellerUsername || paymentRecord.username;
+    const months = Math.max(1, Math.min(12, Number(metadata.resellerMonths) || 1));
+    const already = await countSuccessfulAttempts(paymentId, "renewrev", resellerUser);
+    for (let i = already; i < months; i++) {
+      const r = await applyVpnOperation({ paymentId, module: "renewrev", targetUsername: resellerUser });
+      if (!r.success) break;
+    }
+    await upsertResellerPlan(resellerUser);
+
+  } else if (paymentRecord.type === "new_device") {
+    const { newUsername, remainingDays } = metadata;
+    if (newUsername && remainingDays) {
+      const done = await countSuccessfulAttempts(paymentId, "createuser", newUsername);
+      if (done === 0) {
+        const password = Math.floor(100000 + Math.random() * 900000).toString();
+        await applyVpnOperation({
+          paymentId, module: "createuser", targetUsername: newUsername,
+          extraParams: { pass: password, limit: "1", days: String(remainingDays) },
+        });
+      }
+    }
+
+  } else if (paymentRecord.type === "renewal") {
+    const groupId = paymentRecord.group_id;
+    let usersToRenew = [paymentRecord.username];
+    let monthsToRenew = 1;
+    if (groupId) {
+      const { data: plan } = await db.from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
+      if (plan) monthsToRenew = (plan as any).plan_months;
+      const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
+      if (groupUsers && groupUsers.length > 0) usersToRenew = groupUsers.map((u: any) => u.username);
+    }
+    for (const user of usersToRenew) {
+      const already = await countSuccessfulAttempts(paymentId, "renewuser", user);
+      for (let i = already; i < monthsToRenew; i++) {
+        const r = await applyVpnOperation({ paymentId, module: "renewuser", targetUsername: user });
+        if (!r.success) break;
+      }
+    }
+  }
+}
+
+app.post("/api/admin/payments/retry-failed", requireAdminAuth, async (_req, res) => {
+  try {
+    const result = await retryFailedApplications();
+    res.json({ ...result, message: `${result.succeeded}/${result.retried} reaplicado(s) com sucesso.` });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/admin/payments/:paymentId/retry", requireAdminAuth, async (req, res) => {
+  try {
+    const { data: p } = await getDb().from("payments").select("*").eq("id", req.params.paymentId).maybeSingle();
+    if (!p) return res.status(404).json({ error: "Pagamento não encontrado" });
+    if (p.status !== "approved") return res.status(400).json({ error: "Pagamento não está aprovado" });
+    await reapplyPaymentVpnOperations(p);
+    const { data: stillFails } = await getDb().from("payment_attempts")
+      .select("id").eq("payment_id", p.id).eq("status", "failed");
+    const ok = (stillFails?.length || 0) === 0;
+    const meta = parseMetadata(p.metadata);
+    if (ok) {
+      await getDb().from("payments")
+        .update({ metadata: { ...meta, vpnApplied: true, vpnRenewFailed: false } })
+        .eq("id", p.id);
+    }
+    res.json({ success: ok, message: ok ? "Reaplicação concluída." : "Ainda há falhas — tente novamente em alguns minutos." });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/admin/payments/:paymentId/attempts", requireAdminAuth, async (req, res) => {
+  try {
+    const { data } = await getDb()
+      .from("payment_attempts")
+      .select("*")
+      .eq("payment_id", req.params.paymentId)
+      .order("created_at", { ascending: true });
+    res.json(data || []);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Periodic retry worker: every 15 min sweep for unapplied payments from the
+// last 24h. Admin notifications still fire on initial failure.
+setInterval(() => {
+  retryFailedApplications().then(r => {
+    if (r.retried > 0) console.log(`[retry-worker] retried=${r.retried} succeeded=${r.succeeded} stillFailed=${r.stillFailed}`);
+  }).catch(e => console.error("[retry-worker] error:", e));
+}, 15 * 60 * 1000);
 
 // 3.5 Tickets API
 app.get("/api/tickets/:username", async (req, res) => {
@@ -1468,7 +1867,42 @@ app.delete("/api/user/refunds/:id", async (req, res) => {
 app.get("/api/admin/payments", async (req, res) => {
   try {
     const { data: payments } = await getDb().from("payments").select("*").order("created_at", { ascending: false });
-    res.json(payments || []);
+    const list = payments || [];
+
+    // Bulk-annotate each payment with VPN application status derived from payment_attempts.
+    // "applied" = at least one success, no failures.
+    // "failed"  = at least one failure (even if some succeeded — admin should see mixed state).
+    // "pending" = attempt exists but neither success nor failure yet.
+    // "none"    = no attempts at all (legacy payments, adjustments, setups, etc.).
+    const ids = list.map((p: any) => p.id);
+    const { data: allAttempts } = ids.length
+      ? await getDb().from("payment_attempts").select("payment_id, status, module").in("payment_id", ids)
+      : { data: [] as any[] };
+
+    const byPayment: Record<string, { success: number; failed: number; pending: number }> = {};
+    for (const a of allAttempts || []) {
+      const b = byPayment[a.payment_id] || (byPayment[a.payment_id] = { success: 0, failed: 0, pending: 0 });
+      if (a.status === "success") b.success++;
+      else if (a.status === "failed") b.failed++;
+      else b.pending++;
+    }
+
+    const annotated = list.map((p: any) => {
+      const b = byPayment[p.id];
+      let vpnApplicationStatus: "applied" | "failed" | "pending" | "none" = "none";
+      if (b) {
+        if (b.failed > 0) vpnApplicationStatus = "failed";
+        else if (b.success > 0) vpnApplicationStatus = "applied";
+        else vpnApplicationStatus = "pending";
+      }
+      return {
+        ...p,
+        vpnApplicationStatus,
+        vpnAttemptCounts: b || { success: 0, failed: 0, pending: 0 },
+      };
+    });
+
+    res.json(annotated);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -2041,9 +2475,91 @@ function calcResellerPrice(months: number, logins: number): number {
   return (30 + logins) * months;
 }
 
-// Calculate reseller plan expiry and current logins from approved payments
-// The VPN panel API doesn't expose these for reseller accounts, so Supabase is the source of truth.
-// Renewals use 30-day periods (not calendar months) to match the VPN panel behavior.
+// Calculate reseller plan state from approved payments. The VPN panel API
+// doesn't expose `expira` for resellers (`revendaget` returns no date field),
+// so Supabase is the only source of truth for the expiration.
+//
+// IMPORTANT: a payment only contributes days to the expiry if its VPN panel
+// operations actually succeeded — tracked via payment_attempts. This prevents
+// the reseller UI from showing a date that the panel never actually received.
+//
+// Renewals use 30-day periods (not calendar months) to match `renewrev` behavior.
+async function calcResellerInfoWithAttempts(payments: any[]): Promise<{ expiresAt: string | null; logins: number; totalMonths: number }> {
+  const approved = (payments || [])
+    .filter(p => p.status === "approved")
+    .sort((a: any, b: any) => new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime());
+
+  if (approved.length === 0) return { expiresAt: null, logins: 0, totalMonths: 0 };
+
+  // Batch-fetch successful renewrev counts for all payments in this batch.
+  const ids = approved.map((p: any) => p.id);
+  const { data: successAttempts } = await getDb()
+    .from("payment_attempts")
+    .select("payment_id, module")
+    .in("payment_id", ids)
+    .eq("status", "success");
+  const successByPayment = new Map<string, Map<string, number>>();
+  for (const a of successAttempts || []) {
+    const per = successByPayment.get(a.payment_id) || new Map<string, number>();
+    per.set(a.module, (per.get(a.module) || 0) + 1);
+    successByPayment.set(a.payment_id, per);
+  }
+
+  let expiry: Date | null = null;
+  let logins = 0;
+  let totalMonths = 0;
+
+  for (const p of approved) {
+    const meta = parseMetadata(p.metadata);
+
+    if (p.type === "reseller_setup") {
+      if (meta.resellerLogins) logins = parseInt(meta.resellerLogins) || logins;
+      if (meta.resellerExpiresAt) expiry = new Date(meta.resellerExpiresAt);
+      continue;
+    }
+
+    if (p.type === "reseller_adjustment") {
+      if (meta.resellerLogins !== undefined) logins = parseInt(meta.resellerLogins) || logins;
+      if (meta.resellerExpiresAt) expiry = new Date(meta.resellerExpiresAt);
+      continue;
+    }
+
+    if ((p.type === "reseller_hire" || p.type === "reseller_renewal") && meta.resellerLogins) {
+      logins = parseInt(meta.resellerLogins) || logins;
+    }
+
+    // Months claimed by the payment metadata.
+    const claimedMonths = Math.max(1, Math.min(12, parseInt(meta.resellerMonths) || 1));
+
+    // Count the successful renewrev attempts actually applied for this payment.
+    // Pre-migration payments (no attempts rows at all) fall back to claimedMonths
+    // so legacy data keeps working until the retry worker backfills the history.
+    const perModule = successByPayment.get(p.id);
+    const appliedRenews = perModule?.get("renewrev") ?? 0;
+    const hasAnyAttempts = perModule && perModule.size > 0;
+    const effectiveMonths = hasAnyAttempts ? appliedRenews : claimedMonths;
+
+    if (effectiveMonths <= 0) continue;
+
+    const daysToAdd = effectiveMonths * 30;
+    totalMonths += effectiveMonths;
+    if (!expiry) {
+      const base = new Date(p.paid_at || p.created_at);
+      base.setDate(base.getDate() + daysToAdd);
+      expiry = base;
+    } else {
+      const renewal = new Date(expiry);
+      renewal.setDate(renewal.getDate() + daysToAdd);
+      expiry = renewal;
+    }
+  }
+
+  return { expiresAt: expiry ? expiry.toISOString() : null, logins, totalMonths };
+}
+
+// Synchronous fallback: used only in places that haven't been migrated yet to
+// the async version. Counts metadata months without verifying VPN application.
+// New code should prefer calcResellerInfoWithAttempts or read from reseller_plans.
 function calcResellerInfo(payments: any[]): { expiresAt: string | null; logins: number } {
   const approved = (payments || [])
     .filter(p => p.status === "approved")
@@ -2058,14 +2574,12 @@ function calcResellerInfo(payments: any[]): { expiresAt: string | null; logins: 
     const meta = parseMetadata(p.metadata);
 
     if (p.type === "reseller_setup") {
-      // Manual first-access setup: use exact values as provided by the reseller
       if (meta.resellerLogins) logins = parseInt(meta.resellerLogins) || logins;
       if (meta.resellerExpiresAt) expiry = new Date(meta.resellerExpiresAt);
       continue;
     }
 
     if (p.type === "reseller_adjustment") {
-      // Admin manual adjustment: override exact values
       if (meta.resellerLogins !== undefined) logins = parseInt(meta.resellerLogins) || logins;
       if (meta.resellerExpiresAt) expiry = new Date(meta.resellerExpiresAt);
       continue;
@@ -2075,7 +2589,6 @@ function calcResellerInfo(payments: any[]): { expiresAt: string | null; logins: 
       logins = parseInt(meta.resellerLogins) || logins;
     }
 
-    // Each "month" = exactly 30 days (matches VPN panel renewrev behavior)
     const months = Math.max(1, parseInt(meta.resellerMonths) || 1);
     const daysToAdd = months * 30;
     if (!expiry) {
@@ -2119,7 +2632,9 @@ app.post("/api/reseller/login", async (req, res) => {
       .order("created_at", { ascending: true })
       .limit(50);
 
-    const info = calcResellerInfo(payments || []);
+    // Source of truth: successful payment_attempts. Payments that didn't
+    // actually apply to the VPN panel don't contribute days to the expiry.
+    const info = await calcResellerInfoWithAttempts(payments || []);
     const points = await calculateLoyaltyPoints(reseller.login);
     // Never expose senha in login response — client must call /verify-password
     // Only expose a hint: first 2 chars + dots
@@ -2150,7 +2665,7 @@ app.get("/api/reseller/me", requireResellerAuth, async (req: any, res) => {
       .order("created_at", { ascending: true })
       .limit(50);
 
-    const info = calcResellerInfo(payments || []);
+    const info = await calcResellerInfoWithAttempts(payments || []);
     const points = await calculateLoyaltyPoints(username);
     const passwordHint2 = reseller.senha
       ? reseller.senha.slice(0, 2) + "•".repeat(Math.max(2, reseller.senha.length - 2))
@@ -2158,6 +2673,99 @@ app.get("/api/reseller/me", requireResellerAuth, async (req: any, res) => {
     const { senha: _s2, ...safeReseller2 } = reseller;
     res.json({ reseller: { ...safeReseller2, passwordHint: passwordHint2 }, payments: (payments || []).reverse(), expiresAt: info.expiresAt, logins: info.logins, points });
   } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/reseller/me/details — full plan state + per-payment audit info.
+// Used by the reseller dashboard to show a transparent history of what was
+// paid, what was applied on the panel, and how many days each renewal added.
+app.get("/api/reseller/me/details", requireResellerAuth, async (req: any, res) => {
+  try {
+    const username = req.resellerUsername;
+    const db = getDb();
+
+    const { data: payments } = await db
+      .from("payments")
+      .select("*")
+      .eq("username", username)
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+      .order("created_at", { ascending: true })
+      .limit(100);
+
+    const info = await calcResellerInfoWithAttempts(payments || []);
+
+    const ids = (payments || []).map((p: any) => p.id);
+    const { data: allAttempts } = ids.length
+      ? await db.from("payment_attempts").select("*").in("payment_id", ids)
+      : { data: [] as any[] };
+
+    // Build per-payment history with days-added + applied flag.
+    const history: any[] = [];
+    let runningExpiry: Date | null = null;
+    for (const p of (payments || []).sort((a: any, b: any) =>
+      new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime())
+    ) {
+      if (p.status !== "approved") continue;
+      const meta = parseMetadata(p.metadata);
+      const attempts = (allAttempts || []).filter((a: any) => a.payment_id === p.id);
+      const successRenewrev = attempts.filter((a: any) => a.status === "success" && a.module === "renewrev").length;
+      const anyFailed = attempts.some((a: any) => a.status === "failed");
+
+      let daysAdded = 0;
+      if (p.type === "reseller_setup" || p.type === "reseller_adjustment") {
+        if (meta.resellerExpiresAt) runningExpiry = new Date(meta.resellerExpiresAt);
+      } else {
+        const claimedMonths = Math.max(1, Math.min(12, parseInt(meta.resellerMonths) || 1));
+        const hasAttempts = attempts.length > 0;
+        const effectiveMonths = hasAttempts ? successRenewrev : claimedMonths;
+        daysAdded = effectiveMonths * 30;
+        if (daysAdded > 0) {
+          const base = runningExpiry ? new Date(runningExpiry) : new Date(p.paid_at || p.created_at);
+          base.setDate(base.getDate() + daysAdded);
+          runningExpiry = base;
+        }
+      }
+
+      history.push({
+        paymentId: p.id,
+        type: p.type,
+        paidAt: p.paid_at,
+        createdAt: p.created_at,
+        amount: meta.amount ?? null,
+        monthsPaid: parseInt(meta.resellerMonths) || null,
+        logins: parseInt(meta.resellerLogins) || null,
+        daysAdded,
+        expiresAfter: runningExpiry ? runningExpiry.toISOString() : null,
+        discountApplied: !!meta.discountApplied,
+        vpnApplied: !anyFailed && (p.type === "reseller_setup" || p.type === "reseller_adjustment" || successRenewrev > 0 || attempts.length === 0 ? meta.vpnApplied !== false : false),
+        hasFailedAttempts: anyFailed,
+      });
+    }
+
+    const daysLeft = info.expiresAt
+      ? Math.ceil((new Date(info.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    const suggestedLogins = Math.max(10, info.logins || 10);
+    const suggestedAmount = calcResellerPrice(1, suggestedLogins);
+
+    res.json({
+      plan: {
+        logins: info.logins,
+        expiresAt: info.expiresAt,
+        daysLeft,
+        totalMonthsPaid: info.totalMonths,
+      },
+      history: history.reverse(),
+      nextRenewal: {
+        suggestedAmount,
+        suggestedMonths: 1,
+        suggestedLogins,
+      },
+    });
+  } catch (e: any) {
+    console.error("[reseller/me/details] error:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -2234,8 +2842,14 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
     if (!username || !password || !logins || !months) {
       return res.status(400).json({ error: "Dados incompletos" });
     }
-    const loginsNum = Math.max(10, parseInt(logins));
-    const monthsNum = Math.max(1, parseInt(months));
+    const loginsNum = parseInt(logins);
+    const monthsNum = parseInt(months);
+    if (!Number.isInteger(monthsNum) || monthsNum < 1 || monthsNum > 12) {
+      return res.status(400).json({ error: "Período inválido. Escolha entre 1 e 12 meses." });
+    }
+    if (!Number.isInteger(loginsNum) || loginsNum < 10 || loginsNum > 1000) {
+      return res.status(400).json({ error: "Quantidade de logins inválida. Mínimo 10, máximo 1000." });
+    }
 
     // Make sure username isn't already taken (check both resellers AND regular users)
     const resellers = await fetchVpnResellers();
@@ -2289,7 +2903,10 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
   try {
     const username = req.resellerUsername;
     const { months, logins: loginsParam } = req.body;
-    const monthsNum = Math.max(1, parseInt(months) || 1);
+    const monthsNum = parseInt(months);
+    if (!Number.isInteger(monthsNum) || monthsNum < 1 || monthsNum > 12) {
+      return res.status(400).json({ error: "Período inválido. Escolha entre 1 e 12 meses." });
+    }
 
     // Get current login limit from Supabase (VPN panel doesn't expose it reliably)
     const resellers = await fetchVpnResellers();
@@ -2305,8 +2922,12 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
       .order("created_at", { ascending: true })
       .limit(50);
     const currentInfo = calcResellerInfo(resellerPayments || []);
-    // Allow changing logins during renewal; minimum 10
-    const logins = loginsParam ? Math.max(10, parseInt(loginsParam)) : Math.max(10, currentInfo.logins || 10);
+    const logins = loginsParam !== undefined && loginsParam !== null && loginsParam !== ""
+      ? parseInt(loginsParam)
+      : (currentInfo.logins || 10);
+    if (!Number.isInteger(logins) || logins < 10 || logins > 1000) {
+      return res.status(400).json({ error: "Quantidade de logins inválida. Mínimo 10, máximo 1000." });
+    }
 
     const points = await calculateLoyaltyPoints(username);
     let amount = calcResellerPrice(monthsNum, logins);
@@ -2649,15 +3270,112 @@ app.get("/api/admin/resellers", async (_req, res) => {
       .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
       .order("created_at", { ascending: true });
 
-    const result = resellers.map((r: any) => {
+    // Pull outstanding failed attempts so the UI can flag resellers needing attention.
+    const allPaymentIds = (allPayments || []).map((p: any) => p.id);
+    const { data: failedAttempts } = allPaymentIds.length
+      ? await getDb().from("payment_attempts")
+          .select("payment_id, target_username")
+          .in("payment_id", allPaymentIds)
+          .eq("status", "failed")
+      : { data: [] as any[] };
+    const failedByUser = new Set<string>();
+    for (const a of failedAttempts || []) {
+      const p = (allPayments || []).find((x: any) => x.id === a.payment_id);
+      if (p) failedByUser.add(p.username);
+    }
+
+    const result = await Promise.all(resellers.map(async (r: any) => {
       const payments = (allPayments || []).filter((p: any) => p.username === r.login);
-      const info = calcResellerInfo(payments);
+      const info = await calcResellerInfoWithAttempts(payments);
       const { senha: _s, ...safeReseller } = r;
-      return { ...safeReseller, expiresAt: info.expiresAt, logins: info.logins };
-    });
+      return {
+        ...safeReseller,
+        expiresAt: info.expiresAt,
+        logins: info.logins,
+        hasFailedApplication: failedByUser.has(r.login),
+      };
+    }));
 
     res.json(result);
   } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/admin/resellers/:username/details — full audit trail for one reseller:
+// plan state, every payment with embedded VPN attempts and day-added accounting.
+app.get("/api/admin/resellers/:username/details", requireAdminAuth, async (req, res) => {
+  try {
+    const { username } = req.params;
+    const db = getDb();
+
+    const { data: payments } = await db
+      .from("payments")
+      .select("*")
+      .eq("username", username)
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+      .order("created_at", { ascending: true })
+      .limit(200);
+
+    const ids = (payments || []).map((p: any) => p.id);
+    const { data: allAttempts } = ids.length
+      ? await db.from("payment_attempts").select("*").in("payment_id", ids).order("created_at", { ascending: true })
+      : { data: [] as any[] };
+
+    const info = await calcResellerInfoWithAttempts(payments || []);
+
+    // Build per-payment history with days-added + applied flag + embedded attempts.
+    const history: any[] = [];
+    let runningExpiry: Date | null = null;
+    for (const p of (payments || []).sort((a: any, b: any) =>
+      new Date(a.paid_at || a.created_at).getTime() - new Date(b.paid_at || b.created_at).getTime())
+    ) {
+      const meta = parseMetadata(p.metadata);
+      const attempts = (allAttempts || []).filter((a: any) => a.payment_id === p.id);
+      const successRenewrev = attempts.filter((a: any) => a.status === "success" && a.module === "renewrev").length;
+      const anyFailed = attempts.some((a: any) => a.status === "failed");
+
+      let daysAdded = 0;
+      if (p.status === "approved") {
+        if (p.type === "reseller_setup" || p.type === "reseller_adjustment") {
+          if (meta.resellerExpiresAt) runningExpiry = new Date(meta.resellerExpiresAt);
+        } else {
+          const claimedMonths = Math.max(1, Math.min(12, parseInt(meta.resellerMonths) || 1));
+          const hasAttempts = attempts.length > 0;
+          const effectiveMonths = hasAttempts ? successRenewrev : claimedMonths;
+          daysAdded = effectiveMonths * 30;
+          if (daysAdded > 0) {
+            const base = runningExpiry ? new Date(runningExpiry) : new Date(p.paid_at || p.created_at);
+            base.setDate(base.getDate() + daysAdded);
+            runningExpiry = base;
+          }
+        }
+      }
+
+      history.push({
+        paymentId: p.id,
+        status: p.status,
+        type: p.type,
+        paidAt: p.paid_at,
+        createdAt: p.created_at,
+        amount: meta.amount ?? null,
+        monthsPaid: parseInt(meta.resellerMonths) || null,
+        logins: parseInt(meta.resellerLogins) || null,
+        daysAdded,
+        expiresAfter: runningExpiry ? runningExpiry.toISOString() : null,
+        discountApplied: !!meta.discountApplied,
+        vpnApplied: !anyFailed && (p.type === "reseller_setup" || p.type === "reseller_adjustment" || successRenewrev > 0 || attempts.length === 0 ? meta.vpnApplied !== false : false),
+        hasFailedAttempts: anyFailed,
+        attempts,
+      });
+    }
+
+    res.json({
+      plan: { logins: info.logins, expiresAt: info.expiresAt, totalMonthsPaid: info.totalMonths },
+      history: history.reverse(),
+    });
+  } catch (e: any) {
+    console.error("[admin/resellers/:username/details] error:", e);
     res.status(500).json({ error: e.message });
   }
 });

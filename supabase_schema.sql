@@ -90,3 +90,52 @@ CREATE TABLE IF NOT EXISTS public.change_requests (
     status TEXT NOT NULL DEFAULT 'aguardando',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Audit trail for every VPN panel operation triggered by a payment.
+-- Enables: retry of failed operations, idempotency checks (never apply twice),
+-- visibility into which payments were actually propagated to the panel.
+CREATE TABLE IF NOT EXISTS public.payment_attempts (
+    id TEXT PRIMARY KEY,
+    payment_id TEXT NOT NULL,
+    target_username TEXT NOT NULL,
+    module TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    response_text TEXT,
+    error_message TEXT,
+    applied_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_payment_id ON public.payment_attempts(payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_status ON public.payment_attempts(status);
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_module ON public.payment_attempts(payment_id, module, status);
+
+-- Cache of current reseller plan state (computed from approved payments).
+-- Kept in sync on every approvePayment + admin adjust. Reads are O(1) vs
+-- recomputing calcResellerInfo over full payment history.
+CREATE TABLE IF NOT EXISTS public.reseller_plans (
+    username TEXT PRIMARY KEY,
+    current_logins INTEGER NOT NULL DEFAULT 10,
+    current_expires_at TIMESTAMPTZ,
+    total_months_paid INTEGER NOT NULL DEFAULT 0,
+    last_renewal_at TIMESTAMPTZ,
+    last_payment_id TEXT,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Persistent queue for the auto-check-after-1min/5min mechanism.
+-- Replaces in-memory setTimeout which is lost on process restart.
+CREATE TABLE IF NOT EXISTS public.scheduled_checks (
+    id TEXT PRIMARY KEY,
+    payment_id TEXT NOT NULL,
+    run_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_checks_pending ON public.scheduled_checks(run_at) WHERE status = 'pending';
+
+-- Performance indexes on the heavy payments table.
+CREATE INDEX IF NOT EXISTS idx_payments_username ON public.payments(username);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_type_status ON public.payments(type, status);
+CREATE INDEX IF NOT EXISTS idx_payments_paid_at ON public.payments(paid_at);

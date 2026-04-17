@@ -1,6 +1,6 @@
 import React from "react";
-import { RefreshCw, RotateCcw, User, X, Clock, CreditCard, Smartphone } from "lucide-react";
-import { fetchAdminPayments, fetchAdminUserDetails } from "../../services/api";
+import { RefreshCw, RotateCcw, User, X, Clock, CreditCard, Smartphone, AlertCircle, CheckCircle2, RotateCw, Filter } from "lucide-react";
+import { fetchAdminPayments, fetchAdminUserDetails, retryPaymentApplication, retryFailedPayments } from "../../services/api";
 import { getAdminToken } from "../../services/api";
 
 interface Props {
@@ -41,6 +41,38 @@ export function AdminPayments({ payments, setPayments }: Props) {
   const [reprocessMsg, setReprocessMsg] = React.useState("");
   const [viewUser, setViewUser] = React.useState<any>(null);
   const [loadingUser, setLoadingUser] = React.useState("");
+  const [retryingId, setRetryingId] = React.useState<string | null>(null);
+  const [retryMsg, setRetryMsg] = React.useState<{ id: string; msg: string; ok: boolean } | null>(null);
+  const [retryingBulk, setRetryingBulk] = React.useState(false);
+  const [onlyFailed, setOnlyFailed] = React.useState(false);
+
+  async function handleRetry(paymentId: string) {
+    setRetryingId(paymentId);
+    setRetryMsg(null);
+    try {
+      const r = await retryPaymentApplication(paymentId);
+      setRetryMsg({ id: paymentId, msg: r.ok ? "Reaplicado!" : (r.message || "Processado."), ok: !!r.ok });
+      await refresh();
+    } catch (err: any) {
+      setRetryMsg({ id: paymentId, msg: err.message || "Erro ao reaplicar", ok: false });
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
+  async function handleRetryAll() {
+    setRetryingBulk(true);
+    setReprocessMsg("");
+    try {
+      const r = await retryFailedPayments();
+      setReprocessMsg(r.message || `${r.processed ?? 0} pagamento(s) reprocessado(s).`);
+      await refresh();
+    } catch (err: any) {
+      setReprocessMsg(err.message || "Erro ao reprocessar falhas");
+    } finally {
+      setRetryingBulk(false);
+    }
+  }
 
   async function refresh() {
     setLoading(true);
@@ -78,19 +110,42 @@ export function AdminPayments({ payments, setPayments }: Props) {
 
   const approved = payments.filter(p => p.status === "approved");
   const pending = payments.filter(p => p.status === "pending");
+  const vpnFailed = payments.filter(p => p.vpnApplicationStatus === "failed");
   const totalRevenue = approved.reduce((acc, p) => {
-    try { if (p.metadata) return acc + Number(JSON.parse(p.metadata).amount || 0); } catch { /* ok */ }
+    try {
+      const m = p.metadata ? (typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata) : null;
+      if (m) return acc + Number(m.amount || 0);
+    } catch { /* ok */ }
     return acc;
   }, 0);
+
+  const visiblePayments = onlyFailed ? vpnFailed : payments;
 
   const vu = viewUser?.user;
   const vuDays = vu ? daysLeft(vu.expira) : null;
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden p-5 space-y-4">
-      <div className="flex items-center justify-between shrink-0">
-        <h2 className="font-bold text-text-base">Pagamentos ({payments.length})</h2>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between shrink-0 flex-wrap gap-2">
+        <h2 className="font-bold text-text-base">Pagamentos ({visiblePayments.length}{onlyFailed ? `/${payments.length}` : ""})</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setOnlyFailed(v => !v)}
+            title="Mostrar só pagamentos com falha de aplicação no painel VPN"
+            className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl font-bold transition-colors active:scale-95 ${onlyFailed ? "bg-red-600 text-white border border-red-600" : "bg-red-50 hover:bg-red-100 border border-red-200 text-red-700"}`}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Falhas VPN ({vpnFailed.length})
+          </button>
+          <button
+            onClick={handleRetryAll}
+            disabled={retryingBulk || vpnFailed.length === 0}
+            title="Reprocessar automaticamente todas as aplicações VPN com falha"
+            className="flex items-center gap-1.5 text-xs bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-60"
+          >
+            <RotateCw className={`w-3.5 h-3.5 ${retryingBulk ? "animate-spin" : ""}`} />
+            {retryingBulk ? "Reprocessando..." : "Reaplicar todas"}
+          </button>
           <button
             onClick={reprocessCancelled}
             disabled={reprocessing}
@@ -129,14 +184,27 @@ export function AdminPayments({ payments, setPayments }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-        {payments.length === 0 ? (
+        {visiblePayments.length === 0 ? (
           <div className="bg-bg-surface/50 border border-border-base/50 p-6 rounded-2xl text-center">
-            <p className="text-sm font-medium text-text-muted">Nenhum pagamento registrado.</p>
+            <p className="text-sm font-medium text-text-muted">
+              {onlyFailed ? "Nenhum pagamento com falha de aplicação no painel." : "Nenhum pagamento registrado."}
+            </p>
           </div>
         ) : (
-          payments.map((p: any) => {
+          visiblePayments.map((p: any) => {
             let meta: any = {};
-            try { if (p.metadata) meta = JSON.parse(p.metadata); } catch { /* ok */ }
+            try {
+              if (p.metadata) meta = typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata;
+            } catch { /* ok */ }
+            const vpnStatus = p.vpnApplicationStatus as "applied" | "failed" | "pending" | "none" | undefined;
+            const counts = p.vpnAttemptCounts || { success: 0, failed: 0, pending: 0 };
+            const vpnBadge =
+              vpnStatus === "applied" ? { label: `VPN ✓ ${counts.success}`, cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="w-3 h-3" /> } :
+              vpnStatus === "failed"  ? { label: `VPN falhou (${counts.failed})`, cls: "bg-red-50 text-red-700 border-red-200", icon: <AlertCircle className="w-3 h-3" /> } :
+              vpnStatus === "pending" ? { label: "VPN pendente", cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="w-3 h-3" /> } :
+              null;
+            const canRetry = vpnStatus === "failed" || vpnStatus === "pending";
+            const msg = retryMsg?.id === p.id ? retryMsg : null;
             return (
               <div key={p.id} className="bg-bg-surface border border-border-base/50 p-4 rounded-2xl flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex justify-between items-start">
@@ -154,6 +222,12 @@ export function AdminPayments({ payments, setPayments }: Props) {
                     }`}>
                       {p.status === "approved" ? "Aprovado" : p.status === "pending" ? "Pendente" : p.status}
                     </span>
+                    {vpnBadge && (
+                      <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md border ${vpnBadge.cls}`}>
+                        {vpnBadge.icon}
+                        {vpnBadge.label}
+                      </span>
+                    )}
                     {meta.amount && (
                       <span className="text-base font-bold text-text-base">
                         R$ {Number(meta.amount).toFixed(2).replace(".", ",")}
@@ -161,15 +235,25 @@ export function AdminPayments({ payments, setPayments }: Props) {
                     )}
                   </div>
                 </div>
-                <div className="flex justify-between items-center text-[11px] text-text-muted border-t border-border-base/50 pt-2.5">
+                <div className="flex justify-between items-center text-[11px] text-text-muted border-t border-border-base/50 pt-2.5 flex-wrap gap-2">
                   <span className="bg-bg-surface-hover px-2 py-1 rounded-md font-medium uppercase tracking-wide">
                     {p.type === "new_device" ? "Novo Aparelho" :
                      p.type === "reseller_hire" ? "Nova Revenda" :
                      p.type === "reseller_renewal" ? "Renovação Revenda" :
                      p.type === "reseller_logins_increase" ? "Aumento Logins" : "Renovação"}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span>{formatDateTime(p.paid_at || p.created_at)}</span>
+                    {canRetry && p.status === "approved" && (
+                      <button
+                        onClick={() => handleRetry(p.id)}
+                        disabled={retryingId === p.id}
+                        className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 px-2.5 py-1 rounded-lg transition-colors active:scale-95 disabled:opacity-50"
+                      >
+                        {retryingId === p.id ? <RotateCw className="w-3 h-3 animate-spin" /> : <RotateCw className="w-3 h-3" />}
+                        {retryingId === p.id ? "Reaplicando..." : "Reaplicar"}
+                      </button>
+                    )}
                     <button
                       onClick={() => handleViewUser(p.username)}
                       disabled={loadingUser === p.username}
@@ -180,6 +264,9 @@ export function AdminPayments({ payments, setPayments }: Props) {
                     </button>
                   </div>
                 </div>
+                {msg && (
+                  <p className={`text-[11px] font-medium ${msg.ok ? "text-emerald-600" : "text-red-600"}`}>{msg.msg}</p>
+                )}
               </div>
             );
           })
