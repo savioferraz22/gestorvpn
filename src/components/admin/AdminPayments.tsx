@@ -1,32 +1,67 @@
-import React from "react";
-import { RefreshCw, RotateCcw, User, X, Clock, CreditCard, Smartphone, AlertCircle, CheckCircle2, RotateCw, Filter } from "lucide-react";
-import { fetchAdminPayments, fetchAdminUserDetails, retryPaymentApplication, retryFailedPayments } from "../../services/api";
-import { getAdminToken } from "../../services/api";
+import { useMemo, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  Download,
+  RefreshCw,
+  RotateCcw,
+  RotateCw,
+  Smartphone,
+  User,
+  X,
+} from "lucide-react";
+import {
+  fetchAdminPayments,
+  fetchAdminUserDetails,
+  retryPaymentApplication,
+  retryFailedPayments,
+  getAdminToken,
+} from "../../services/api";
+import { Card, Chip, DataTable, SectionHeader, Stat, type Column } from "./ui";
+import {
+  DateRangePicker,
+  FilterBar,
+  FilterSelect,
+  SearchInput,
+  dateInRange,
+  useUrlState,
+  type DateRange,
+} from "./filters";
 
 interface Props {
   payments: any[];
   setPayments: (p: any[]) => void;
 }
 
-function formatDateTime(dateString: string) {
-  if (!dateString) return "N/A";
-  let s = dateString;
-  if (s.includes(" ") && !s.includes("T")) { s = s.replace(" ", "T"); if (!s.endsWith("Z")) s += "Z"; }
-  const d = new Date(s);
-  return d.toLocaleString("pt-BR", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
+function formatDateTime(s: string | undefined) {
+  if (!s) return "—";
+  let iso = s;
+  if (iso.includes(" ") && !iso.includes("T")) {
+    iso = iso.replace(" ", "T");
+    if (!iso.endsWith("Z")) iso += "Z";
+  }
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
-function formatDate(dateString: string) {
-  if (!dateString) return "N/A";
-  let s = dateString;
-  if (s.includes(" ") && !s.includes("T")) { s = s.replace(" ", "T"); if (!s.endsWith("Z")) s += "Z"; }
-  return new Date(s).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+function formatDate(s: string | undefined) {
+  if (!s) return "—";
+  let iso = s;
+  if (iso.includes(" ") && !iso.includes("T")) {
+    iso = iso.replace(" ", "T");
+    if (!iso.endsWith("Z")) iso += "Z";
+  }
+  return new Date(iso).toLocaleDateString("pt-BR");
 }
 
-function daysLeft(expira: string) {
+function daysLeft(expira: string | undefined) {
   if (!expira) return null;
   const exp = new Date(expira);
   const today = new Date();
@@ -35,23 +70,103 @@ function daysLeft(expira: string) {
   return Math.round((exp.getTime() - today.getTime()) / 86400000);
 }
 
+function getAmount(p: any): number {
+  try {
+    const m = p.metadata
+      ? typeof p.metadata === "string"
+        ? JSON.parse(p.metadata)
+        : p.metadata
+      : null;
+    if (m) return Number(m.amount || 0);
+  } catch {
+    /* ignore */
+  }
+  return Number(p.amount || 0);
+}
+
+function typeLabel(t: string | undefined): string {
+  switch (t) {
+    case "new_device":
+      return "Novo Aparelho";
+    case "reseller_hire":
+      return "Nova Revenda";
+    case "reseller_renewal":
+      return "Renov. Revenda";
+    case "reseller_logins_increase":
+      return "Logins Revenda";
+    default:
+      return "Renovação";
+  }
+}
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "Todos status" },
+  { value: "approved", label: "Aprovados" },
+  { value: "pending", label: "Pendentes" },
+  { value: "rejected", label: "Rejeitados" },
+] as const;
+
+const VPN_OPTIONS = [
+  { value: "all", label: "Todos VPN" },
+  { value: "applied", label: "Aplicados" },
+  { value: "failed", label: "Falha VPN" },
+  { value: "pending", label: "VPN pendente" },
+] as const;
+
+const TYPE_OPTIONS = [
+  { value: "all", label: "Todos tipos" },
+  { value: "new_device", label: "Novo Aparelho" },
+  { value: "renewal", label: "Renovação" },
+  { value: "reseller_hire", label: "Nova Revenda" },
+  { value: "reseller_renewal", label: "Renov. Revenda" },
+  { value: "reseller_logins_increase", label: "Logins Revenda" },
+] as const;
+
 export function AdminPayments({ payments, setPayments }: Props) {
-  const [loading, setLoading] = React.useState(false);
-  const [reprocessing, setReprocessing] = React.useState(false);
-  const [reprocessMsg, setReprocessMsg] = React.useState("");
-  const [viewUser, setViewUser] = React.useState<any>(null);
-  const [loadingUser, setLoadingUser] = React.useState("");
-  const [retryingId, setRetryingId] = React.useState<string | null>(null);
-  const [retryMsg, setRetryMsg] = React.useState<{ id: string; msg: string; ok: boolean } | null>(null);
-  const [retryingBulk, setRetryingBulk] = React.useState(false);
-  const [onlyFailed, setOnlyFailed] = React.useState(false);
+  const { state, update, reset, isDirty } = useUrlState("payments", {
+    q: "",
+    status: "all" as (typeof STATUS_OPTIONS)[number]["value"],
+    vpn: "all" as (typeof VPN_OPTIONS)[number]["value"],
+    type: "all" as (typeof TYPE_OPTIONS)[number]["value"],
+    from: "" as string,
+    to: "" as string,
+  });
+  const dateRange: DateRange = { from: state.from || null, to: state.to || null };
+
+  const [loading, setLoading] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessMsg, setReprocessMsg] = useState("");
+  const [viewUser, setViewUser] = useState<any>(null);
+  const [loadingUser, setLoadingUser] = useState("");
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryMsg, setRetryMsg] = useState<{
+    id: string;
+    msg: string;
+    ok: boolean;
+  } | null>(null);
+  const [retryingBulk, setRetryingBulk] = useState(false);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      setPayments(await fetchAdminPayments());
+    } catch (err) {
+      console.warn(err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleRetry(paymentId: string) {
     setRetryingId(paymentId);
     setRetryMsg(null);
     try {
       const r = await retryPaymentApplication(paymentId);
-      setRetryMsg({ id: paymentId, msg: r.ok ? "Reaplicado!" : (r.message || "Processado."), ok: !!r.ok });
+      setRetryMsg({
+        id: paymentId,
+        msg: r.ok ? "Reaplicado!" : r.message || "Processado.",
+        ok: !!r.ok,
+      });
       await refresh();
     } catch (err: any) {
       setRetryMsg({ id: paymentId, msg: err.message || "Erro ao reaplicar", ok: false });
@@ -74,11 +189,6 @@ export function AdminPayments({ payments, setPayments }: Props) {
     }
   }
 
-  async function refresh() {
-    setLoading(true);
-    try { setPayments(await fetchAdminPayments()); } catch (err) { console.warn(err); } finally { setLoading(false); }
-  }
-
   async function reprocessCancelled() {
     setReprocessing(true);
     setReprocessMsg("");
@@ -86,12 +196,12 @@ export function AdminPayments({ payments, setPayments }: Props) {
       const token = getAdminToken();
       const res = await fetch("/api/admin/payments/reprocess-cancelled", {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       setReprocessMsg(data.message || "Concluído");
       if (data.recovered > 0) await refresh();
-    } catch (err: any) {
+    } catch {
       setReprocessMsg("Erro ao reprocessar");
     } finally {
       setReprocessing(false);
@@ -103,243 +213,506 @@ export function AdminPayments({ payments, setPayments }: Props) {
     try {
       const data = await fetchAdminUserDetails(username);
       setViewUser(data);
-    } catch (err) { console.warn(err); } finally {
+    } catch (err) {
+      console.warn(err);
+    } finally {
       setLoadingUser("");
     }
   }
 
-  const approved = payments.filter(p => p.status === "approved");
-  const pending = payments.filter(p => p.status === "pending");
-  const vpnFailed = payments.filter(p => p.vpnApplicationStatus === "failed");
-  const totalRevenue = approved.reduce((acc, p) => {
-    try {
-      const m = p.metadata ? (typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata) : null;
-      if (m) return acc + Number(m.amount || 0);
-    } catch { /* ok */ }
-    return acc;
-  }, 0);
+  const filtered = useMemo(() => {
+    const q = state.q.trim().toLowerCase();
+    return payments.filter((p) => {
+      if (q && !String(p.username || "").toLowerCase().includes(q) && !String(p.id || "").includes(q))
+        return false;
+      if (state.status !== "all" && p.status !== state.status) return false;
+      if (state.type !== "all") {
+        if (state.type === "renewal") {
+          if (
+            p.type &&
+            p.type !== "renewal" &&
+            !String(p.type).startsWith("renew")
+          )
+            return false;
+        } else if (p.type !== state.type) return false;
+      }
+      if (state.vpn !== "all") {
+        if ((p.vpnApplicationStatus ?? "none") !== state.vpn) return false;
+      }
+      if (dateRange.from || dateRange.to) {
+        const when = p.paid_at || p.created_at;
+        if (!dateInRange(when, dateRange)) return false;
+      }
+      return true;
+    });
+  }, [payments, state, dateRange]);
 
-  const visiblePayments = onlyFailed ? vpnFailed : payments;
+  const approved = filtered.filter((p) => p.status === "approved");
+  const pending = filtered.filter((p) => p.status === "pending");
+  const vpnFailed = filtered.filter((p) => p.vpnApplicationStatus === "failed");
+  const totalRevenue = approved.reduce((acc, p) => acc + getAmount(p), 0);
+
+  function exportCsv() {
+    const header = [
+      "id",
+      "username",
+      "type",
+      "amount",
+      "status",
+      "vpn_status",
+      "paid_at",
+      "created_at",
+    ];
+    const rows = filtered.map((p) => [
+      p.id,
+      p.username,
+      p.type ?? "",
+      getAmount(p).toFixed(2),
+      p.status ?? "",
+      p.vpnApplicationStatus ?? "",
+      p.paid_at ?? "",
+      p.created_at ?? "",
+    ]);
+    const csv = [header, ...rows]
+      .map((row) =>
+        row
+          .map((cell) => {
+            const s = String(cell ?? "");
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+          })
+          .join(","),
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pagamentos-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const chips = [
+    state.status !== "all" && {
+      id: "status",
+      label: `Status: ${STATUS_OPTIONS.find((o) => o.value === state.status)?.label}`,
+      onRemove: () => update("status", "all"),
+    },
+    state.type !== "all" && {
+      id: "type",
+      label: `Tipo: ${TYPE_OPTIONS.find((o) => o.value === state.type)?.label}`,
+      onRemove: () => update("type", "all"),
+    },
+    state.vpn !== "all" && {
+      id: "vpn",
+      label: `VPN: ${VPN_OPTIONS.find((o) => o.value === state.vpn)?.label}`,
+      onRemove: () => update("vpn", "all"),
+    },
+    (dateRange.from || dateRange.to) && {
+      id: "date",
+      label: `Período: ${dateRange.from ?? "..."} → ${dateRange.to ?? "..."}`,
+      onRemove: () => {
+        update("from", "");
+        update("to", "");
+      },
+    },
+  ].filter(Boolean) as { id: string; label: string; onRemove: () => void }[];
+
+  const columns: Column<any>[] = [
+    {
+      id: "username",
+      header: "Usuário",
+      accessor: (p) => p.username,
+      cell: (p) => (
+        <div className="flex flex-col">
+          <span className="font-semibold text-text-base">{p.username}</span>
+          <span className="text-[10px] font-mono text-text-muted">
+            {String(p.id).slice(0, 8)}
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "type",
+      header: "Tipo",
+      accessor: (p) => typeLabel(p.type),
+      cell: (p) => (
+        <Chip tone="default" size="sm" uppercase>
+          {typeLabel(p.type)}
+        </Chip>
+      ),
+    },
+    {
+      id: "amount",
+      header: "Valor",
+      align: "right",
+      accessor: (p) => getAmount(p),
+      cell: (p) => (
+        <span className="font-bold text-text-base tabular-nums">
+          R$ {getAmount(p).toFixed(2).replace(".", ",")}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      accessor: (p) => p.status,
+      cell: (p) => {
+        const tone =
+          p.status === "approved"
+            ? "success"
+            : p.status === "pending"
+              ? "warning"
+              : "danger";
+        return (
+          <Chip tone={tone} size="sm" uppercase>
+            {p.status === "approved"
+              ? "Aprovado"
+              : p.status === "pending"
+                ? "Pendente"
+                : p.status}
+          </Chip>
+        );
+      },
+    },
+    {
+      id: "vpn",
+      header: "VPN",
+      accessor: (p) => p.vpnApplicationStatus ?? "",
+      cell: (p) => {
+        const s = p.vpnApplicationStatus as string | undefined;
+        const counts = p.vpnAttemptCounts || { success: 0, failed: 0, pending: 0 };
+        if (s === "applied")
+          return (
+            <Chip tone="success" size="sm">
+              <CheckCircle2 size={10} /> {counts.success}
+            </Chip>
+          );
+        if (s === "failed")
+          return (
+            <Chip tone="danger" size="sm">
+              <AlertCircle size={10} /> {counts.failed}
+            </Chip>
+          );
+        if (s === "pending")
+          return (
+            <Chip tone="warning" size="sm">
+              <Clock size={10} /> pendente
+            </Chip>
+          );
+        return <span className="text-[10px] text-text-muted">—</span>;
+      },
+    },
+    {
+      id: "when",
+      header: "Data",
+      accessor: (p) => p.paid_at || p.created_at,
+      cell: (p) => (
+        <span className="text-xs text-text-muted">
+          {formatDateTime(p.paid_at || p.created_at)}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      sortable: false,
+      align: "right",
+      cell: (p) => {
+        const canRetry =
+          (p.vpnApplicationStatus === "failed" || p.vpnApplicationStatus === "pending") &&
+          p.status === "approved";
+        const msg = retryMsg?.id === p.id ? retryMsg : null;
+        return (
+          <div className="flex items-center justify-end gap-1">
+            {canRetry && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRetry(p.id);
+                }}
+                disabled={retryingId === p.id}
+                className="inline-flex items-center gap-1 rounded-lg border border-success/30 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success hover:bg-success/20 disabled:opacity-50"
+              >
+                <RotateCw
+                  size={11}
+                  className={retryingId === p.id ? "animate-spin" : ""}
+                />
+                {retryingId === p.id ? "..." : "Reaplicar"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleViewUser(p.username);
+              }}
+              disabled={loadingUser === p.username}
+              className="inline-flex items-center gap-1 rounded-lg border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-semibold text-primary-600 hover:bg-primary-500/20 disabled:opacity-50"
+            >
+              <User size={11} />
+              {loadingUser === p.username ? "..." : "Ver"}
+            </button>
+            {msg && (
+              <span
+                className={`text-[10px] font-semibold ${
+                  msg.ok ? "text-success" : "text-danger"
+                }`}
+              >
+                {msg.msg}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
 
   const vu = viewUser?.user;
   const vuDays = vu ? daysLeft(vu.expira) : null;
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden p-5 space-y-4">
-      <div className="flex items-center justify-between shrink-0 flex-wrap gap-2">
-        <h2 className="font-bold text-text-base">Pagamentos ({visiblePayments.length}{onlyFailed ? `/${payments.length}` : ""})</h2>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setOnlyFailed(v => !v)}
-            title="Mostrar só pagamentos com falha de aplicação no painel VPN"
-            className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl font-bold transition-colors active:scale-95 ${onlyFailed ? "bg-red-600 text-white border border-red-600" : "bg-red-50 hover:bg-red-100 border border-red-200 text-red-700"}`}
-          >
-            <Filter className="w-3.5 h-3.5" />
-            Falhas VPN ({vpnFailed.length})
-          </button>
-          <button
-            onClick={handleRetryAll}
-            disabled={retryingBulk || vpnFailed.length === 0}
-            title="Reprocessar automaticamente todas as aplicações VPN com falha"
-            className="flex items-center gap-1.5 text-xs bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-60"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${retryingBulk ? "animate-spin" : ""}`} />
-            {retryingBulk ? "Reprocessando..." : "Reaplicar todas"}
-          </button>
-          <button
-            onClick={reprocessCancelled}
-            disabled={reprocessing}
-            title="Reprocessar pagamentos cancelados que foram pagos no MP"
-            className="flex items-center gap-1.5 text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 px-3 py-2 rounded-xl font-bold transition-colors active:scale-95 disabled:opacity-60"
-          >
-            <RotateCcw className={`w-3.5 h-3.5 ${reprocessing ? "animate-spin" : ""}`} />
-            {reprocessing ? "Verificando..." : "Recuperar"}
-          </button>
-          <button onClick={refresh} disabled={loading} className="p-2 rounded-xl border border-border-base/50 hover:bg-bg-surface-hover transition-colors active:scale-95">
-            <RefreshCw className={`w-4 h-4 text-text-muted ${loading ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-      </div>
-      {reprocessMsg && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium px-4 py-2.5 rounded-xl shrink-0">
-          {reprocessMsg}
-        </div>
-      )}
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 p-4 sm:p-6">
+        <SectionHeader
+          title="Pagamentos"
+          subtitle={`${filtered.length} ${filtered.length === 1 ? "pagamento" : "pagamentos"} ${isDirty ? "(filtrados)" : ""}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={exportCsv}
+                disabled={filtered.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border-base/60 bg-bg-surface px-2.5 py-1.5 text-xs font-semibold text-text-base shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
+                title="Baixar CSV dos pagamentos filtrados"
+              >
+                <Download size={13} /> CSV
+              </button>
+              <button
+                type="button"
+                onClick={handleRetryAll}
+                disabled={retryingBulk || vpnFailed.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs font-semibold text-success hover:bg-success/20 disabled:opacity-50"
+                title="Reprocessar automaticamente todas as aplicações VPN com falha"
+              >
+                <RotateCw size={13} className={retryingBulk ? "animate-spin" : ""} />
+                Reaplicar VPN ({vpnFailed.length})
+              </button>
+              <button
+                type="button"
+                onClick={reprocessCancelled}
+                disabled={reprocessing}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs font-semibold text-warning hover:bg-warning/20 disabled:opacity-50"
+                title="Recuperar pagamentos cancelados que foram pagos no MP"
+              >
+                <RotateCcw size={13} className={reprocessing ? "animate-spin" : ""} />
+                {reprocessing ? "..." : "Recuperar"}
+              </button>
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={loading}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              </button>
+            </div>
+          }
+        />
 
-      <div className="grid grid-cols-3 gap-3 shrink-0">
-        <div className="bg-green-50 border border-green-100 p-4 rounded-2xl text-center shadow-sm">
-          <p className="text-[10px] uppercase font-bold text-green-500 mb-1 tracking-wider">Aprovados</p>
-          <p className="text-2xl font-bold text-green-600 leading-none">{approved.length}</p>
-        </div>
-        <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl text-center shadow-sm">
-          <p className="text-[10px] uppercase font-bold text-amber-500 mb-1 tracking-wider">Pendentes</p>
-          <p className="text-2xl font-bold text-amber-600 leading-none">{pending.length}</p>
-        </div>
-        <div className="bg-primary-50 border border-primary-100 p-4 rounded-2xl text-center shadow-sm">
-          <p className="text-[10px] uppercase font-bold text-primary-500 mb-1 tracking-wider">Receita</p>
-          <p className="text-lg font-bold text-primary-600 leading-none mt-1">
-            R$ {totalRevenue.toFixed(2).replace(".", ",")}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-        {visiblePayments.length === 0 ? (
-          <div className="bg-bg-surface/50 border border-border-base/50 p-6 rounded-2xl text-center">
-            <p className="text-sm font-medium text-text-muted">
-              {onlyFailed ? "Nenhum pagamento com falha de aplicação no painel." : "Nenhum pagamento registrado."}
-            </p>
+        {reprocessMsg && (
+          <div className="rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+            {reprocessMsg}
           </div>
-        ) : (
-          visiblePayments.map((p: any) => {
-            let meta: any = {};
-            try {
-              if (p.metadata) meta = typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata;
-            } catch { /* ok */ }
-            const vpnStatus = p.vpnApplicationStatus as "applied" | "failed" | "pending" | "none" | undefined;
-            const counts = p.vpnAttemptCounts || { success: 0, failed: 0, pending: 0 };
-            const vpnBadge =
-              vpnStatus === "applied" ? { label: `VPN ✓ ${counts.success}`, cls: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: <CheckCircle2 className="w-3 h-3" /> } :
-              vpnStatus === "failed"  ? { label: `VPN falhou (${counts.failed})`, cls: "bg-red-50 text-red-700 border-red-200", icon: <AlertCircle className="w-3 h-3" /> } :
-              vpnStatus === "pending" ? { label: "VPN pendente", cls: "bg-amber-50 text-amber-700 border-amber-200", icon: <Clock className="w-3 h-3" /> } :
-              null;
-            const canRetry = vpnStatus === "failed" || vpnStatus === "pending";
-            const msg = retryMsg?.id === p.id ? retryMsg : null;
-            return (
-              <div key={p.id} className="bg-bg-surface border border-border-base/50 p-4 rounded-2xl flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-sm font-bold text-text-base mb-1">{p.username}</p>
-                    <p className="text-[11px] font-mono bg-bg-surface-hover px-1.5 py-0.5 rounded text-text-muted border border-border-base/50">
-                      ID: {p.id.substring(0, 8)}...
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    <span className={`text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-lg border ${
-                      p.status === "approved" ? "bg-green-50 text-green-700 border-green-200" :
-                      p.status === "pending" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                      "bg-red-50 text-red-700 border-red-200"
-                    }`}>
-                      {p.status === "approved" ? "Aprovado" : p.status === "pending" ? "Pendente" : p.status}
-                    </span>
-                    {vpnBadge && (
-                      <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md border ${vpnBadge.cls}`}>
-                        {vpnBadge.icon}
-                        {vpnBadge.label}
-                      </span>
-                    )}
-                    {meta.amount && (
-                      <span className="text-base font-bold text-text-base">
-                        R$ {Number(meta.amount).toFixed(2).replace(".", ",")}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex justify-between items-center text-[11px] text-text-muted border-t border-border-base/50 pt-2.5 flex-wrap gap-2">
-                  <span className="bg-bg-surface-hover px-2 py-1 rounded-md font-medium uppercase tracking-wide">
-                    {p.type === "new_device" ? "Novo Aparelho" :
-                     p.type === "reseller_hire" ? "Nova Revenda" :
-                     p.type === "reseller_renewal" ? "Renovação Revenda" :
-                     p.type === "reseller_logins_increase" ? "Aumento Logins" : "Renovação"}
-                  </span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span>{formatDateTime(p.paid_at || p.created_at)}</span>
-                    {canRetry && p.status === "approved" && (
-                      <button
-                        onClick={() => handleRetry(p.id)}
-                        disabled={retryingId === p.id}
-                        className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 px-2.5 py-1 rounded-lg transition-colors active:scale-95 disabled:opacity-50"
-                      >
-                        {retryingId === p.id ? <RotateCw className="w-3 h-3 animate-spin" /> : <RotateCw className="w-3 h-3" />}
-                        {retryingId === p.id ? "Reaplicando..." : "Reaplicar"}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleViewUser(p.username)}
-                      disabled={loadingUser === p.username}
-                      className="flex items-center gap-1 text-[11px] font-bold text-primary-600 hover:text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-100 px-2.5 py-1 rounded-lg transition-colors active:scale-95 disabled:opacity-50"
-                    >
-                      <User className="w-3 h-3" />
-                      {loadingUser === p.username ? "..." : "Ver usuário"}
-                    </button>
-                  </div>
-                </div>
-                {msg && (
-                  <p className={`text-[11px] font-medium ${msg.ok ? "text-emerald-600" : "text-red-600"}`}>{msg.msg}</p>
-                )}
-              </div>
-            );
-          })
         )}
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat
+            label="Aprovados"
+            value={String(approved.length)}
+            variant="success"
+          />
+          <Stat label="Pendentes" value={String(pending.length)} variant="warn" />
+          <Stat
+            label="Falha VPN"
+            value={String(vpnFailed.length)}
+            variant={vpnFailed.length > 0 ? "danger" : "default"}
+          />
+          <Stat
+            label="Receita filtrada"
+            value={`R$ ${totalRevenue.toFixed(2).replace(".", ",")}`}
+            variant="accent"
+          />
+        </div>
+
+        <FilterBar
+          search={
+            <SearchInput
+              value={state.q}
+              onChange={(v) => update("q", v)}
+              placeholder="Buscar por usuário ou ID..."
+            />
+          }
+          filters={
+            <>
+              <FilterSelect
+                label="Status"
+                value={state.status}
+                options={STATUS_OPTIONS as any}
+                onChange={(v) => update("status", v)}
+              />
+              <FilterSelect
+                label="Tipo"
+                value={state.type}
+                options={TYPE_OPTIONS as any}
+                onChange={(v) => update("type", v)}
+              />
+              <FilterSelect
+                label="VPN"
+                value={state.vpn}
+                options={VPN_OPTIONS as any}
+                onChange={(v) => update("vpn", v)}
+              />
+              <DateRangePicker
+                value={dateRange}
+                onChange={(r) => {
+                  update("from", r.from ?? "");
+                  update("to", r.to ?? "");
+                }}
+              />
+            </>
+          }
+          chips={chips}
+          onReset={isDirty ? reset : undefined}
+          total={payments.length}
+          filtered={filtered.length}
+        />
+
+        <DataTable
+          rows={filtered}
+          columns={columns}
+          getRowId={(p) => p.id}
+          loading={loading}
+          emptyTitle="Nenhum pagamento"
+          emptyDescription={
+            isDirty
+              ? "Tente ajustar os filtros para ver mais resultados."
+              : "Ainda não há pagamentos registrados."
+          }
+          density="compact"
+          pageSize={25}
+          initialSort={{ id: "when", dir: "desc" }}
+        />
       </div>
 
-      {/* User detail modal */}
       {viewUser && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-bg-surface rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <Card className="flex max-h-[85vh] w-full max-w-sm flex-col gap-4 overflow-y-auto" padding="md">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
-                  <User className="w-5 h-5 text-primary-600" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-500/10 text-primary-600">
+                  <User size={18} />
                 </div>
                 <div>
-                  <p className="font-bold text-text-base">{vu?.login || viewUser.user?.login}</p>
+                  <p className="font-bold text-text-base">{vu?.login ?? "—"}</p>
                   <p className="text-xs text-text-muted">
-                    {vuDays === null ? "—" : vuDays < 0 ? "Expirado" : vuDays === 0 ? "Vence hoje" : `${vuDays}d restantes`}
+                    {vuDays === null
+                      ? "—"
+                      : vuDays < 0
+                        ? "Expirado"
+                        : vuDays === 0
+                          ? "Vence hoje"
+                          : `${vuDays}d restantes`}
                   </p>
                 </div>
               </div>
-              <button onClick={() => setViewUser(null)} className="p-2 rounded-xl hover:bg-bg-surface-hover text-text-muted transition-colors">
-                <X className="w-4 h-4" />
+              <button
+                type="button"
+                onClick={() => setViewUser(null)}
+                className="rounded-xl p-1.5 text-text-muted hover:bg-bg-surface-hover"
+              >
+                <X size={16} />
               </button>
             </div>
 
             {vu && (
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="bg-bg-base rounded-xl p-3 border border-border-base/50">
-                  <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">Vencimento</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-border-base/50 bg-bg-surface-hover/40 p-3">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-text-muted">
+                    Vencimento
+                  </p>
                   <div className="flex items-center gap-1.5">
-                    <Clock className={`w-3.5 h-3.5 ${vuDays !== null && vuDays < 0 ? "text-red-500" : vuDays !== null && vuDays <= 3 ? "text-amber-500" : "text-text-muted"}`} />
-                    <p className={`text-sm font-bold ${vuDays !== null && vuDays < 0 ? "text-red-600" : vuDays !== null && vuDays <= 3 ? "text-amber-600" : "text-text-base"}`}>
+                    <Clock
+                      size={13}
+                      className={
+                        vuDays !== null && vuDays < 0
+                          ? "text-danger"
+                          : vuDays !== null && vuDays <= 3
+                            ? "text-warning"
+                            : "text-text-muted"
+                      }
+                    />
+                    <p className="text-sm font-bold text-text-base">
                       {formatDate(vu.expira)}
                     </p>
                   </div>
                 </div>
-                <div className="bg-bg-base rounded-xl p-3 border border-border-base/50">
-                  <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">Pagamentos</p>
+                <div className="rounded-xl border border-border-base/50 bg-bg-surface-hover/40 p-3">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-text-muted">
+                    Pagamentos
+                  </p>
                   <div className="flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-text-muted" />
-                    <p className="text-sm font-bold text-text-base">{(viewUser.payments || []).filter((p: any) => p.status === "approved").length} aprovados</p>
+                    <CreditCard size={13} className="text-text-muted" />
+                    <p className="text-sm font-bold text-text-base">
+                      {(viewUser.payments || []).filter(
+                        (p: any) => p.status === "approved",
+                      ).length}{" "}
+                      aprovados
+                    </p>
                   </div>
                 </div>
               </div>
             )}
 
             {viewUser.plan && (
-              <div className="bg-primary-50 border border-primary-100 rounded-xl p-3">
-                <p className="text-[10px] font-bold text-primary-600 uppercase tracking-wider mb-1">Plano atual</p>
-                <p className="text-sm font-bold text-primary-700">
-                  {viewUser.plan.plan_months} {viewUser.plan.plan_months === 1 ? "mês" : "meses"} · {viewUser.plan.plan_devices} {viewUser.plan.plan_devices === 1 ? "aparelho" : "aparelhos"} · R$ {viewUser.plan.plan_price}
+              <div className="rounded-xl border border-primary-500/20 bg-primary-500/5 p-3">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600">
+                  Plano atual
+                </p>
+                <p className="text-sm font-bold text-primary-600">
+                  {viewUser.plan.plan_months}{" "}
+                  {viewUser.plan.plan_months === 1 ? "mês" : "meses"} ·{" "}
+                  {viewUser.plan.plan_devices}{" "}
+                  {viewUser.plan.plan_devices === 1 ? "aparelho" : "aparelhos"} · R${" "}
+                  {viewUser.plan.plan_price}
                 </p>
               </div>
             )}
 
             {viewUser.groupMembers?.length > 0 && (
               <div>
-                <p className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5" /> Outros aparelhos do plano
+                <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-text-muted">
+                  <Smartphone size={13} /> Outros aparelhos do plano
                 </p>
                 <div className="space-y-1.5">
                   {viewUser.groupMembers.map((m: any) => (
-                    <div key={m.username} className="bg-bg-base rounded-xl px-3 py-2 border border-border-base/50 flex justify-between items-center">
-                      <span className="text-sm font-bold text-text-base">{m.username}</span>
-                      <span className="text-xs text-text-muted">{m.expira ? formatDate(m.expira) : "—"}</span>
+                    <div
+                      key={m.username}
+                      className="flex items-center justify-between rounded-xl border border-border-base/50 bg-bg-surface-hover/40 px-3 py-2"
+                    >
+                      <span className="text-sm font-bold text-text-base">
+                        {m.username}
+                      </span>
+                      <span className="text-xs text-text-muted">
+                        {m.expira ? formatDate(m.expira) : "—"}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-          </div>
+          </Card>
         </div>
       )}
     </div>

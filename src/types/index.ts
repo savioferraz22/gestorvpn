@@ -88,6 +88,9 @@ export interface AdminReports {
   avgTicket?: number;
   previousRevenue?: number;
   previousSales?: number;
+  previousTests?: number;
+  previousSalesHistory?: { date: string; count: number; revenue: number }[];
+  previousTestsHistory?: { date: string; count: number }[];
   topUsers?: { username: string; revenue: number; sales: number }[];
   byType?: { type: string; count: number; revenue: number }[];
   topPlans?: { plan_months: number; plan_devices: number; plan_price: number; groups: number; users: number }[];

@@ -14,7 +14,7 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // --- DB Setup (Supabase) ---
 const supabase = createClient(
@@ -2187,8 +2187,39 @@ app.get("/api/admin/reports", async (req, res) => {
     const prevSinceDate = new Date(Date.now() - 2 * period * 24 * 60 * 60 * 1000).toISOString();
     const { data: prevPayments } = await getDb().from("payments").select("*").eq("status", "approved")
       .gte("created_at", prevSinceDate).lt("created_at", sinceDate);
+    const { data: prevDevices } = await getDb().from("devices").select("*")
+      .gte("created_at", prevSinceDate).lt("created_at", sinceDate);
     const previousRevenue = (prevPayments || []).reduce((sum: number, p: any) => sum + getAmount(p), 0);
     const previousSales = (prevPayments || []).filter((p: any) => getAmount(p) > 0).length;
+    const previousTests = (prevDevices || []).length;
+
+    const prevDates: string[] = [];
+    for (let i = 2 * period - 1; i >= period; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      prevDates.push(d.toISOString().split('T')[0]);
+    }
+    const prevSalesByDate: Record<string, { count: number; revenue: number }> = {};
+    const prevTestsByDate: Record<string, number> = {};
+    prevDates.forEach(d => {
+      prevSalesByDate[d] = { count: 0, revenue: 0 };
+      prevTestsByDate[d] = 0;
+    });
+    (prevPayments || []).forEach((p: any) => {
+      const amount = getAmount(p);
+      if (amount === 0) return;
+      const dateStr = (p.paid_at || p.created_at).split('T')[0];
+      if (prevSalesByDate[dateStr]) {
+        prevSalesByDate[dateStr].count++;
+        prevSalesByDate[dateStr].revenue += amount;
+      }
+    });
+    (prevDevices || []).forEach((u: any) => {
+      const dateStr = u.created_at.split('T')[0];
+      if (prevTestsByDate[dateStr] !== undefined) {
+        prevTestsByDate[dateStr]++;
+      }
+    });
 
     const avgTicket = totalSales > 0 ? totalRevenue / totalSales : 0;
 
@@ -2230,6 +2261,16 @@ app.get("/api/admin/reports", async (req, res) => {
       avgTicket,
       previousRevenue,
       previousSales,
+      previousTests,
+      previousSalesHistory: prevDates.map(date => ({
+        date,
+        count: prevSalesByDate[date].count,
+        revenue: prevSalesByDate[date].revenue,
+      })),
+      previousTestsHistory: prevDates.map(date => ({
+        date,
+        count: prevTestsByDate[date],
+      })),
       topUsers,
       topPlans,
       topReferrers,

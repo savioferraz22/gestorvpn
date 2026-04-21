@@ -1,7 +1,17 @@
-import React, { useState } from "react";
-import { Search, RefreshCw, Send, X, Pencil, Trash2, Check } from "lucide-react";
-import { fetchAdminTickets, fetchTicketMessages, sendTicketMessage, updateTicketStatus, fetchAdminUserDetails, editTicketMessage, deleteTicketMessage } from "../../services/api";
-import type { Ticket, TicketMessage, AdminTab } from "../../types";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Pencil, RefreshCw, Send, Trash2, X } from "lucide-react";
+import {
+  deleteTicketMessage,
+  editTicketMessage,
+  fetchAdminTickets,
+  fetchAdminUserDetails,
+  fetchTicketMessages,
+  sendTicketMessage,
+  updateTicketStatus,
+} from "../../services/api";
+import type { AdminTab, TicketMessage } from "../../types";
+import { Card, Chip, Empty, SectionHeader, Stat, useToast } from "./ui";
+import { FilterBar, FilterSelect, SearchInput, useUrlState } from "./filters";
 
 interface Props {
   allTickets: any[];
@@ -9,19 +19,52 @@ interface Props {
   navigateTo: (tab: AdminTab) => void;
 }
 
-function formatDate(dateString: string) {
-  if (!dateString) return "N/A";
-  let s = dateString;
-  if (s.includes(" ") && !s.includes("T")) { s = s.replace(" ", "T"); if (!s.endsWith("Z")) s += "Z"; }
-  const d = new Date(s);
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+function formatDate(s: string | undefined) {
+  if (!s) return "—";
+  let iso = s;
+  if (iso.includes(" ") && !iso.includes("T")) {
+    iso = iso.replace(" ", "T");
+    if (!iso.endsWith("Z")) iso += "Z";
+  }
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-export function AdminTickets({ allTickets, setAllTickets, navigateTo }: Props) {
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+const STATUS_OPTIONS = [
+  { value: "all", label: "Todos status" },
+  { value: "open", label: "Abertos" },
+  { value: "answered", label: "Respondidos" },
+  { value: "closed", label: "Fechados" },
+] as const;
+
+type StatusValue = (typeof STATUS_OPTIONS)[number]["value"];
+
+function statusTone(s: string): "success" | "warning" | "info" | "default" {
+  if (s === "open") return "warning";
+  if (s === "answered") return "info";
+  return "default";
+}
+
+function statusLabel(s: string): string {
+  if (s === "open") return "Aguardando";
+  if (s === "answered") return "Respondido";
+  if (s === "closed") return "Fechado";
+  return s;
+}
+
+export function AdminTickets({ allTickets, setAllTickets }: Props) {
+  const toast = useToast();
+  const { state, update, reset, isDirty } = useUrlState("tickets", {
+    q: "",
+    status: "open" as StatusValue,
+  });
+
   const [loading, setLoading] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -29,59 +72,133 @@ export function AdminTickets({ allTickets, setAllTickets, navigateTo }: Props) {
   const [editingMsgText, setEditingMsgText] = useState("");
   const [userDetails, setUserDetails] = useState<any>(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const filtered = useMemo(() => {
+    const q = state.q.trim().toLowerCase();
+    return allTickets.filter((t) => {
+      if (state.status !== "all" && t.status !== state.status) return false;
+      if (q) {
+        const hay = `${t.username ?? ""} ${t.subject ?? ""} ${t.category ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [allTickets, state]);
+
+  const selected = useMemo(
+    () => allTickets.find((t) => t.id === selectedId) ?? null,
+    [allTickets, selectedId],
+  );
+
+  const counts = useMemo(() => {
+    let open = 0;
+    let answered = 0;
+    let closed = 0;
+    for (const t of allTickets) {
+      if (t.status === "open") open++;
+      else if (t.status === "answered") answered++;
+      else if (t.status === "closed") closed++;
+    }
+    return { open, answered, closed };
+  }, [allTickets]);
 
   async function refresh() {
     setLoading(true);
-    try { setAllTickets(await fetchAdminTickets()); } catch (err) { console.warn(err); } finally { setLoading(false); }
+    try {
+      setAllTickets(await fetchAdminTickets());
+    } catch (err) {
+      console.warn(err);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function openTicket(t: any) {
-    setSelectedTicket(t);
+  async function openTicket(id: string) {
+    setSelectedId(id);
     try {
-      const msgs = await fetchTicketMessages(t.id);
-      setMessages(msgs);
-    } catch (err) { console.warn(err); }
+      setMessages(await fetchTicketMessages(id));
+    } catch (err) {
+      console.warn(err);
+    }
   }
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const ref = messagesEndRef.current;
+    if (ref) ref.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, selectedId]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (e.key !== "j" && e.key !== "k" && e.key !== "Escape") return;
+      if (e.key === "Escape") {
+        if (selectedId) setSelectedId(null);
+        return;
+      }
+      if (filtered.length === 0) return;
+      const idx = selectedId ? filtered.findIndex((t) => t.id === selectedId) : -1;
+      const next = e.key === "j" ? idx + 1 : idx - 1;
+      const clamped = Math.max(0, Math.min(filtered.length - 1, next));
+      const target2 = filtered[clamped];
+      if (target2) void openTicket(target2.id);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [filtered, selectedId]);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedTicket) return;
+    if (!newMessage.trim() || !selected) return;
     setSending(true);
     try {
-      await sendTicketMessage(selectedTicket.id, "admin", newMessage.trim());
+      await sendTicketMessage(selected.id, "admin", newMessage.trim());
       setNewMessage("");
-      const msgs = await fetchTicketMessages(selectedTicket.id);
-      setMessages(msgs);
+      setMessages(await fetchTicketMessages(selected.id));
       await refresh();
-      setSelectedTicket((t: any) => t ? { ...t, status: "answered" } : t);
-    } catch (err) { console.warn(err); } finally { setSending(false); }
+    } catch (err) {
+      console.warn(err);
+    } finally {
+      setSending(false);
+    }
   }
 
   async function handleEditMsg(messageId: string) {
     const trimmed = editingMsgText.trim();
-    if (!trimmed || !selectedTicket) return;
+    if (!trimmed || !selected) return;
     try {
       await editTicketMessage(messageId, trimmed);
       setEditingMsgId(null);
       setEditingMsgText("");
-      setMessages(await fetchTicketMessages(selectedTicket.id));
-    } catch (err) { console.warn(err); }
+      setMessages(await fetchTicketMessages(selected.id));
+    } catch (err) {
+      console.warn(err);
+    }
   }
 
   async function handleDeleteMsg(messageId: string) {
     try {
       await deleteTicketMessage(messageId);
-      setMessages(prev => prev.filter((m: TicketMessage) => m.id !== messageId));
-    } catch (err) { console.warn(err); }
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    } catch (err) {
+      console.warn(err);
+    }
   }
 
   async function handleClose() {
-    if (!selectedTicket) return;
+    if (!selected) return;
     try {
-      await updateTicketStatus(selectedTicket.id, "closed");
-      setSelectedTicket(null);
+      await updateTicketStatus(selected.id, "closed");
       await refresh();
-    } catch (err) { console.warn(err); }
+      toast.success("Ticket fechado");
+    } catch (err) {
+      console.warn(err);
+      toast.error("Falha ao fechar ticket", err instanceof Error ? err.message : undefined);
+    }
   }
 
   async function loadUserDetails(username: string) {
@@ -89,199 +206,394 @@ export function AdminTickets({ allTickets, setAllTickets, navigateTo }: Props) {
       const data = await fetchAdminUserDetails(username);
       setUserDetails(data);
       setShowUserModal(true);
-    } catch (err) { console.warn(err); }
+    } catch (err) {
+      console.warn(err);
+    }
   }
 
-  const filtered = allTickets
-    .filter(t => filterStatus === "all" || t.status === filterStatus)
-    .filter(t => t.username?.toLowerCase().includes(search.toLowerCase()));
+  const chips = [
+    state.status !== "open" && {
+      id: "status",
+      label: `Status: ${STATUS_OPTIONS.find((o) => o.value === state.status)?.label}`,
+      onRemove: () => update("status", "open" as StatusValue),
+    },
+  ].filter(Boolean) as { id: string; label: string; onRemove: () => void }[];
 
-  if (selectedTicket) {
-    return (
-      <div className="flex flex-col flex-1 overflow-hidden p-5 space-y-4">
-        <div className="flex items-center gap-3 shrink-0">
-          <button onClick={() => setSelectedTicket(null)} className="p-2 rounded-xl hover:bg-bg-surface-hover transition-colors">
-            <X className="w-4 h-4 text-text-muted" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-text-base truncate">{selectedTicket.subject}</p>
-            <p className="text-xs text-text-muted">{selectedTicket.username} · {selectedTicket.category}</p>
-          </div>
-          <div className="flex gap-2">
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-4 overflow-hidden p-4 sm:p-6">
+        <SectionHeader
+          title="Tickets"
+          subtitle={
+            counts.open > 0
+              ? `${counts.open} aguardando`
+              : `${allTickets.length} ${allTickets.length === 1 ? "ticket" : "tickets"}`
+          }
+          actions={
             <button
-              onClick={() => loadUserDetails(selectedTicket.username)}
-              className="text-xs text-primary-600 hover:text-primary-700 border border-primary-200 bg-primary-50 px-3 py-1.5 rounded-xl font-bold"
+              type="button"
+              onClick={refresh}
+              disabled={loading}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
             >
-              Ver Usuário
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
-            {selectedTicket.status !== "closed" && (
-              <button
-                onClick={handleClose}
-                className="text-xs text-red-600 hover:text-red-700 border border-red-200 bg-red-50 px-3 py-1.5 rounded-xl font-bold"
-              >
-                Fechar
-              </button>
+          }
+        />
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="Abertos" value={String(counts.open)} variant={counts.open > 0 ? "warn" : "default"} />
+          <Stat label="Respondidos" value={String(counts.answered)} variant="info" />
+          <Stat label="Fechados" value={String(counts.closed)} variant="default" />
+          <Stat label="Total" value={String(allTickets.length)} variant="accent" />
+        </div>
+
+        <FilterBar
+          search={
+            <SearchInput
+              value={state.q}
+              onChange={(v) => update("q", v)}
+              placeholder="Buscar por usuário, assunto, categoria..."
+            />
+          }
+          filters={
+            <FilterSelect
+              label="Status"
+              value={state.status}
+              options={STATUS_OPTIONS as any}
+              onChange={(v) => update("status", v)}
+            />
+          }
+          chips={chips}
+          onReset={isDirty ? reset : undefined}
+          total={allTickets.length}
+          filtered={filtered.length}
+        />
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden md:flex-row">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1 md:w-[22rem] md:flex-none">
+            {filtered.length === 0 ? (
+              <Empty title={isDirty ? "Nenhum ticket com esse filtro" : "Nenhum ticket"} />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {filtered.map((t) => {
+                  const active = t.id === selectedId;
+                  return (
+                    <Card
+                      key={t.id}
+                      padding="sm"
+                      interactive
+                      onClick={() => openTicket(t.id)}
+                      className={`flex flex-col gap-1.5 ${active ? "border-primary-500/60 ring-2 ring-[var(--ring-focus)]" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 truncate text-sm font-bold text-text-base">
+                          {t.subject}
+                        </p>
+                        <Chip tone={statusTone(t.status)} size="sm" uppercase>
+                          {statusLabel(t.status)}
+                        </Chip>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-text-muted">
+                        <span className="truncate">
+                          {t.username} · {t.category}
+                        </span>
+                        <span className="shrink-0">{formatDate(t.created_at)}</span>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="hidden min-h-0 md:flex md:flex-1 md:flex-col md:overflow-hidden">
+            {selected ? (
+              <TicketThread
+                ticket={selected}
+                messages={messages}
+                newMessage={newMessage}
+                setNewMessage={setNewMessage}
+                sending={sending}
+                editingMsgId={editingMsgId}
+                editingMsgText={editingMsgText}
+                setEditingMsgId={setEditingMsgId}
+                setEditingMsgText={setEditingMsgText}
+                onSend={handleSend}
+                onEdit={handleEditMsg}
+                onDelete={handleDeleteMsg}
+                onClose={handleClose}
+                onViewUser={() => loadUserDetails(selected.username)}
+                messagesEndRef={messagesEndRef}
+              />
+            ) : (
+              <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border-base/60 bg-bg-surface/40 p-8 text-center">
+                <div>
+                  <p className="text-sm font-bold text-text-base">Selecione um ticket</p>
+                  <p className="mt-1 text-xs text-text-muted">
+                    Use <kbd className="rounded bg-bg-surface-hover px-1">J</kbd>/<kbd className="rounded bg-bg-surface-hover px-1">K</kbd> para navegar · <kbd className="rounded bg-bg-surface-hover px-1">Esc</kbd> fecha
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         </div>
-
-        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-          {messages.map((msg: TicketMessage) => {
-            const isAdmin = msg.sender === "admin";
-            const isEditing = editingMsgId === msg.id;
-            const canAct = isAdmin && selectedTicket.status !== "closed";
-            return (
-              <div key={msg.id} className={`group flex flex-col ${isAdmin ? "items-end" : "items-start"}`}>
-                <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm ${
-                  isAdmin
-                    ? "bg-primary-600 text-white rounded-br-sm"
-                    : "bg-bg-surface border border-border-base/50 text-text-base rounded-bl-sm"
-                }`}>
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <textarea
-                        value={editingMsgText}
-                        onChange={e => setEditingMsgText(e.target.value)}
-                        className="w-full text-sm bg-white/20 rounded-xl px-3 py-2 outline-none resize-none border border-white/30 focus:border-white/60 min-h-[60px]"
-                        autoFocus
-                        onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditMsg(msg.id); }
-                          if (e.key === "Escape") { setEditingMsgId(null); setEditingMsgText(""); }
-                        }}
-                      />
-                      <div className="flex gap-1.5 justify-end">
-                        <button onClick={() => { setEditingMsgId(null); setEditingMsgText(""); }} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors font-medium">Cancelar</button>
-                        <button onClick={() => handleEditMsg(msg.id)} disabled={!editingMsgText.trim()} className="text-[11px] px-2.5 py-1 rounded-lg bg-white/30 hover:bg-white/40 transition-colors font-bold disabled:opacity-40 flex items-center gap-1"><Check className="w-3 h-3" />Salvar</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="font-medium leading-relaxed">{msg.message}</p>
-                  )}
-                  {!isEditing && (
-                    <p className={`text-[10px] mt-1 ${isAdmin ? "text-primary-200" : "text-text-muted"}`}>
-                      {isAdmin ? "Admin" : msg.sender} · {formatDate(msg.created_at)}
-                    </p>
-                  )}
-                </div>
-                {canAct && !isEditing && (
-                  <div className="flex gap-1 mt-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => { setEditingMsgId(msg.id); setEditingMsgText(msg.message); }} className="p-1 rounded-md text-text-muted hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Editar"><Pencil className="w-3 h-3" /></button>
-                    <button onClick={() => handleDeleteMsg(msg.id)} className="p-1 rounded-md text-text-muted hover:text-red-600 hover:bg-red-50 transition-colors" title="Excluir"><Trash2 className="w-3 h-3" /></button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {selectedTicket.status !== "closed" && (
-          <form onSubmit={handleSend} className="flex gap-2 shrink-0">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={e => setNewMessage(e.target.value)}
-              placeholder="Responder como admin..."
-              className="flex-1 px-4 py-3 rounded-xl border border-border-base text-sm outline-none focus:ring-2 focus:ring-primary-500/50 bg-bg-surface"
-            />
-            <button
-              type="submit"
-              disabled={sending || !newMessage.trim()}
-              className="bg-primary-600 hover:bg-primary-700 text-white p-3 rounded-xl transition-colors active:scale-95 disabled:opacity-60"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
-        )}
-
-        {/* User modal */}
-        {showUserModal && userDetails && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setShowUserModal(false)}>
-            <div className="bg-bg-surface rounded-2xl shadow-xl max-w-sm w-full p-5 space-y-3" onClick={e => e.stopPropagation()}>
-              <div className="flex justify-between items-center">
-                <p className="font-bold text-text-base">{userDetails.user?.login || selectedTicket.username}</p>
-                <button onClick={() => setShowUserModal(false)}><X className="w-4 h-4 text-text-muted" /></button>
-              </div>
-              <p className="text-sm text-text-muted">Status: {userDetails.user?.status || "N/A"}</p>
-              <p className="text-sm text-text-muted">Expira: {userDetails.user?.expira || "N/A"}</p>
-              <p className="text-sm text-text-muted">Pagamentos aprovados: {(userDetails.payments || []).filter((p: any) => p.status === "approved").length}</p>
-              <p className="text-sm text-text-muted">Pontos: {userDetails.points || 0}</p>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col flex-1 overflow-hidden p-5 space-y-4">
-      <div className="flex items-center justify-between shrink-0">
-        <h2 className="font-bold text-text-base">Tickets ({allTickets.length})</h2>
-        <button onClick={refresh} disabled={loading} className="p-2 rounded-xl border border-border-base/50 hover:bg-bg-surface-hover transition-colors active:scale-95">
-          <RefreshCw className={`w-4 h-4 text-text-muted ${loading ? "animate-spin" : ""}`} />
-        </button>
       </div>
 
-      <div className="flex gap-2 shrink-0">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar usuário..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border-base text-sm outline-none focus:ring-2 focus:ring-primary-500/50 bg-bg-surface font-medium"
+      {selected && (
+        <div
+          className="fixed inset-x-0 top-0 z-40 flex flex-col bg-bg-base md:hidden"
+          style={{ height: "100dvh" }}
+        >
+          <TicketThread
+            ticket={selected}
+            messages={messages}
+            newMessage={newMessage}
+            setNewMessage={setNewMessage}
+            sending={sending}
+            editingMsgId={editingMsgId}
+            editingMsgText={editingMsgText}
+            setEditingMsgId={setEditingMsgId}
+            setEditingMsgText={setEditingMsgText}
+            onSend={handleSend}
+            onEdit={handleEditMsg}
+            onDelete={handleDeleteMsg}
+            onClose={handleClose}
+            onViewUser={() => loadUserDetails(selected.username)}
+            onBack={() => setSelectedId(null)}
+            messagesEndRef={messagesEndRef}
           />
         </div>
-        <select
-          value={filterStatus}
-          onChange={e => setFilterStatus(e.target.value)}
-          className="px-3 py-2.5 rounded-xl border border-border-base text-sm outline-none bg-bg-surface font-bold cursor-pointer"
+      )}
+
+      {showUserModal && userDetails && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+          onClick={() => setShowUserModal(false)}
         >
-          <option value="all">Todos</option>
-          <option value="open">Abertos</option>
-          <option value="answered">Respondidos</option>
-          <option value="closed">Fechados</option>
-        </select>
+          <div
+            className="w-full max-w-sm space-y-3 rounded-2xl bg-bg-surface p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <p className="font-bold text-text-base">
+                {userDetails.user?.login || selected?.username}
+              </p>
+              <button onClick={() => setShowUserModal(false)}>
+                <X className="h-4 w-4 text-text-muted" />
+              </button>
+            </div>
+            <p className="text-sm text-text-muted">
+              Status: {userDetails.user?.status || "N/A"}
+            </p>
+            <p className="text-sm text-text-muted">
+              Expira: {userDetails.user?.expira || "N/A"}
+            </p>
+            <p className="text-sm text-text-muted">
+              Pagamentos aprovados:{" "}
+              {(userDetails.payments || []).filter((p: any) => p.status === "approved").length}
+            </p>
+            <p className="text-sm text-text-muted">Pontos: {userDetails.points || 0}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ThreadProps {
+  ticket: any;
+  messages: TicketMessage[];
+  newMessage: string;
+  setNewMessage: (v: string) => void;
+  sending: boolean;
+  editingMsgId: string | null;
+  editingMsgText: string;
+  setEditingMsgId: (v: string | null) => void;
+  setEditingMsgText: (v: string) => void;
+  onSend: (e: React.FormEvent) => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+  onViewUser: () => void;
+  onBack?: () => void;
+  messagesEndRef: React.MutableRefObject<HTMLDivElement | null>;
+}
+
+function TicketThread({
+  ticket,
+  messages,
+  newMessage,
+  setNewMessage,
+  sending,
+  editingMsgId,
+  editingMsgText,
+  setEditingMsgId,
+  setEditingMsgText,
+  onSend,
+  onEdit,
+  onDelete,
+  onClose,
+  onViewUser,
+  onBack,
+  messagesEndRef,
+}: ThreadProps) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border-base/60 bg-bg-surface shadow-[var(--shadow-card-sm)]">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border-base/60 p-3">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-bg-surface-hover"
+          >
+            <X size={14} className="text-text-muted" />
+          </button>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-text-base">{ticket.subject}</p>
+          <p className="truncate text-[11px] text-text-muted">
+            {ticket.username} · {ticket.category}
+          </p>
+        </div>
+        <Chip tone={statusTone(ticket.status)} size="sm" uppercase>
+          {statusLabel(ticket.status)}
+        </Chip>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={onViewUser}
+            className="rounded-lg border border-border-base/60 bg-bg-surface px-2.5 py-1 text-[11px] font-bold text-text-base hover:bg-bg-surface-hover"
+          >
+            Usuário
+          </button>
+          {ticket.status !== "closed" && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger hover:bg-danger/20"
+            >
+              Fechar
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-        {filtered.length === 0 ? (
-          <div className="bg-bg-surface/50 border border-border-base/50 p-6 rounded-2xl text-center">
-            <p className="text-sm font-medium text-text-muted">Nenhum ticket encontrado.</p>
-          </div>
-        ) : (
-          filtered.map(t => (
+      <div className="flex-1 space-y-3 overflow-y-auto p-3">
+        {messages.map((msg) => {
+          const isAdmin = msg.sender === "admin";
+          const isEditing = editingMsgId === msg.id;
+          const canAct = isAdmin && ticket.status !== "closed";
+          return (
             <div
-              key={t.id}
-              onClick={() => openTicket(t)}
-              className="bg-bg-surface border border-border-base/50 p-4 rounded-2xl cursor-pointer hover:border-primary-400 hover:shadow-md transition-all shadow-sm group"
+              key={msg.id}
+              className={`group flex flex-col ${isAdmin ? "items-end" : "items-start"}`}
             >
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center overflow-hidden pr-2">
-                  {t.status === "open" && (
-                    <span className="flex h-2.5 w-2.5 relative mr-2.5 flex-shrink-0">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
-                    </span>
-                  )}
-                  <h3 className="font-bold text-text-base truncate group-hover:text-primary-600 transition-colors">{t.subject}</h3>
+              <div
+                className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm ${
+                  isAdmin
+                    ? "rounded-br-sm bg-primary-600 text-white"
+                    : "rounded-bl-sm border border-border-base/50 bg-bg-surface-hover/40 text-text-base"
+                }`}
+              >
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editingMsgText}
+                      onChange={(e) => setEditingMsgText(e.target.value)}
+                      autoFocus
+                      className="min-h-[60px] w-full resize-none rounded-xl border border-white/30 bg-white/20 px-3 py-2 text-sm outline-none focus:border-white/60"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          onEdit(msg.id);
+                        }
+                        if (e.key === "Escape") {
+                          setEditingMsgId(null);
+                          setEditingMsgText("");
+                        }
+                      }}
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setEditingMsgId(null);
+                          setEditingMsgText("");
+                        }}
+                        className="rounded-lg bg-white/10 px-2.5 py-1 text-[11px] font-medium hover:bg-white/20"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => onEdit(msg.id)}
+                        disabled={!editingMsgText.trim()}
+                        className="inline-flex items-center gap-1 rounded-lg bg-white/30 px-2.5 py-1 text-[11px] font-bold hover:bg-white/40 disabled:opacity-40"
+                      >
+                        <Check className="h-3 w-3" />
+                        Salvar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap font-medium leading-relaxed">
+                    {msg.message}
+                  </p>
+                )}
+                {!isEditing && (
+                  <p className={`mt-1 text-[10px] ${isAdmin ? "text-primary-200" : "text-text-muted"}`}>
+                    {isAdmin ? "Admin" : msg.sender} · {formatDate(msg.created_at)}
+                  </p>
+                )}
+              </div>
+              {canAct && !isEditing && (
+                <div className="mt-0.5 flex gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                  <button
+                    onClick={() => {
+                      setEditingMsgId(msg.id);
+                      setEditingMsgText(msg.message);
+                    }}
+                    className="rounded-md p-1 text-text-muted hover:bg-primary-50 hover:text-primary-600"
+                    title="Editar"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => onDelete(msg.id)}
+                    className="rounded-md p-1 text-text-muted hover:bg-danger/10 hover:text-danger"
+                    title="Excluir"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </div>
-                <span className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-lg flex-shrink-0 font-bold border ${
-                  t.status === "open" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                  t.status === "answered" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                  "bg-bg-surface-hover text-text-muted border-border-base"
-                }`}>
-                  {t.status === "open" ? "Aguardando" : t.status === "answered" ? "Respondido" : "Fechado"}
-                </span>
-              </div>
-              <div className="flex justify-between text-xs text-text-muted font-medium items-end mt-3">
-                <span className="bg-bg-surface-hover px-2 py-1 rounded-md border border-border-base/50">{t.username} · {t.category}</span>
-                <span>{formatDate(t.created_at)}</span>
-              </div>
+              )}
             </div>
-          ))
-        )}
+          );
+        })}
+        <div ref={messagesEndRef} />
       </div>
+
+      {ticket.status !== "closed" && (
+        <form
+          onSubmit={onSend}
+          className="flex shrink-0 gap-2 border-t border-border-base/60 p-3"
+          style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+        >
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder="Responder como admin..."
+            className="flex-1 rounded-xl border border-border-base/60 bg-bg-surface px-3.5 py-2.5 text-sm outline-none focus:border-primary-500/70 focus:ring-2 focus:ring-[var(--ring-focus)]"
+          />
+          <button
+            type="submit"
+            disabled={sending || !newMessage.trim()}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 text-white transition-transform hover:bg-primary-700 active:scale-95 disabled:opacity-60"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        </form>
+      )}
     </div>
   );
 }

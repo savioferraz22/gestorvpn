@@ -28,6 +28,15 @@
   --color-text-inverted: var(--text-inverted);
 
   --color-border-base: var(--border-base);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
 }
 
 @layer base {
@@ -54,6 +63,19 @@
     --text-inverted: #ffffff;
 
     --border-base: #334155;
+
+    --success: #34d399;
+    --success-soft: rgba(52, 211, 153, 0.12);
+    --warning: #fbbf24;
+    --warning-soft: rgba(251, 191, 36, 0.12);
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.12);
+    --info: #60a5fa;
+    --info-soft: rgba(96, 165, 250, 0.12);
+
+    --shadow-card-sm: 0 1px 2px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.15);
+    --shadow-card-md: 0 4px 10px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.2);
+    --ring-focus: 0 0 0 3px rgba(168, 85, 247, 0.35);
   }
 
   :root {
@@ -79,6 +101,94 @@
     --text-inverted: #ffffff;
 
     --border-base: #e2e8f0;
+
+    --success: #059669;
+    --success-soft: rgba(5, 150, 105, 0.10);
+    --warning: #d97706;
+    --warning-soft: rgba(217, 119, 6, 0.10);
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.10);
+    --info: #2563eb;
+    --info-soft: rgba(37, 99, 235, 0.10);
+
+    --shadow-card-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.05);
+    --shadow-card-md: 0 6px 16px rgba(15, 23, 42, 0.06), 0 2px 6px rgba(15, 23, 42, 0.04);
+    --ring-focus: 0 0 0 3px rgba(126, 34, 206, 0.25);
+  }
+
+  /* Scoped admin theme — isolates admin panel from global .dark on <html> */
+  .admin-scope[data-admin-theme="light"] {
+    --primary-50: #faf5ff;
+    --primary-100: #f3e8ff;
+    --primary-200: #e9d5ff;
+    --primary-300: #d8b4fe;
+    --primary-400: #a855f7;
+    --primary-500: #7e22ce;
+    --primary-600: #4c1d95;
+    --primary-700: #3b0764;
+    --primary-800: #2e004b;
+    --primary-900: #1e0033;
+    --primary-950: #11001c;
+
+    --bg-base: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-surface-hover: #f1f5f9;
+
+    --text-base: #0f172a;
+    --text-muted: #64748b;
+    --text-inverted: #ffffff;
+
+    --border-base: #e2e8f0;
+
+    --success: #059669;
+    --success-soft: rgba(5, 150, 105, 0.10);
+    --warning: #d97706;
+    --warning-soft: rgba(217, 119, 6, 0.10);
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.10);
+    --info: #2563eb;
+    --info-soft: rgba(37, 99, 235, 0.10);
+
+    --shadow-card-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.05);
+    --shadow-card-md: 0 6px 16px rgba(15, 23, 42, 0.06), 0 2px 6px rgba(15, 23, 42, 0.04);
+    --ring-focus: 0 0 0 3px rgba(126, 34, 206, 0.25);
+  }
+
+  .admin-scope[data-admin-theme="dark"] {
+    --primary-50: #faf5ff;
+    --primary-100: #f3e8ff;
+    --primary-200: #e9d5ff;
+    --primary-300: #d8b4fe;
+    --primary-400: #a855f7;
+    --primary-500: #7e22ce;
+    --primary-600: #4c1d95;
+    --primary-700: #3b0764;
+    --primary-800: #2e004b;
+    --primary-900: #1e0033;
+    --primary-950: #11001c;
+
+    --bg-base: #0f172a;
+    --bg-surface: #1e293b;
+    --bg-surface-hover: #334155;
+
+    --text-base: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-inverted: #ffffff;
+
+    --border-base: #334155;
+
+    --success: #34d399;
+    --success-soft: rgba(52, 211, 153, 0.12);
+    --warning: #fbbf24;
+    --warning-soft: rgba(251, 191, 36, 0.12);
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.12);
+    --info: #60a5fa;
+    --info-soft: rgba(96, 165, 250, 0.12);
+
+    --shadow-card-sm: 0 1px 2px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.15);
+    --shadow-card-md: 0 4px 10px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.2);
+    --ring-focus: 0 0 0 3px rgba(168, 85, 247, 0.35);
   }
 }
 
