@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Clock, Eye, EyeOff, KeyRound, RefreshCw, X } from "lucide-react";
+import { Check, Clock, Copy, Eye, EyeOff, KeyRound, RefreshCw, X } from "lucide-react";
 import {
   approveChangeRequest,
   fetchAdminChangeRequests,
@@ -98,6 +98,18 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
   const [userDetails, setUserDetails] = useState<Record<string, any>>({});
   const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
   const [showPass, setShowPass] = useState<Record<string, boolean>>({});
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  function copyValue(key: string, value: string) {
+    if (!value) return;
+    try {
+      navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((v) => (v === key ? null : v)), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function loadUserDetails(username: string) {
     if (userDetails[username] || loadingDetails[username]) return;
@@ -266,15 +278,33 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                 <Card key={r.id} padding="md" className="flex flex-col gap-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <button
-                        type="button"
-                        className="text-sm font-bold text-text-base hover:text-primary-600"
-                        onClick={() => loadUserDetails(r.username)}
-                        title="Clique para ver senha e vencimento"
-                      >
-                        {r.username}
-                        {loadingDetails[r.username] ? "..." : ""}
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="text-sm font-bold text-text-base hover:text-primary-600"
+                          onClick={() => loadUserDetails(r.username)}
+                          title="Clique para ver senha e vencimento"
+                        >
+                          {r.username}
+                          {loadingDetails[r.username] ? "..." : ""}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyValue(`u:${r.id}`, r.username);
+                          }}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+                          aria-label="Copiar usuário"
+                          title="Copiar usuário"
+                        >
+                          {copiedKey === `u:${r.id}` ? (
+                            <Check size={12} className="text-success" />
+                          ) : (
+                            <Copy size={12} />
+                          )}
+                        </button>
+                      </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="rounded-md border border-border-base/50 bg-bg-surface-hover/60 px-1.5 py-0.5 text-[11px] text-text-muted">
                           {formatDate(r.created_at)}
@@ -306,6 +336,21 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                         >
                           {showPass[r.username] ? <EyeOff size={12} /> : <Eye size={12} />}
                         </button>
+                        {pass && (
+                          <button
+                            type="button"
+                            onClick={() => copyValue(`p:${r.id}`, pass)}
+                            className="text-text-muted hover:text-text-base"
+                            aria-label="Copiar senha"
+                            title="Copiar senha"
+                          >
+                            {copiedKey === `p:${r.id}` ? (
+                              <Check size={12} className="text-success" />
+                            ) : (
+                              <Copy size={12} />
+                            )}
+                          </button>
+                        )}
                       </div>
                       {days !== null && (
                         <div
