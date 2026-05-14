@@ -152,12 +152,45 @@ app.get("/api/health", (req, res) => {
 app.get("/api/db-status", async (req, res) => {
   try {
     const { data: tables, error } = await getDb().rpc('get_tables'); // Or just return success
-    res.json({ 
-      status: "ok", 
+    res.json({
+      status: "ok",
       message: "Database is online (Supabase Native)"
     });
   } catch (e: any) {
     res.status(500).json({ status: "error", message: e.message });
+  }
+});
+
+const SYSTEM_NOTICE_FALLBACK = { active: false, title: "", message: "", severity: "warning", updated_at: null as string | null };
+
+app.get("/api/system-notice", async (_req, res) => {
+  try {
+    const { data } = await getDb().from("system_notice").select("active,title,message,severity,updated_at").eq("id", "global").maybeSingle();
+    res.json(data || SYSTEM_NOTICE_FALLBACK);
+  } catch (e: any) {
+    res.json(SYSTEM_NOTICE_FALLBACK);
+  }
+});
+
+app.post("/api/admin/system-notice", async (req, res) => {
+  try {
+    const { active, title, message, severity } = req.body || {};
+    if (typeof active !== "boolean" || typeof title !== "string" || typeof message !== "string") {
+      return res.status(400).json({ error: "Campos inválidos." });
+    }
+    const sev = ["warning", "error", "info"].includes(severity) ? severity : "warning";
+    const { error } = await getDb().from("system_notice").upsert({
+      id: "global",
+      active,
+      title,
+      message,
+      severity: sev,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 

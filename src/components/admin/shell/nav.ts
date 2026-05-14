@@ -108,6 +108,12 @@ export const NAV_GROUPS: NavGroup[] = [
         description: "Push do navegador",
         iconName: "Bell",
       },
+      {
+        id: "settings",
+        label: "Configurações",
+        description: "Avisos globais e ajustes",
+        iconName: "Settings",
+      },
     ],
   },
 ];

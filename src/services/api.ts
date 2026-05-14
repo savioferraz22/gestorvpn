@@ -335,3 +335,32 @@ export async function unsubscribePush(endpoint: string): Promise<void> {
     body: JSON.stringify({ endpoint }),
   });
 }
+
+// ─── System Notice (global aviso) ─────────────────────────────────────────
+
+export type SystemNoticeSeverity = "warning" | "error" | "info";
+
+export interface SystemNotice {
+  active: boolean;
+  title: string;
+  message: string;
+  severity: SystemNoticeSeverity;
+  updated_at: string | null;
+}
+
+export async function fetchSystemNotice() {
+  return apiFetch<SystemNotice>("/api/system-notice");
+}
+
+export async function updateSystemNotice(payload: {
+  active: boolean;
+  title: string;
+  message: string;
+  severity: SystemNoticeSeverity;
+}) {
+  return apiFetch<{ success: boolean }>("/api/admin/system-notice", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify(payload),
+  });
+}

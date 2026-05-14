@@ -7,6 +7,8 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2, Pencil, Check } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
+import { SystemNoticeBanner } from "./components/shared/SystemNoticeBanner";
+import { fetchSystemNotice, type SystemNotice } from "./services/api";
 
 type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
 
@@ -81,6 +83,20 @@ export default function App() {
 
   const [showData, setShowData] = useState(false);
   const [showReferrals, setShowReferrals] = useState(false);
+
+  // Global system notice (controlled from admin "Configurações")
+  const [systemNotice, setSystemNotice] = useState<SystemNotice | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetchSystemNotice()
+        .then((n) => { if (!cancelled) setSystemNotice(n); })
+        .catch(() => { /* silent fail keeps client usable */ });
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => { cancelled = true; window.removeEventListener("focus", load); };
+  }, []);
   const [showHistory, setShowHistory] = useState(false);
   const [verifyPassword, setVerifyPassword] = useState("");
   const [verifyError, setVerifyError] = useState("");
@@ -1873,6 +1889,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
+                  <SystemNoticeBanner notice={systemNotice} variant="full" />
                   {/* Security Hint Banner for Unverified Users */}
                   {!showData && (
                     <motion.div
@@ -5338,6 +5355,11 @@ export default function App() {
                 </div>
 
                 <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-4">
+                  {systemNotice?.active && (
+                    <div className="mb-4">
+                      <SystemNoticeBanner notice={systemNotice} variant="full" />
+                    </div>
+                  )}
                   {tickets.length === 0 ? (
                     <div className="text-center py-12 flex flex-col items-center justify-center h-full">
                       <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mb-4">
@@ -5538,6 +5560,10 @@ export default function App() {
                     {view === "ticket_detail" && notifBell}
                   </div>
                 </div>
+
+                {view === "ticket_detail" && (
+                  <SystemNoticeBanner notice={systemNotice} variant="compact" />
+                )}
 
                 <div className="flex flex-col flex-1 overflow-hidden relative">
                   <div className="flex flex-col flex-1 overflow-hidden">

@@ -10,6 +10,7 @@ import {
   BarChart2,
   Store,
   Bell,
+  Settings,
 } from "lucide-react";
 
 const MAP: Record<string, React.ComponentType<{ className?: string; size?: number }>> = {
@@ -23,6 +24,7 @@ const MAP: Record<string, React.ComponentType<{ className?: string; size?: numbe
   BarChart2,
   Store,
   Bell,
+  Settings,
 };
 
 export function NavIcon({

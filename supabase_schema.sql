@@ -139,3 +139,26 @@ CREATE INDEX IF NOT EXISTS idx_payments_username ON public.payments(username);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments(status);
 CREATE INDEX IF NOT EXISTS idx_payments_type_status ON public.payments(type, status);
 CREATE INDEX IF NOT EXISTS idx_payments_paid_at ON public.payments(paid_at);
+
+-- Global system notice shown in the client area (dashboard, support list, chat).
+-- Single-row table (id is locked to 'global') edited from the admin "Configurações" tab.
+CREATE TABLE IF NOT EXISTS public.system_notice (
+    id TEXT PRIMARY KEY DEFAULT 'global',
+    active BOOLEAN NOT NULL DEFAULT false,
+    title TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'warning',
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT system_notice_singleton CHECK (id = 'global'),
+    CONSTRAINT system_notice_severity CHECK (severity IN ('warning', 'error', 'info'))
+);
+
+INSERT INTO public.system_notice (id, active, title, message, severity)
+VALUES (
+    'global',
+    false,
+    'Instabilidade no Xray',
+    'Estamos com um problema no Xray e ele não está funcionando no momento. Já está sendo corrigido, mas pode levar alguns dias para normalizar. Enquanto isso, apenas as opções sem Xray estão funcionando normalmente. Caso sua região só funcione com Xray, infelizmente será necessário aguardar a normalização.',
+    'warning'
+)
+ON CONFLICT (id) DO NOTHING;
