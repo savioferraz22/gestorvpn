@@ -1721,12 +1721,6 @@ export default function App() {
                   {/* Glossy Header Effect */}
                   <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-primary-500/10 to-transparent pointer-events-none" />
 
-                  {systemNotice?.active && (
-                    <div className="relative z-10 pt-4">
-                      <SystemNoticeBanner notice={systemNotice} variant="full" />
-                    </div>
-                  )}
-
                   <div className="pt-10 pb-8 text-center flex flex-col items-center relative z-10 space-y-3">
                     <div className="flex items-center justify-center relative p-4">
                       <div className="absolute inset-0 bg-primary-500 blur-3xl opacity-20 rounded-full w-32 h-32 mx-auto" />
