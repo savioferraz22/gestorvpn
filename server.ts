@@ -1815,10 +1815,10 @@ app.post("/api/user/update-access", async (req, res) => {
   try {
     const { username, action, newValue } = req.body;
 
-    if (!['username', 'password', 'date', 'uuid'].includes(action)) {
+    if (!['username', 'password', 'date', 'uuid', 'uuid_correction'].includes(action)) {
       return res.status(400).json({ error: "Ação inválida" });
     }
-    if (!newValue && action !== 'uuid') {
+    if (!newValue && action !== 'uuid' && action !== 'uuid_correction') {
       return res.status(400).json({ error: "Novo valor inválido" });
     }
 
@@ -1866,6 +1866,10 @@ app.post("/api/user/update-access", async (req, res) => {
 
     const id = crypto.randomUUID();
     await getDb().from("change_requests").insert({ id, username, type: action, requested_value: newValue, status: 'aguardando' });
+
+    if (action === 'uuid_correction') {
+      sendPush("__admin__", "🔧 Correção de UUID solicitada", `${username} reportou que o UUID atual não está funcionando. Gere um novo UUID no painel da VPN.`);
+    }
 
     res.json({ success: true, message: "Solicitação enviada com sucesso. Aguarde a aprovação do administrador." });
   } catch (error: any) {

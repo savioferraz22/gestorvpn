@@ -978,6 +978,48 @@ export default function App() {
     }
   };
 
+  const handleRequestUuidCorrection = async (targetUsername: string) => {
+    if (!currentUser) return;
+    const pending = currentUser.changeRequests?.find((r: any) => r.username === targetUsername && r.type === 'uuid_correction' && r.status === 'aguardando');
+    if (pending) {
+      showAlertDialog(`Já existe uma solicitação de correção de UUID em andamento para o aparelho ${targetUsername}.`);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/user/update-access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: targetUsername,
+          action: "uuid_correction",
+          newValue: "fix"
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlertDialog("✅ Solicitação de correção enviada! O administrador foi notificado e em breve um novo UUID será gerado no painel da VPN. Ele aparecerá automaticamente aqui assim que estiver pronto.");
+        if (currentUser) {
+          const refreshRes = await fetch("/api/user", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: currentUser.login, deviceId }),
+          });
+          if (refreshRes.ok) {
+            const updatedUser = await refreshRes.json();
+            setCurrentUser(updatedUser);
+          }
+        }
+      } else {
+        showAlertDialog(data.error || "Erro ao solicitar correção de UUID.");
+      }
+    } catch (err) {
+      showAlertDialog("Erro de conexão.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ticketForm.subject || !ticketForm.message || !currentUser) return;
@@ -1453,7 +1495,7 @@ export default function App() {
   };
 
   // ─── In-app notification items (derived from live state) ──────────────────
-  const typeMap: Record<string, string> = { date: "Vencimento", username: "Usuário", uuid: "UUID", password: "Senha", date_correction: "Correção de Vencimento" };
+  const typeMap: Record<string, string> = { date: "Vencimento", username: "Usuário", uuid: "UUID", uuid_correction: "Correção de UUID", password: "Senha", date_correction: "Correção de Vencimento" };
   const allNotifications: Array<{ id: string; title: string; body: string; created_at: string; onPress: () => void }> = [];
   if (currentUser || resellerData) {
     for (const t of tickets) {
@@ -2017,20 +2059,38 @@ export default function App() {
                           <div className="flex-1 overflow-hidden">
                             <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5" title="UUID opcional usado no app CloudBR DT para conexão sem usuário/senha">UUID do Aparelho</p>
                             {device.uuid && device.uuid !== "NULL" && device.uuid !== "" ? (
-                              showData ? (
-                                <div className="flex items-center justify-between">
-                                  <p className="text-xs font-semibold text-text-base font-mono truncate mr-2 bg-bg-surface-hover px-2 py-1 rounded-lg border border-border-base">
-                                    {device.uuid}
+                              <div className="flex flex-col gap-2">
+                                {showData ? (
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-semibold text-text-base font-mono truncate mr-2 bg-bg-surface-hover px-2 py-1 rounded-lg border border-border-base">
+                                      {device.uuid}
+                                    </p>
+                                    <button onClick={() => copyToClipboard(device.uuid || "")} className="bg-bg-surface-hover hover:bg-border-base p-1.5 rounded-xl text-text-muted hover:text-blue-600 transition-colors flex-shrink-0">
+                                      <Copy className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs font-semibold text-text-base font-mono truncate bg-bg-surface-hover px-2 py-1 rounded-lg border border-border-base mt-0.5">
+                                    {maskText(device.uuid)}
                                   </p>
-                                  <button onClick={() => copyToClipboard(device.uuid || "")} className="bg-bg-surface-hover hover:bg-border-base p-1.5 rounded-xl text-text-muted hover:text-blue-600 transition-colors flex-shrink-0">
-                                    <Copy className="w-4 h-4" />
+                                )}
+                                {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid_correction' && r.status === 'aguardando') ? (
+                                  <div className="flex items-center bg-amber-50 text-amber-700 px-2.5 py-2 rounded-lg border border-amber-200">
+                                    <Clock className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                                    <p className="text-[11px] font-medium leading-tight">Correção de UUID em andamento. O novo UUID aparecerá aqui em breve.</p>
+                                  </div>
+                                ) : showData ? (
+                                  <button
+                                    onClick={() => handleRequestUuidCorrection(device.login)}
+                                    disabled={loading}
+                                    className="w-full bg-bg-surface-hover hover:bg-blue-50 text-blue-700 text-[11px] font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors active:scale-95 border border-blue-200 disabled:opacity-60"
+                                    title="Use esta opção se o UUID atual não está conectando. Vamos gerar um novo no painel da VPN."
+                                  >
+                                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                                    Correção de UUID
                                   </button>
-                                </div>
-                              ) : (
-                                <p className="text-xs font-semibold text-text-base font-mono truncate bg-bg-surface-hover px-2 py-1 rounded-lg border border-border-base mt-0.5">
-                                  {maskText(device.uuid)}
-                                </p>
-                              )
+                                ) : null}
+                              </div>
                             ) : (
                               <div className="mt-1 flex flex-col gap-2">
                                 {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid' && r.status === 'aguardando') ? (
@@ -2403,12 +2463,12 @@ export default function App() {
                               <div className="flex flex-col gap-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <p className="text-xs font-bold text-text-base">
-                                    {req.type === 'date_correction' ? 'Correção de Vencimento' : req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : 'Alteração de Senha'}
+                                    {req.type === 'date_correction' ? 'Correção de Vencimento' : req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : req.type === 'uuid_correction' ? 'Correção de UUID' : 'Alteração de Senha'}
                                   </p>
                                   <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-md font-bold border border-primary-200">{getDeviceLabel(req.username)}</span>
                                 </div>
                                 <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
-                                  {req.type === 'uuid' ? 'Aguarda ação do admin' : `Valor: ${req.requested_value}`}
+                                  {req.type === 'uuid' || req.type === 'uuid_correction' ? 'Aguarda ação do admin' : `Valor: ${req.requested_value}`}
                                 </p>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">

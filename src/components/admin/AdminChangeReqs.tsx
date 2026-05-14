@@ -33,6 +33,7 @@ function typeLabel(type: string) {
     date: "Vencimento",
     username: "Usuário",
     uuid: "UUID",
+    uuid_correction: "Correção de UUID",
     password: "Senha",
     date_correction: "Correção de Vencimento",
   };
