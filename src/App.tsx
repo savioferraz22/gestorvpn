@@ -8,6 +8,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2, Pencil, Check } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 import { SystemNoticeBanner } from "./components/shared/SystemNoticeBanner";
+import { AppUpdateBanner } from "./components/shared/AppUpdateBanner";
+import { useAppUpdate } from "./hooks/useAppUpdate";
 import { fetchSystemNotice, type SystemNotice } from "./services/api";
 
 type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
@@ -83,6 +85,9 @@ export default function App() {
 
   const [showData, setShowData] = useState(false);
   const [showReferrals, setShowReferrals] = useState(false);
+
+  // Auto-update detection (polls /version.json built at deploy time)
+  const { updateAvailable, reloadNow } = useAppUpdate(view);
 
   // Global system notice (controlled from admin "Configurações")
   const [systemNotice, setSystemNotice] = useState<SystemNotice | null>(null);
@@ -1573,6 +1578,7 @@ export default function App() {
 
   return (
     <div className="min-h-[100dvh] bg-bg-base font-sans w-full relative flex">
+      <AppUpdateBanner visible={updateAvailable} onReload={reloadNow} />
       {/* Background decoration elements */}
       <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[500px] max-h-[500px] rounded-full bg-primary-500/10 blur-[80px]" />

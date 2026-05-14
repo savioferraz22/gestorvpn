@@ -1056,7 +1056,7 @@ app.post("/api/user", async (req, res) => {
     const { data: refundRequest } = await getDb().from("refund_requests").select("*").in("username", groupUsernames).order("created_at", { ascending: false }).limit(1).maybeSingle();
 
     // Get group-wide active change requests (only regular user types + date_correction)
-    const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).in("type", ["date", "username", "uuid", "password", "date_correction"]);
+    const { data: changeRequests } = await getDb().from("change_requests").select("*").in("username", groupUsernames).in("type", ["date", "username", "uuid", "uuid_correction", "password", "date_correction"]);
 
     // Get recent date change request (last 30 days) for the group
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
