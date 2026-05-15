@@ -38,6 +38,7 @@ interface UserData {
   changeRequests?: any[];
   lastPaymentDate?: string;
   payments?: any[];
+  hasGroupPaidOnce?: boolean;
 }
 
 interface Ticket {
@@ -2275,6 +2276,10 @@ export default function App() {
                             </button>
                             <button
                               onClick={() => {
+                                if (!currentUser.hasGroupPaidOnce) {
+                                  showAlertDialog("Alteração de vencimento está disponível apenas para clientes que já realizaram pelo menos um pagamento. Renove ou contrate um plano para liberar essa opção.");
+                                  return;
+                                }
                                 if (groupData && groupData.users.length === 1 && currentUser.changeRequests?.some((r: any) => r.username === currentUser.login && r.type === 'date' && r.status === 'aguardando')) {
                                   showAlertDialog("Você já possui uma solicitação de alteração de vencimento em andamento.");
                                 } else if (groupData && groupData.users.length > 1) {
@@ -2284,7 +2289,8 @@ export default function App() {
                                   setShowDateChangeModal(true);
                                 }
                               }}
-                              className="bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                              className={`bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95 ${!currentUser.hasGroupPaidOnce ? 'opacity-60' : ''}`}
+                              title={!currentUser.hasGroupPaidOnce ? 'Disponível após o primeiro pagamento' : undefined}
                             >
                               <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
                                 <div className="w-10 h-10 bg-primary-100/50 text-primary-600 rounded-xl flex items-center justify-center border border-primary-200 shadow-sm backdrop-blur-sm">

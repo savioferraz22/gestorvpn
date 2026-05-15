@@ -1087,7 +1087,15 @@ app.post("/api/user", async (req, res) => {
     // Get payment history (only regular user payments, exclude reseller)
     const { data: payments } = await getDb().from("payments").select("*").eq("username", username).eq("status", "approved").in("type", REGULAR_PAYMENT_TYPES).order("paid_at", { ascending: false, nullsFirst: false });
 
-    res.json({ ...user, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments });
+    // Whether anyone in the group already paid at least once (used to gate paid-only features)
+    const { count: groupPaidCount } = await getDb().from("payments")
+      .select("id", { count: "exact", head: true })
+      .in("username", groupUsernames)
+      .eq("status", "approved")
+      .in("type", REGULAR_PAYMENT_TYPES);
+    const hasGroupPaidOnce = (groupPaidCount || 0) > 0;
+
+    res.json({ ...user, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments, hasGroupPaidOnce });
   } catch (error: any) {
     console.error("Error fetching user:", error);
     res.status(500).json({ error: error.message || "Erro interno do servidor" });
@@ -1843,6 +1851,22 @@ app.post("/api/user/update-access", async (req, res) => {
     }
 
     if (action === 'date') {
+      // Block clients still on free trial (never paid) from changing the expiration date.
+      const { data: groupRecord } = await getDb().from("user_groups").select("group_id").eq("username", username).maybeSingle();
+      let groupUsernames = [username];
+      if (groupRecord?.group_id) {
+        const { data: gUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupRecord.group_id);
+        if (gUsers) groupUsernames = gUsers.map((u: any) => u.username);
+      }
+      const { count: paidCount } = await getDb().from("payments")
+        .select("id", { count: "exact", head: true })
+        .in("username", groupUsernames)
+        .eq("status", "approved")
+        .in("type", REGULAR_PAYMENT_TYPES);
+      if (!paidCount || paidCount === 0) {
+        return res.status(400).json({ error: "Alteração de vencimento disponível apenas para clientes que já realizaram pelo menos um pagamento." });
+      }
+
       const expirationDate = new Date(userExists.expira.replace(' ', 'T'));
       const now = new Date();
       const newDateObj = new Date(newValue + "T23:59:59");
