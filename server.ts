@@ -2355,6 +2355,32 @@ app.get("/api/admin/reports", async (req, res) => {
 app.post("/api/tickets", async (req, res) => {
   try {
     const { username, category, subject, message } = req.body;
+
+    // Block ticket creation when the user already has any pending request to the admin.
+    // Why: customers were requesting (e.g.) a UUID via the dedicated flow and then opening
+    // a ticket asking the same thing, duplicating admin work.
+    const { data: pendingChange } = await getDb()
+      .from("change_requests")
+      .select("id")
+      .eq("username", username)
+      .eq("status", "aguardando")
+      .limit(1)
+      .maybeSingle();
+    if (pendingChange) {
+      return res.status(400).json({ error: "Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket." });
+    }
+
+    const { data: pendingRefund } = await getDb()
+      .from("refund_requests")
+      .select("id")
+      .eq("username", username)
+      .eq("status", "aguardando")
+      .limit(1)
+      .maybeSingle();
+    if (pendingRefund) {
+      return res.status(400).json({ error: "Você possui uma solicitação de reembolso pendente. Aguarde o atendimento dela antes de abrir um novo ticket." });
+    }
+
     const ticketId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
 

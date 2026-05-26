@@ -1026,12 +1026,24 @@ export default function App() {
     }
   };
 
+  const hasPendingRequest = (user: any): boolean => {
+    if (!user) return false;
+    const pendingChange = user.changeRequests?.some((r: any) => r.status === 'aguardando');
+    const pendingRefund = user.refundRequest && user.refundRequest.status === 'aguardando';
+    return Boolean(pendingChange || pendingRefund);
+  };
+
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ticketForm.subject || !ticketForm.message || !currentUser) return;
+    if (hasPendingRequest(currentUser)) {
+      setShowNewTicketModal(false);
+      showAlertDialog("Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket.", "Solicitação pendente");
+      return;
+    }
     setLoading(true);
     try {
-      await fetch("/api/tickets", {
+      const res = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1041,6 +1053,12 @@ export default function App() {
           message: ticketForm.message
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setShowNewTicketModal(false);
+        showAlertDialog(data?.error || "Não foi possível abrir o ticket.", "Solicitação pendente");
+        return;
+      }
       setTicketForm({ category: "Suporte Técnico", subject: "", message: "" });
       setShowNewTicketModal(false);
       fetchUserTickets();
@@ -5478,8 +5496,16 @@ export default function App() {
 
                 {/* Floating Action Button */}
                 <button
-                  onClick={() => setShowNewTicketModal(true)}
-                  className="absolute bottom-20 right-6 md:bottom-6 w-14 h-14 bg-primary-600 hover:bg-primary-700 text-white rounded-full flex items-center justify-center shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all z-20"
+                  onClick={() => {
+                    if (hasPendingRequest(currentUser)) {
+                      showAlertDialog("Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket.", "Solicitação pendente");
+                      return;
+                    }
+                    setShowNewTicketModal(true);
+                  }}
+                  disabled={hasPendingRequest(currentUser)}
+                  title={hasPendingRequest(currentUser) ? "Existe uma solicitação pendente. Aguarde o atendimento antes de abrir um novo ticket." : "Abrir novo ticket"}
+                  className={`absolute bottom-20 right-6 md:bottom-6 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all z-20 ${hasPendingRequest(currentUser) ? "bg-bg-surface-hover text-text-muted cursor-not-allowed opacity-70" : "bg-primary-600 hover:bg-primary-700 text-white hover:shadow-xl hover:-translate-y-1"}`}
                 >
                   <Plus className="w-7 h-7" />
                 </button>
