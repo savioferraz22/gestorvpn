@@ -28,12 +28,10 @@ export function Card({
   onClick,
 }: CardProps) {
   const base =
-    "bg-bg-surface border border-border-base/60 rounded-2xl transition-all";
-  const shadow = elevated
-    ? "shadow-[var(--shadow-card-md)]"
-    : "shadow-[var(--shadow-card-sm)]";
+    "bg-bg-surface border border-border-base rounded-xl transition-colors";
+  const shadow = "";
   const hover = interactive
-    ? "hover:border-border-base hover:-translate-y-[1px] cursor-pointer"
+    ? "hover:bg-bg-surface-hover cursor-pointer"
     : "";
   return (
     <Tag

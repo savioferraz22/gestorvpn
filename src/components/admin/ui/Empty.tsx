@@ -23,13 +23,13 @@ export function Empty({
     <div
       className={`flex flex-col items-center justify-center gap-3 text-center ${pad} ${className}`}
     >
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-bg-surface-hover text-text-muted">
+      <div className="text-text-muted">
         {icon ?? <Inbox size={24} />}
       </div>
       <div className="max-w-md">
-        <div className="text-base font-semibold text-text-base">{title}</div>
+        <div className="text-sm font-bold text-text-base">{title}</div>
         {description && (
-          <div className="mt-1 text-sm text-text-muted">{description}</div>
+          <div className="mt-0.5 text-xs text-text-muted">{description}</div>
         )}
       </div>
       {action && <div className="mt-1">{action}</div>}

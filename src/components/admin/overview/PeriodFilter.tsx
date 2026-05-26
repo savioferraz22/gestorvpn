@@ -19,7 +19,7 @@ export function PeriodFilter({ value, onChange, disabled }: PeriodFilterProps) {
     <div
       role="radiogroup"
       aria-label="Período"
-      className="inline-flex items-center rounded-xl border border-border-base/60 bg-bg-surface p-0.5 shadow-[var(--shadow-card-sm)]"
+      className="inline-flex items-center rounded-md border border-border-base bg-bg-surface p-0.5"
     >
       {OPTIONS.map((opt) => {
         const active = value === opt.value;
@@ -31,9 +31,9 @@ export function PeriodFilter({ value, onChange, disabled }: PeriodFilterProps) {
             aria-checked={active}
             disabled={disabled}
             onClick={() => onChange(opt.value)}
-            className={`relative rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors sm:px-3 ${
+            className={`relative rounded-sm px-2.5 h-7 text-xs font-bold font-mono transition-colors sm:px-3 ${
               active
-                ? "bg-primary-600 text-white"
+                ? "bg-text-base text-bg-base"
                 : "text-text-muted hover:text-text-base"
             } disabled:opacity-50`}
           >

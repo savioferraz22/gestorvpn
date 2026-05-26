@@ -106,29 +106,29 @@ export function AdminUsers({ navigateTo }: Props) {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto flex max-w-4xl flex-col gap-4 p-4 sm:p-6">
-        <SectionHeader title="Buscar Usuário" subtitle="Consulta detalhada por username" />
+        <SectionHeader title="Buscar usuário" subtitle="Consulta detalhada por username" />
 
         <form onSubmit={handleSearch} className="flex gap-2">
           <div className="relative flex-1">
             <Search
               size={14}
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
             />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Digite o username..."
+              placeholder="Digite o username…"
               autoFocus
-              className="w-full rounded-xl border border-border-base/60 bg-bg-surface py-3 pl-10 pr-4 text-sm font-medium outline-none focus:border-primary-500/70 focus:ring-2 focus:ring-[var(--ring-focus)]"
+              className="w-full rounded-md border border-border-base bg-bg-surface h-11 pl-9 pr-3 text-sm font-mono outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/30 transition-colors"
             />
           </div>
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="rounded-xl bg-primary-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700 active:scale-95 disabled:opacity-60"
+            className="rounded-md bg-primary-600 px-4 h-11 text-sm font-bold text-white transition-colors hover:bg-primary-700 active:scale-[0.98] disabled:opacity-60"
           >
-            {loading ? "..." : "Buscar"}
+            {loading ? "…" : "Buscar"}
           </button>
         </form>
 
@@ -142,14 +142,12 @@ export function AdminUsers({ navigateTo }: Props) {
           <div className="flex flex-col gap-4">
             <Card padding="md" className="flex flex-col gap-4">
               <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-primary-500/30 bg-primary-500/10 text-primary-500">
-                    <User size={18} />
-                  </div>
-                  <div>
-                    <p className="text-lg font-bold text-text-base">{u.login}</p>
-                    <p className="text-sm text-text-muted">
-                      {u.expira ? `Expira: ${u.expira}` : "Sem data de expiração"}
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <User size={16} className="text-primary-600 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-text-base font-mono truncate">{u.login}</p>
+                    <p className="text-xs text-text-muted">
+                      {u.expira ? <>Expira: <span className="font-mono">{u.expira}</span></> : "Sem data de expiração"}
                     </p>
                   </div>
                 </div>
@@ -180,34 +178,33 @@ export function AdminUsers({ navigateTo }: Props) {
               </div>
 
               {userData.plan && (
-                <div className="rounded-xl border border-primary-500/20 bg-primary-500/10 p-3">
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-primary-500">
+                <div className="rounded-md border border-border-base bg-bg-surface-hover p-3">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">
                     Plano atual
                   </p>
-                  <p className="text-sm font-bold text-primary-700 dark:text-primary-300">
+                  <p className="text-sm font-bold text-text-base font-mono">
                     {userData.plan.plan_months}{" "}
-                    {userData.plan.plan_months === 1 ? "mês" : "meses"} •{" "}
+                    {userData.plan.plan_months === 1 ? "mês" : "meses"} ·{" "}
                     {userData.plan.plan_devices}{" "}
-                    {userData.plan.plan_devices === 1 ? "aparelho" : "aparelhos"} • R${" "}
-                    {Number(userData.plan.plan_price).toFixed(2).replace(".", ",")}
+                    {userData.plan.plan_devices === 1 ? "aparelho" : "aparelhos"} · R$ {Number(userData.plan.plan_price).toFixed(2).replace(".", ",")}
                   </p>
                 </div>
               )}
 
               {userData.groupMembers?.length > 0 && (
-                <div className="overflow-hidden rounded-xl border border-border-base/60">
-                  <p className="flex items-center gap-1.5 px-3 pb-1 pt-3 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                <div className="overflow-hidden rounded-md border border-border-base">
+                  <p className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted border-b border-border-base">
                     <Smartphone size={12} /> Outros aparelhos do mesmo plano
                   </p>
-                  <div className="divide-y divide-border-base/40">
+                  <div className="divide-y divide-border-base">
                     {userData.groupMembers.map((m: any) => (
                       <div
                         key={m.username}
                         className="flex items-center justify-between px-3 py-2.5"
                       >
-                        <div>
-                          <p className="text-sm font-bold text-text-base">{m.username}</p>
-                          <p className="text-xs text-text-muted">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-text-base font-mono truncate">{m.username}</p>
+                          <p className="text-xs text-text-muted font-mono">
                             {m.expira
                               ? `Vence: ${m.expira?.slice(0, 10).split("-").reverse().join("/")}`
                               : "—"}
@@ -239,27 +236,27 @@ export function AdminUsers({ navigateTo }: Props) {
                   type="button"
                   onClick={() => handleUpdateAccess(u.login)}
                   disabled={updatingAccess}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700 active:scale-95 disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary-600 px-3 h-9 text-sm font-bold text-white transition-colors hover:bg-primary-700 active:scale-[0.98] disabled:opacity-60"
                 >
                   <RefreshCw size={14} className={updatingAccess ? "animate-spin" : ""} />
-                  Atualizar Acesso
+                  Atualizar acesso
                 </button>
                 <button
                   type="button"
                   onClick={() => navigateTo("tickets")}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-border-base/60 bg-bg-surface px-4 py-2 text-sm font-bold text-text-base hover:bg-bg-surface-hover"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border-base bg-bg-surface px-3 h-9 text-sm font-bold text-text-base hover:bg-bg-surface-hover transition-colors"
                 >
                   <ExternalLink size={14} />
-                  Ver Tickets
+                  Ver tickets
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmDelete(true)}
                   disabled={deleting}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-2 text-sm font-semibold text-danger hover:bg-danger/20 disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger-soft px-3 h-9 text-sm font-bold text-danger hover:bg-danger/15 transition-colors disabled:opacity-60"
                 >
                   <Trash2 size={14} />
-                  Excluir Cliente
+                  Excluir cliente
                 </button>
               </div>
             </Card>
@@ -281,7 +278,7 @@ export function AdminUsers({ navigateTo }: Props) {
                   )}
                 </button>
                 {showHistory && (
-                  <div className="divide-y divide-border-base/40 border-t border-border-base/40">
+                  <div className="divide-y divide-border-base border-t border-border-base">
                     {approvedPayments.map((p: any) => {
                       let amount = 0;
                       try {
@@ -329,7 +326,7 @@ export function AdminUsers({ navigateTo }: Props) {
                   )}
                 </button>
                 {showReferrals && (
-                  <div className="divide-y divide-border-base/40 border-t border-border-base/40">
+                  <div className="divide-y divide-border-base border-t border-border-base">
                     {userData.referrals.map((r: any) => (
                       <div
                         key={r.id}
@@ -355,10 +352,8 @@ export function AdminUsers({ navigateTo }: Props) {
         )}
 
         {!loading && !userData && !error && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-bg-surface-hover">
-              <Search size={24} className="text-text-muted" />
-            </div>
+          <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
+            <Search size={22} className="text-text-muted" />
             <p className="text-sm font-medium text-text-muted">
               Digite um username para buscar
             </p>

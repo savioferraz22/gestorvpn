@@ -146,7 +146,7 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
                 type="button"
                 onClick={() => refresh(reportPeriod)}
                 disabled={loading}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-base bg-bg-surface text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors disabled:opacity-50"
               >
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               </button>
@@ -188,7 +188,7 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
           />
         </div>
 
-        <div className="flex items-center gap-1 rounded-2xl border border-border-base/60 bg-bg-surface p-1 shadow-[var(--shadow-card-sm)]">
+        <div className="flex items-center gap-1 rounded-md border border-border-base bg-bg-surface p-0.5">
           {TABS.map((t) => {
             const active = tab === t.id;
             return (
@@ -196,9 +196,9 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-bold transition-colors ${
+                className={`flex-1 rounded-sm px-3 h-8 text-xs font-bold transition-colors ${
                   active
-                    ? "bg-primary-600 text-white shadow-sm"
+                    ? "bg-text-base text-bg-base"
                     : "text-text-muted hover:text-text-base"
                 }`}
               >
@@ -246,7 +246,7 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
                 Top Clientes
               </h3>
             </div>
-            <div className="divide-y divide-border-base/40">
+            <div className="divide-y divide-border-base">
               {topUsers.map((u, i) => {
                 const maxRev = topUsers[0].revenue || 1;
                 const pct = (u.revenue / maxRev) * 100;
@@ -284,12 +284,12 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
         {reports.topPlans && reports.topPlans.length > 0 && (
           <Card padding="none" className="overflow-hidden">
             <div className="flex items-center gap-2 px-4 pb-2 pt-4">
-              <Layers className="h-4 w-4 text-[var(--success)]" />
+              <Layers className="h-4 w-4 text-success" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
                 Top Planos (snapshot atual)
               </h3>
             </div>
-            <div className="divide-y divide-border-base/40">
+            <div className="divide-y divide-border-base">
               {reports.topPlans.map((p, i) => {
                 const maxUsers = reports.topPlans![0].users || 1;
                 const pct = (p.users / maxUsers) * 100;
@@ -299,7 +299,7 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex items-center justify-between">
                         <p className="text-xs font-semibold text-text-base">{label}</p>
-                        <p className="ml-2 shrink-0 text-xs font-bold text-[var(--success)]">
+                        <p className="ml-2 shrink-0 text-xs font-bold text-success">
                           R$ {p.plan_price.toFixed(2).replace(".", ",")}
                         </p>
                       </div>
@@ -328,12 +328,12 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
         {reports.topReferrers && reports.topReferrers.length > 0 && (
           <Card padding="none" className="overflow-hidden">
             <div className="flex items-center gap-2 px-4 pb-2 pt-4">
-              <Share2 className="h-4 w-4 text-[var(--info)]" />
+              <Share2 className="h-4 w-4 text-info" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
                 Top Indicações
               </h3>
             </div>
-            <div className="divide-y divide-border-base/40">
+            <div className="divide-y divide-border-base">
               {reports.topReferrers.map((r, i) => {
                 const maxTotal = reports.topReferrers![0].total || 1;
                 const pct = (r.total / maxTotal) * 100;
@@ -352,7 +352,7 @@ export function AdminReports({ reports, setReports, reportPeriod, setReportPerio
                           <Chip tone="success" size="sm">
                             {r.converted} conv.
                           </Chip>
-                          <span className="text-[10px] font-bold text-[var(--info)]">
+                          <span className="text-[10px] font-bold text-info">
                             {r.total} ind.
                           </span>
                         </div>
@@ -449,7 +449,7 @@ function RevenueTab({
 
       {bestSaleDay && bestSaleDay.revenue > 0 && (
         <Card padding="md" className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500/15 text-primary-500">
+          <div className="text-primary-600 shrink-0">
             <Award size={18} />
           </div>
           <div className="min-w-0 flex-1">
@@ -474,7 +474,7 @@ function RevenueTab({
         </div>
         <div className="max-h-80 overflow-y-auto">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 border-b border-border-base/50 bg-bg-surface text-text-muted">
+            <thead className="sticky top-0 border-b border-border-base bg-bg-surface text-text-muted">
               <tr>
                 <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider">
                   Data
@@ -499,7 +499,7 @@ function RevenueTab({
                   return (
                     <tr
                       key={i}
-                      className={`border-b border-border-base/40 last:border-0 hover:bg-bg-surface-hover ${
+                      className={`border-b border-border-base last:border-0 hover:bg-bg-surface-hover ${
                         highlight ? "bg-primary-500/5" : ""
                       }`}
                     >
@@ -522,7 +522,7 @@ function RevenueTab({
                   );
                 })}
             </tbody>
-            <tfoot className="border-t border-border-base/50 bg-bg-base/30">
+            <tfoot className="border-t border-border-base bg-bg-base/30">
               <tr>
                 <td className="px-4 py-2 text-[10px] font-bold uppercase text-text-muted">
                   Total
@@ -607,7 +607,7 @@ function TestsTab({
 
       {bestTestDay && bestTestDay.count > 0 && (
         <Card padding="md" className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--info-soft)] text-[var(--info)]">
+          <div className="text-info shrink-0">
             <Users size={18} />
           </div>
           <div className="min-w-0 flex-1">
@@ -630,7 +630,7 @@ function TestsTab({
         </div>
         <div className="max-h-80 overflow-y-auto">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 border-b border-border-base/50 bg-bg-surface text-text-muted">
+            <thead className="sticky top-0 border-b border-border-base bg-bg-surface text-text-muted">
               <tr>
                 <th className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider">
                   Data
@@ -652,8 +652,8 @@ function TestsTab({
                   return (
                     <tr
                       key={i}
-                      className={`border-b border-border-base/40 last:border-0 hover:bg-bg-surface-hover ${
-                        highlight ? "bg-[var(--info-soft)]" : ""
+                      className={`border-b border-border-base last:border-0 hover:bg-bg-surface-hover ${
+                        highlight ? "bg-info-soft" : ""
                       }`}
                     >
                       <td className="px-4 py-2 text-xs font-medium text-text-base">
@@ -661,7 +661,7 @@ function TestsTab({
                       </td>
                       <td
                         className={`px-4 py-2 text-right text-xs font-bold ${
-                          highlight ? "text-[var(--info)]" : "text-text-base"
+                          highlight ? "text-info" : "text-text-base"
                         }`}
                       >
                         {count}
@@ -670,12 +670,12 @@ function TestsTab({
                   );
                 })}
             </tbody>
-            <tfoot className="border-t border-border-base/50 bg-bg-base/30">
+            <tfoot className="border-t border-border-base bg-bg-base/30">
               <tr>
                 <td className="px-4 py-2 text-[10px] font-bold uppercase text-text-muted">
                   Total
                 </td>
-                <td className="px-4 py-2 text-right text-xs font-bold text-[var(--info)]">
+                <td className="px-4 py-2 text-right text-xs font-bold text-info">
                   {totalTests}
                 </td>
               </tr>
@@ -755,7 +755,7 @@ function TypesTab({ byType, totalRevenue, slices }: TypesTabProps) {
             Detalhamento
           </h3>
         </div>
-        <div className="divide-y divide-border-base/40">
+        <div className="divide-y divide-border-base">
           {byType
             .filter((t) => t.revenue > 0)
             .map((t) => {

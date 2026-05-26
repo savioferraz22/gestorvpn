@@ -30,7 +30,7 @@ export function FilterBar({
   const showCount = typeof filtered === "number" && typeof total === "number";
 
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border border-border-base/60 bg-bg-surface p-3 shadow-[var(--shadow-card-sm)]">
+    <div className="flex flex-col gap-2 rounded-xl border border-border-base bg-bg-surface p-3">
       <div className="flex flex-wrap items-center gap-2">
         {search && <div className="min-w-[14rem] flex-1">{search}</div>}
         {filters && <div className="flex flex-wrap items-center gap-2">{filters}</div>}
@@ -52,7 +52,7 @@ export function FilterBar({
               {chips!.map((chip) => (
                 <span
                   key={chip.id}
-                  className="inline-flex items-center gap-1 rounded-full border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-semibold text-primary-600"
+                  className="inline-flex items-center gap-1 rounded-md border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-bold text-primary-600"
                 >
                   {chip.label}
                   {chip.onRemove && (

@@ -17,7 +17,7 @@ export function SearchInput({
 }: SearchInputProps) {
   return (
     <div
-      className={`relative flex items-center rounded-xl border border-border-base/60 bg-bg-surface pl-9 pr-8 shadow-[var(--shadow-card-sm)] focus-within:border-primary-500/70 focus-within:ring-2 focus-within:ring-[var(--ring-focus)] ${className}`}
+      className={`relative flex items-center rounded-md border border-border-base bg-bg-surface pl-9 pr-8 focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-500/30 transition-colors ${className}`}
     >
       <Search
         size={14}

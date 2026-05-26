@@ -48,39 +48,36 @@ export function TopBar({
   ].filter((i) => i.count > 0);
 
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border-base/50 bg-bg-surface/80 px-4 py-3 backdrop-blur sm:px-5">
+    <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-border-base bg-bg-surface px-3 h-14 sm:px-4">
       <button
         type="button"
         onClick={onOpenDrawer}
-        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-xl text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
         aria-label="Abrir menu"
       >
         <Menu size={18} />
       </button>
 
-      <div className="hidden sm:flex min-w-0 flex-1">
-        <Breadcrumbs tab={tab} />
-      </div>
-      <div className="flex sm:hidden min-w-0 flex-1">
+      <div className="min-w-0 flex-1">
         <Breadcrumbs tab={tab} />
       </div>
 
       <button
         type="button"
         onClick={onOpenCommand}
-        className="group hidden md:inline-flex h-9 items-center gap-2 rounded-xl border border-border-base/60 bg-bg-surface-hover/60 px-2.5 text-xs text-text-muted transition-colors hover:border-border-base hover:bg-bg-surface-hover hover:text-text-base"
+        className="group hidden md:inline-flex h-9 items-center gap-2 rounded-md border border-border-base bg-bg-base px-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-bg-surface-hover hover:text-text-base"
         aria-label="Buscar"
       >
         <Search size={14} />
         <span>Buscar no painel…</span>
-        <kbd className="ml-3 inline-flex items-center gap-0.5 rounded-md border border-border-base bg-bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">
+        <kbd className="ml-3 inline-flex items-center gap-0.5 rounded border border-border-base bg-bg-surface px-1.5 py-0.5 text-[10px] font-bold font-mono text-text-muted">
           <CommandIcon size={10} /> K
         </kbd>
       </button>
       <button
         type="button"
         onClick={onOpenCommand}
-        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-xl text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
         aria-label="Buscar"
       >
         <Search size={16} />
@@ -89,7 +86,7 @@ export function TopBar({
       <button
         type="button"
         onClick={onToggleTheme}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border-base/60 text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
         aria-label={theme === "dark" ? "Mudar para tema claro" : "Mudar para tema escuro"}
       >
         {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
@@ -99,12 +96,12 @@ export function TopBar({
         <button
           type="button"
           onClick={() => setNotifOpen((v) => !v)}
-          className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border-base/60 text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
           aria-label="Pendências"
         >
           <Bell size={15} />
           {total > 0 && (
-            <span className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[9px] font-bold text-white">
+            <span className="absolute -right-0.5 -top-0.5 inline-flex min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
               {total > 9 ? "9+" : total}
             </span>
           )}
@@ -115,36 +112,38 @@ export function TopBar({
               className="fixed inset-0 z-40"
               onClick={() => setNotifOpen(false)}
             />
-            <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-72 overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-[var(--shadow-card-md)]">
-              <div className="border-b border-border-base/60 px-4 py-3">
+            <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-72 overflow-hidden rounded-xl border border-border-base bg-bg-surface shadow-[var(--shadow-card-md)]">
+              <div className="border-b border-border-base px-4 py-2.5">
                 <p className="text-sm font-bold text-text-base">Pendências</p>
               </div>
               {items.length === 0 ? (
-                <div className="px-4 py-8 text-center">
-                  <Bell className="mx-auto mb-2 h-7 w-7 text-text-muted opacity-30" />
+                <div className="px-4 py-6 text-center">
+                  <Bell className="mx-auto mb-2 h-6 w-6 text-text-muted opacity-40" />
                   <p className="text-sm font-medium text-text-muted">
                     Nenhuma pendência
                   </p>
                 </div>
               ) : (
-                items.map((i) => (
-                  <button
-                    key={i.tab}
-                    type="button"
-                    onClick={() => {
-                      onNavigate(i.tab);
-                      setNotifOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between border-b border-border-base/40 px-4 py-3 text-left transition-colors last:border-0 hover:bg-bg-surface-hover"
-                  >
-                    <span className="text-sm font-medium text-text-base">
-                      {i.label}
-                    </span>
-                    <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-xs font-bold text-[var(--danger)]">
-                      {i.count}
-                    </span>
-                  </button>
-                ))
+                <div className="divide-y divide-border-base">
+                  {items.map((i) => (
+                    <button
+                      key={i.tab}
+                      type="button"
+                      onClick={() => {
+                        onNavigate(i.tab);
+                        setNotifOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-bg-surface-hover"
+                    >
+                      <span className="text-sm font-medium text-text-base">
+                        {i.label}
+                      </span>
+                      <span className="text-[11px] font-bold text-danger">
+                        {i.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </>
@@ -154,7 +153,7 @@ export function TopBar({
       <button
         type="button"
         onClick={onBack}
-        className="hidden md:inline-flex items-center gap-1.5 rounded-xl border border-border-base/60 px-3 py-2 text-xs font-medium text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+        className="hidden md:inline-flex items-center gap-1.5 rounded-md px-2.5 h-9 text-xs font-bold text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
       >
         <ArrowLeft size={13} />
         Voltar ao app
@@ -162,7 +161,7 @@ export function TopBar({
       <button
         type="button"
         onClick={onBack}
-        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-xl text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+        className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
         aria-label="Voltar ao app"
       >
         <ArrowLeft size={15} />

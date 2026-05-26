@@ -68,7 +68,7 @@ export function AdminOverview({
       <div className="mx-auto flex max-w-7xl flex-col gap-5 p-4 sm:p-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-text-base">Visão Geral</h2>
+            <h2 className="text-lg font-bold text-text-base tracking-tight">Visão geral</h2>
             <p className="text-xs text-text-muted">
               Desempenho do negócio nos últimos {period} dias
             </p>
@@ -79,7 +79,7 @@ export function AdminOverview({
               type="button"
               onClick={() => refresh()}
               disabled={loading}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover active:scale-95 disabled:opacity-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-base bg-bg-surface text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors active:scale-95 disabled:opacity-50"
               aria-label="Recarregar"
               title="Recarregar"
             >

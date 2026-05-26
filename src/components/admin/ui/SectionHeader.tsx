@@ -27,14 +27,14 @@ export function SectionHeader({
     <div
       className={`flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ${className}`}
     >
-      <div className="flex items-start gap-3 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         {icon && (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-500/12 text-primary-500">
+          <span className="text-primary-600 shrink-0">
             {icon}
-          </div>
+          </span>
         )}
         <div className="min-w-0">
-          <h2 className={`font-bold text-text-base ${titleSize}`}>{title}</h2>
+          <h2 className={`font-bold text-text-base tracking-tight ${titleSize}`}>{title}</h2>
           {subtitle && (
             <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>
           )}

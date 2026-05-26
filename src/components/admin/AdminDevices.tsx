@@ -81,7 +81,7 @@ export function AdminDevices({ devices, setDevices }: Props) {
       header: "Usuário",
       accessor: (d) => d.username,
       cell: (d) => (
-        <span className="font-semibold text-text-base">{d.username}</span>
+        <span className="font-bold text-text-base font-mono">{d.username}</span>
       ),
     },
     {
@@ -90,7 +90,7 @@ export function AdminDevices({ devices, setDevices }: Props) {
       accessor: (d) => d.device_id,
       cell: (d) => (
         <span
-          className="inline-block max-w-[16rem] truncate rounded bg-bg-surface-hover/60 px-1.5 py-0.5 font-mono text-[11px] text-text-muted"
+          className="inline-block max-w-[16rem] truncate font-mono text-[11px] text-text-muted"
           title={d.device_id}
         >
           {d.device_id}
@@ -102,7 +102,7 @@ export function AdminDevices({ devices, setDevices }: Props) {
       header: "Registrado em",
       accessor: (d) => d.created_at,
       cell: (d) => (
-        <span className="text-xs text-text-muted">{formatDate(d.created_at)}</span>
+        <span className="text-xs text-text-muted font-mono">{formatDate(d.created_at)}</span>
       ),
     },
     {
@@ -117,7 +117,7 @@ export function AdminDevices({ devices, setDevices }: Props) {
             e.stopPropagation();
             setConfirmDelete(d.device_id);
           }}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-danger/30 bg-danger/10 text-danger hover:bg-danger/20"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-danger-soft hover:text-danger transition-colors"
           aria-label="Remover"
           title="Remover aparelho"
         >
@@ -139,7 +139,7 @@ export function AdminDevices({ devices, setDevices }: Props) {
                 type="button"
                 onClick={() => setConfirmClear(true)}
                 disabled={devices.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-xs font-semibold text-danger hover:bg-danger/20 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger-soft px-2.5 h-8 text-xs font-bold text-danger hover:bg-danger/15 transition-colors disabled:opacity-50"
               >
                 <Trash2 size={13} /> Limpar todos
               </button>
@@ -147,7 +147,7 @@ export function AdminDevices({ devices, setDevices }: Props) {
                 type="button"
                 onClick={refresh}
                 disabled={loading}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-base bg-bg-surface text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors disabled:opacity-50"
               >
                 <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               </button>

@@ -85,11 +85,11 @@ export function DataTable<T>({
   const padY = density === "compact" ? "py-2" : "py-3";
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border-base/60 bg-bg-surface shadow-[var(--shadow-card-sm)]">
+    <div className="overflow-hidden rounded-xl border border-border-base bg-bg-surface">
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead
-            className={`bg-bg-surface-hover/60 ${
+            className={`bg-bg-surface-hover ${
               stickyHeader ? "sticky top-0 z-10" : ""
             }`}
           >
@@ -107,7 +107,7 @@ export function DataTable<T>({
                   <th
                     key={col.id}
                     style={col.width ? { width: col.width } : undefined}
-                    className={`${align} border-b border-border-base/60 px-3 ${padY} text-[11px] font-bold uppercase tracking-wide text-text-muted ${
+                    className={`${align} border-b border-border-base px-3 ${padY} text-[11px] font-bold uppercase tracking-[0.08em] text-text-muted ${
                       col.headerClassName ?? ""
                     }`}
                   >
@@ -137,7 +137,7 @@ export function DataTable<T>({
           <tbody>
             {loading && visible.length === 0 ? (
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={`sk-${i}`} className="border-b border-border-base/40 last:border-0">
+                <tr key={`sk-${i}`} className="border-b border-border-base last:border-0">
                   {columns.map((col) => (
                     <td key={col.id} className={`px-3 ${padY}`}>
                       <Skeleton width="70%" />
@@ -159,9 +159,9 @@ export function DataTable<T>({
                   <tr
                     key={id}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
-                    className={`border-b border-border-base/40 last:border-0 transition-colors ${
+                    className={`border-b border-border-base last:border-0 transition-colors ${
                       onRowClick
-                        ? "cursor-pointer hover:bg-bg-surface-hover/60"
+                        ? "cursor-pointer hover:bg-bg-surface-hover"
                         : ""
                     } ${extra}`}
                   >
@@ -192,16 +192,16 @@ export function DataTable<T>({
       </div>
 
       {pageSize && total > pageSize && (
-        <div className="flex items-center justify-between border-t border-border-base/60 bg-bg-surface-hover/30 px-3 py-2 text-xs text-text-muted">
-          <span>
-            Página {currentPage + 1} de {totalPages} · {total} itens
+        <div className="flex items-center justify-between border-t border-border-base bg-bg-surface-hover px-3 py-2 text-xs text-text-muted">
+          <span className="font-mono">
+            {currentPage + 1} / {totalPages} · {total} itens
           </span>
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={currentPage === 0}
-              className="rounded-lg border border-border-base/60 bg-bg-surface px-2 py-1 font-semibold hover:bg-bg-surface-hover disabled:opacity-40"
+              className="rounded-md border border-border-base bg-bg-surface px-2 py-1 font-bold hover:bg-bg-surface-hover transition-colors disabled:opacity-40"
             >
               Anterior
             </button>
@@ -209,7 +209,7 @@ export function DataTable<T>({
               type="button"
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={currentPage >= totalPages - 1}
-              className="rounded-lg border border-border-base/60 bg-bg-surface px-2 py-1 font-semibold hover:bg-bg-surface-hover disabled:opacity-40"
+              className="rounded-md border border-border-base bg-bg-surface px-2 py-1 font-bold hover:bg-bg-surface-hover transition-colors disabled:opacity-40"
             >
               Próxima
             </button>

@@ -43,7 +43,7 @@ export function MobileDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="absolute top-3 right-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-bg-surface-hover text-text-muted hover:text-text-base"
+                className="absolute top-3 right-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
                 aria-label="Fechar menu"
               >
                 <X size={16} />

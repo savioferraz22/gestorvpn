@@ -218,7 +218,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
               type="button"
               onClick={refresh}
               disabled={loading}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base bg-bg-surface text-text-muted hover:bg-bg-surface-hover disabled:opacity-50"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
@@ -307,7 +307,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                         </button>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <span className="rounded-md border border-border-base/50 bg-bg-surface-hover/60 px-1.5 py-0.5 text-[11px] text-text-muted">
+                        <span className="rounded-md border border-border-base bg-bg-surface-hover px-1.5 py-0.5 text-[11px] text-text-muted">
                           {formatDate(r.created_at)}
                         </span>
                         <Chip tone={isCorrection ? "info" : "primary"} size="sm" uppercase>
@@ -322,7 +322,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
 
                   {u && (
                     <div className="flex flex-wrap gap-2">
-                      <div className="inline-flex items-center gap-1.5 rounded-xl border border-border-base/40 bg-bg-surface-hover/40 px-3 py-1.5">
+                      <div className="inline-flex items-center gap-1.5 rounded-xl border border-border-base bg-bg-surface-hover px-3 py-1.5">
                         <KeyRound size={13} className="text-text-muted" />
                         <span className="font-mono text-xs font-bold text-text-base">
                           {showPass[r.username] ? (pass || "N/A") : "••••••"}
@@ -360,7 +360,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                               ? "border-danger/30 bg-danger/10"
                               : days <= 5
                                 ? "border-warning/30 bg-warning/10"
-                                : "border-border-base/40 bg-bg-surface-hover/40"
+                                : "border-border-base bg-bg-surface-hover"
                           }`}
                         >
                           <Clock
@@ -409,7 +409,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                     className={`rounded-xl border p-3 ${
                       isCorrection
                         ? "border-info/30 bg-info/5"
-                        : "border-border-base/50 bg-bg-surface-hover/40"
+                        : "border-border-base bg-bg-surface-hover"
                     }`}
                   >
                     <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-text-muted">
@@ -444,7 +444,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                   </div>
 
                   {r.status === "aguardando" && (
-                    <div className="flex gap-2 border-t border-border-base/50 pt-3">
+                    <div className="flex gap-2 border-t border-border-base pt-3">
                       <button
                         type="button"
                         onClick={() => startApprove(r)}
@@ -485,7 +485,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                 type="text"
                 value={approvedValue}
                 onChange={(e) => setApprovedValue(e.target.value)}
-                className="w-full rounded-xl border border-border-base/60 bg-bg-surface px-3 py-2 text-sm text-text-base outline-none focus:border-primary-500/70 focus:ring-2 focus:ring-[var(--ring-focus)]"
+                className="w-full rounded-xl border border-border-base bg-bg-surface px-3 py-2 text-sm text-text-base outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/30 transition-colors"
               />
             </div>
             <div className="mt-4 flex gap-2">
@@ -495,7 +495,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                   setPendingApprove(null);
                   setApprovedValue("");
                 }}
-                className="flex-1 rounded-lg border border-border-base/60 bg-bg-surface px-3 py-2 text-sm font-bold text-text-base hover:bg-bg-surface-hover"
+                className="flex-1 rounded-lg border border-border-base bg-bg-surface px-3 py-2 text-sm font-bold text-text-base hover:bg-bg-surface-hover"
               >
                 Cancelar
               </button>
@@ -525,7 +525,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                 onChange={(e) => setRejectReason(e.target.value)}
                 rows={3}
                 placeholder="Ex: Data inválida, não disponível no período..."
-                className="w-full resize-none rounded-xl border border-border-base/60 bg-bg-surface px-3 py-2 text-sm text-text-base outline-none focus:border-danger/50 focus:ring-2 focus:ring-danger/20"
+                className="w-full resize-none rounded-xl border border-border-base bg-bg-surface px-3 py-2 text-sm text-text-base outline-none focus:border-danger/50 focus:ring-2 focus:ring-danger/20"
                 autoFocus
               />
             </div>
@@ -536,7 +536,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                   setConfirmReject(null);
                   setRejectReason("");
                 }}
-                className="flex-1 rounded-lg border border-border-base/60 bg-bg-surface px-3 py-2 text-sm font-bold text-text-base hover:bg-bg-surface-hover"
+                className="flex-1 rounded-lg border border-border-base bg-bg-surface px-3 py-2 text-sm font-bold text-text-base hover:bg-bg-surface-hover"
               >
                 Cancelar
               </button>

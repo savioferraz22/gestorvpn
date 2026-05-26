@@ -47,14 +47,14 @@ export function Chip({
 }: ChipProps) {
   const sizeClasses =
     size === "sm"
-      ? "text-[10px] px-2 py-0.5 gap-1"
-      : "text-xs px-2.5 py-1 gap-1.5";
+      ? "text-[10px] px-1.5 py-0.5 gap-1"
+      : "text-xs px-2 py-0.5 gap-1.5";
   const interactive = onClick ? "cursor-pointer hover:brightness-110" : "";
-  const up = uppercase ? "uppercase tracking-wide" : "";
+  const up = uppercase ? "uppercase tracking-[0.06em]" : "";
   return (
     <span
       onClick={onClick}
-      className={`inline-flex items-center rounded-lg border font-semibold ${TONE_MAP[tone]} ${sizeClasses} ${interactive} ${up} ${className}`}
+      className={`inline-flex items-center rounded-md border font-bold ${TONE_MAP[tone]} ${sizeClasses} ${interactive} ${up} ${className}`}
     >
       {icon}
       <span className="truncate">{children}</span>

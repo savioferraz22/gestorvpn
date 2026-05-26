@@ -53,21 +53,19 @@ export function Stat({
       interactive={!!onClick}
       elevated={active}
       onClick={onClick}
-      className={active ? "ring-2 ring-primary-500/50" : ""}
+      className={active ? "ring-2 ring-primary-500/30 border-primary-500/40" : ""}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-text-muted">
             {icon && (
-              <span
-                className={`flex h-7 w-7 items-center justify-center rounded-lg ${VARIANT_ICON_BG[variant]}`}
-              >
+              <span className={VARIANT_ICON_BG[variant].split(' ').filter(c => c.startsWith('text-')).join(' ')}>
                 {icon}
               </span>
             )}
             <span className="truncate">{label}</span>
           </div>
-          <div className="mt-2 text-2xl font-bold text-text-base tabular-nums sm:text-[26px]">
+          <div className="mt-2 text-2xl font-bold text-text-base font-mono tabular-nums sm:text-[26px]">
             {loading ? (
               <span className="inline-block h-7 w-24 animate-pulse rounded-md bg-bg-surface-hover" />
             ) : (
@@ -75,15 +73,15 @@ export function Stat({
             )}
           </div>
           {(typeof delta === "number" || helpText) && (
-            <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+            <div className="mt-1 flex items-center gap-1.5 text-xs">
               {typeof delta === "number" && (
                 <span
-                  className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-semibold ${
+                  className={`inline-flex items-center gap-0.5 font-bold font-mono ${
                     deltaPositive
-                      ? "bg-[var(--success-soft)] text-[var(--success)]"
+                      ? "text-success"
                       : deltaNegative
-                        ? "bg-[var(--danger-soft)] text-[var(--danger)]"
-                        : "bg-bg-surface-hover text-text-muted"
+                        ? "text-danger"
+                        : "text-text-muted"
                   }`}
                 >
                   {deltaPositive ? (

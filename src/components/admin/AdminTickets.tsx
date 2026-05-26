@@ -234,7 +234,7 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
               type="button"
               onClick={refresh}
               disabled={loading}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-base bg-bg-surface text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors disabled:opacity-50"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
@@ -284,7 +284,7 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
                       padding="sm"
                       interactive
                       onClick={() => openTicket(t.id)}
-                      className={`flex flex-col gap-1.5 ${active ? "border-primary-500/60 ring-2 ring-[var(--ring-focus)]" : ""}`}
+                      className={`flex flex-col gap-1.5 ${active ? "border-primary-500 bg-bg-surface-hover" : ""}`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="min-w-0 truncate text-sm font-bold text-text-base">
@@ -327,11 +327,11 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
                 messagesEndRef={messagesEndRef}
               />
             ) : (
-              <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border-base/60 bg-bg-surface/40 p-8 text-center">
+              <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border-base p-8 text-center">
                 <div>
                   <p className="text-sm font-bold text-text-base">Selecione um ticket</p>
                   <p className="mt-1 text-xs text-text-muted">
-                    Use <kbd className="rounded bg-bg-surface-hover px-1">J</kbd>/<kbd className="rounded bg-bg-surface-hover px-1">K</kbd> para navegar · <kbd className="rounded bg-bg-surface-hover px-1">Esc</kbd> fecha
+                    Use <kbd className="rounded bg-bg-surface-hover px-1 font-mono">J</kbd>/<kbd className="rounded bg-bg-surface-hover px-1 font-mono">K</kbd> para navegar · <kbd className="rounded bg-bg-surface-hover px-1 font-mono">Esc</kbd> fecha
                   </p>
                 </div>
               </div>
@@ -372,7 +372,7 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
           onClick={() => setShowUserModal(false)}
         >
           <div
-            className="w-full max-w-sm space-y-3 rounded-2xl bg-bg-surface p-5 shadow-xl"
+            className="w-full max-w-sm space-y-3 rounded-xl bg-bg-surface border border-border-base p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
@@ -439,13 +439,13 @@ function TicketThread({
   messagesEndRef,
 }: ThreadProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-border-base/60 bg-bg-surface shadow-[var(--shadow-card-sm)]">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border-base/60 p-3">
+    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border-base px-3 h-12">
         {onBack && (
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-bg-surface-hover"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-bg-surface-hover transition-colors"
           >
             <X size={14} className="text-text-muted" />
           </button>
@@ -463,7 +463,7 @@ function TicketThread({
           <button
             type="button"
             onClick={onViewUser}
-            className="rounded-lg border border-border-base/60 bg-bg-surface px-2.5 py-1 text-[11px] font-bold text-text-base hover:bg-bg-surface-hover"
+            className="rounded-md px-2.5 h-7 text-[11px] font-bold text-text-base hover:bg-bg-surface-hover transition-colors"
           >
             Usuário
           </button>
@@ -471,7 +471,7 @@ function TicketThread({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-danger/30 bg-danger/10 px-2.5 py-1 text-[11px] font-bold text-danger hover:bg-danger/20"
+              className="rounded-md px-2.5 h-7 text-[11px] font-bold text-danger hover:bg-danger-soft transition-colors"
             >
               Fechar
             </button>
@@ -490,10 +490,10 @@ function TicketThread({
               className={`group flex flex-col ${isAdmin ? "items-end" : "items-start"}`}
             >
               <div
-                className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm ${
+                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                   isAdmin
                     ? "rounded-br-sm bg-primary-600 text-white"
-                    : "rounded-bl-sm border border-border-base/50 bg-bg-surface-hover/40 text-text-base"
+                    : "rounded-bl-sm border border-border-base bg-bg-surface-hover text-text-base"
                 }`}
               >
                 {isEditing ? (
@@ -502,7 +502,7 @@ function TicketThread({
                       value={editingMsgText}
                       onChange={(e) => setEditingMsgText(e.target.value)}
                       autoFocus
-                      className="min-h-[60px] w-full resize-none rounded-xl border border-white/30 bg-white/20 px-3 py-2 text-sm outline-none focus:border-white/60"
+                      className="min-h-[60px] w-full resize-none rounded-md border border-white/30 bg-white/20 px-2 py-1.5 text-sm outline-none focus:border-white/60"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
@@ -520,14 +520,14 @@ function TicketThread({
                           setEditingMsgId(null);
                           setEditingMsgText("");
                         }}
-                        className="rounded-lg bg-white/10 px-2.5 py-1 text-[11px] font-medium hover:bg-white/20"
+                        className="rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium hover:bg-white/20 transition-colors"
                       >
                         Cancelar
                       </button>
                       <button
                         onClick={() => onEdit(msg.id)}
                         disabled={!editingMsgText.trim()}
-                        className="inline-flex items-center gap-1 rounded-lg bg-white/30 px-2.5 py-1 text-[11px] font-bold hover:bg-white/40 disabled:opacity-40"
+                        className="inline-flex items-center gap-1 rounded-md bg-white/25 px-2 py-1 text-[11px] font-bold hover:bg-white/35 transition-colors disabled:opacity-40"
                       >
                         <Check className="h-3 w-3" />
                         Salvar
@@ -540,7 +540,7 @@ function TicketThread({
                   </p>
                 )}
                 {!isEditing && (
-                  <p className={`mt-1 text-[10px] ${isAdmin ? "text-primary-200" : "text-text-muted"}`}>
+                  <p className={`mt-1 text-[10px] font-mono ${isAdmin ? "text-white/70" : "text-text-muted"}`}>
                     {isAdmin ? "Admin" : msg.sender} · {formatDate(msg.created_at)}
                   </p>
                 )}
@@ -552,14 +552,14 @@ function TicketThread({
                       setEditingMsgId(msg.id);
                       setEditingMsgText(msg.message);
                     }}
-                    className="rounded-md p-1 text-text-muted hover:bg-primary-50 hover:text-primary-600"
+                    className="rounded-md p-1.5 text-text-muted hover:bg-bg-surface-hover hover:text-primary-600 transition-colors"
                     title="Editar"
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
                   <button
                     onClick={() => onDelete(msg.id)}
-                    className="rounded-md p-1 text-text-muted hover:bg-danger/10 hover:text-danger"
+                    className="rounded-md p-1.5 text-text-muted hover:bg-danger-soft hover:text-danger transition-colors"
                     title="Excluir"
                   >
                     <Trash2 className="h-3 w-3" />
@@ -575,20 +575,20 @@ function TicketThread({
       {ticket.status !== "closed" && (
         <form
           onSubmit={onSend}
-          className="flex shrink-0 gap-2 border-t border-border-base/60 p-3"
+          className="flex shrink-0 gap-2 border-t border-border-base p-3"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
         >
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Responder como admin..."
-            className="flex-1 rounded-xl border border-border-base/60 bg-bg-surface px-3.5 py-2.5 text-sm outline-none focus:border-primary-500/70 focus:ring-2 focus:ring-[var(--ring-focus)]"
+            placeholder="Responder como admin…"
+            className="flex-1 rounded-md border border-border-base bg-bg-base px-3 h-10 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/30 transition-colors"
           />
           <button
             type="submit"
             disabled={sending || !newMessage.trim()}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 text-white transition-transform hover:bg-primary-700 active:scale-95 disabled:opacity-60"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-primary-600 text-white hover:bg-primary-700 transition-colors active:scale-95 disabled:opacity-60"
           >
             <Send className="h-4 w-4" />
           </button>

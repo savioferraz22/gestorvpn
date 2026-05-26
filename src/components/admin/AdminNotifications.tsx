@@ -74,27 +74,25 @@ export function AdminNotifications() {
 
   return (
     <div className="mx-auto max-w-md space-y-4 p-6">
-      <div className="mb-2 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary-500/15 text-primary-500">
-          <Bell className="h-5 w-5" />
-        </div>
+      <div className="flex items-center gap-2.5">
+        <Bell className="h-4 w-4 text-primary-600" />
         <div>
-          <h2 className="font-bold text-text-base">Notificações Admin</h2>
+          <h2 className="font-bold text-text-base tracking-tight">Notificações admin</h2>
           <p className="text-xs text-text-muted">
-            Receba alerts de novos tickets, solicitações e pagamentos
+            Alertas de novos tickets, solicitações e pagamentos
           </p>
         </div>
       </div>
       {permission === "unsupported" && (
-        <p className="rounded-2xl bg-bg-surface-hover p-4 text-sm text-text-muted">
+        <p className="rounded-md border border-border-base bg-bg-surface-hover p-3 text-sm text-text-muted">
           Seu navegador não suporta notificações push.
         </p>
       )}
       {permission === "granted" && (
-        <div className="flex items-center gap-3 rounded-2xl border border-[var(--success)]/30 bg-[var(--success-soft)] p-4">
-          <BellRing className="h-5 w-5 shrink-0 text-[var(--success)]" />
+        <div className="flex items-center gap-3 rounded-md border border-success/30 bg-success-soft p-3">
+          <BellRing className="h-4 w-4 shrink-0 text-success" />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-[var(--success)]">
+            <p className="text-sm font-bold text-success">
               Notificações ativas neste dispositivo
             </p>
             <p className="mt-0.5 text-xs text-text-muted">
@@ -104,24 +102,24 @@ export function AdminNotifications() {
           <button
             onClick={deactivate}
             disabled={busy}
-            className="rounded-lg border border-[var(--danger)]/40 bg-bg-surface px-2 py-1 text-xs font-semibold text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)]"
+            className="rounded-md px-2.5 h-8 text-xs font-bold text-danger transition-colors hover:bg-danger-soft"
           >
             Desativar
           </button>
         </div>
       )}
       {(permission === "default" || permission === "denied") && (
-        <div className="space-y-3 rounded-2xl border border-border-base bg-bg-surface p-4">
+        <div className="space-y-3 rounded-xl border border-border-base bg-bg-surface p-4">
           <div className="flex items-center gap-2">
-            <BellOff className="h-5 w-5 text-text-muted" />
-            <p className="text-sm font-semibold text-text-base">
+            <BellOff className="h-4 w-4 text-text-muted" />
+            <p className="text-sm font-bold text-text-base">
               {permission === "denied"
                 ? "Notificações bloqueadas pelo navegador"
                 : "Notificações desativadas"}
             </p>
           </div>
           {permission === "denied" ? (
-            <p className="text-xs text-text-muted">
+            <p className="text-xs text-text-muted leading-snug">
               Acesse as configurações do navegador, encontre este site em
               Notificações e altere para <strong>Permitir</strong>.
             </p>
@@ -129,14 +127,14 @@ export function AdminNotifications() {
             <button
               onClick={activate}
               disabled={busy}
-              className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-bold text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+              className="w-full rounded-md bg-primary-600 h-10 text-sm font-bold text-white transition-colors hover:bg-primary-700 active:scale-[0.98] disabled:opacity-50"
             >
-              {busy ? "Ativando..." : "Ativar Notificações Admin"}
+              {busy ? "Ativando…" : "Ativar notificações admin"}
             </button>
           )}
         </div>
       )}
-      <p className="rounded-xl bg-bg-surface-hover p-3 text-xs text-text-muted">
+      <p className="rounded-md border border-border-base bg-bg-surface-hover p-3 text-xs text-text-muted leading-snug">
         As notificações ficam vinculadas a{" "}
         <strong>este navegador/dispositivo</strong>. Para receber em outro
         dispositivo, acesse o painel lá e ative novamente.

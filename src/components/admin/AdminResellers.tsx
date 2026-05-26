@@ -293,7 +293,7 @@ export function AdminResellers() {
               type="button"
               onClick={subTab === "resellers" ? load : loadRequests}
               disabled={subTab === "resellers" ? loading : reqLoading}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border-base/60 bg-bg-surface text-text-muted shadow-[var(--shadow-card-sm)] hover:bg-bg-surface-hover disabled:opacity-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-base bg-bg-surface text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors disabled:opacity-50"
             >
               <RefreshCw
                 size={14}
@@ -303,13 +303,13 @@ export function AdminResellers() {
           }
         />
 
-        <div className="flex gap-1 rounded-2xl border border-border-base/60 bg-bg-surface p-1 shadow-[var(--shadow-card-sm)]">
+        <div className="flex gap-0.5 rounded-md border border-border-base bg-bg-surface p-0.5">
           <button
             type="button"
             onClick={() => setSubTab("resellers")}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-2 rounded-sm px-3 h-9 text-sm font-bold transition-colors ${
               subTab === "resellers"
-                ? "bg-primary-600 text-white shadow-sm"
+                ? "bg-text-base text-bg-base"
                 : "text-text-muted hover:text-text-base"
             }`}
           >
@@ -319,9 +319,9 @@ export function AdminResellers() {
           <button
             type="button"
             onClick={() => setSubTab("requests")}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition-colors ${
+            className={`flex flex-1 items-center justify-center gap-2 rounded-sm px-3 h-9 text-sm font-bold transition-colors ${
               subTab === "requests"
-                ? "bg-primary-600 text-white shadow-sm"
+                ? "bg-text-base text-bg-base"
                 : "text-text-muted hover:text-text-base"
             }`}
           >
@@ -372,7 +372,7 @@ export function AdminResellers() {
             {error && <p className="text-sm font-medium text-danger">{error}</p>}
             {saveMsg && (
               <p
-                className={`text-sm font-medium ${saveMsg.ok ? "text-[var(--success)]" : "text-danger"}`}
+                className={`text-sm font-medium ${saveMsg.ok ? "text-success" : "text-danger"}`}
               >
                 {saveMsg.user}: {saveMsg.msg}
               </p>
@@ -423,7 +423,7 @@ export function AdminResellers() {
                                     expired
                                       ? "text-danger"
                                       : soon
-                                        ? "text-[var(--warning)]"
+                                        ? "text-warning"
                                         : "text-text-base"
                                   }`}
                                 >
@@ -446,7 +446,7 @@ export function AdminResellers() {
                                   type="date"
                                   value={editExpiry}
                                   onChange={(e) => setEditExpiry(e.target.value)}
-                                  className="flex-1 rounded-lg border border-border-base/60 bg-bg-surface-hover/40 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[var(--ring-focus)]"
+                                  className="flex-1 rounded-lg border border-border-base bg-bg-surface-hover px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/30"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
@@ -459,7 +459,7 @@ export function AdminResellers() {
                                   value={editLogins}
                                   onChange={(e) => setEditLogins(e.target.value)}
                                   placeholder="Ex: 20"
-                                  className="flex-1 rounded-lg border border-border-base/60 bg-bg-surface-hover/40 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[var(--ring-focus)]"
+                                  className="flex-1 rounded-lg border border-border-base bg-bg-surface-hover px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary-500/30"
                                 />
                               </div>
                             </div>
@@ -518,7 +518,7 @@ export function AdminResellers() {
                       </div>
 
                       {isExpanded && (
-                        <div className="border-t border-border-base/60 pt-3">
+                        <div className="border-t border-border-base pt-3">
                           {expandedLoading ? (
                             <div className="flex justify-center py-6">
                               <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
@@ -528,7 +528,7 @@ export function AdminResellers() {
                           ) : expandedDetails ? (
                             <div className="space-y-3">
                               <div className="grid grid-cols-3 gap-2 text-xs">
-                                <div className="rounded-xl bg-bg-surface-hover/40 p-2 text-center">
+                                <div className="rounded-xl bg-bg-surface-hover p-2 text-center">
                                   <p className="text-[10px] font-bold uppercase text-text-muted">
                                     Logins
                                   </p>
@@ -536,7 +536,7 @@ export function AdminResellers() {
                                     {expandedDetails.plan?.logins ?? "—"}
                                   </p>
                                 </div>
-                                <div className="rounded-xl bg-bg-surface-hover/40 p-2 text-center">
+                                <div className="rounded-xl bg-bg-surface-hover p-2 text-center">
                                   <p className="text-[10px] font-bold uppercase text-text-muted">
                                     Vence em
                                   </p>
@@ -544,7 +544,7 @@ export function AdminResellers() {
                                     {formatDate(expandedDetails.plan?.expiresAt)}
                                   </p>
                                 </div>
-                                <div className="rounded-xl bg-bg-surface-hover/40 p-2 text-center">
+                                <div className="rounded-xl bg-bg-surface-hover p-2 text-center">
                                   <p className="text-[10px] font-bold uppercase text-text-muted">
                                     Meses pagos
                                   </p>
@@ -607,7 +607,7 @@ export function AdminResellers() {
                                       return (
                                         <div
                                           key={h.paymentId}
-                                          className="rounded-xl border border-border-base/60 bg-bg-surface-hover/40 p-3"
+                                          className="rounded-md border border-border-base bg-bg-surface-hover p-3"
                                         >
                                           <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0 flex-1">
@@ -644,7 +644,7 @@ export function AdminResellers() {
                                               </p>
                                               {h.daysAdded > 0 && (
                                                 <p className="mt-1 text-xs text-text-base">
-                                                  <span className="font-bold text-[var(--success)]">
+                                                  <span className="font-bold text-success">
                                                     +{h.daysAdded} dias
                                                   </span>
                                                   {h.expiresAfter && (
@@ -657,7 +657,7 @@ export function AdminResellers() {
                                             </div>
                                             <div className="shrink-0 text-right">
                                               {h.amount != null && (
-                                                <p className="text-sm font-bold text-[var(--success)]">
+                                                <p className="text-sm font-bold text-success">
                                                   R${h.amount}
                                                 </p>
                                               )}
@@ -665,7 +665,7 @@ export function AdminResellers() {
                                           </div>
 
                                           {Array.isArray(h.attempts) && h.attempts.length > 0 && (
-                                            <div className="mt-2 space-y-1 border-t border-border-base/60 pt-2">
+                                            <div className="mt-2 space-y-1 border-t border-border-base pt-2">
                                               <p className="text-[10px] font-bold uppercase text-text-muted">
                                                 Tentativas no painel VPN
                                               </p>
@@ -680,10 +680,10 @@ export function AdminResellers() {
                                                   <span
                                                     className={`font-semibold ${
                                                       a.status === "success"
-                                                        ? "text-[var(--success)]"
+                                                        ? "text-success"
                                                         : a.status === "failed"
                                                           ? "text-danger"
-                                                          : "text-[var(--warning)]"
+                                                          : "text-warning"
                                                     }`}
                                                   >
                                                     {a.status}
@@ -700,12 +700,12 @@ export function AdminResellers() {
                                           )}
 
                                           {canRetry && (
-                                            <div className="mt-2 flex items-center justify-between gap-2 border-t border-border-base/60 pt-2">
+                                            <div className="mt-2 flex items-center justify-between gap-2 border-t border-border-base pt-2">
                                               {payRetryMsg ? (
                                                 <p
                                                   className={`text-[11px] font-medium ${
                                                     payRetryMsg.ok
-                                                      ? "text-[var(--success)]"
+                                                      ? "text-success"
                                                       : "text-danger"
                                                   }`}
                                                 >
@@ -797,14 +797,14 @@ export function AdminResellers() {
                       </div>
 
                       {req.status === "rejeitado" && req.approved_value && (
-                        <p className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs text-danger">
+                        <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
                           Motivo: {req.approved_value}
                         </p>
                       )}
 
                       {msg && (
                         <p
-                          className={`text-xs font-medium ${msg.ok ? "text-[var(--success)]" : "text-danger"}`}
+                          className={`text-xs font-medium ${msg.ok ? "text-success" : "text-danger"}`}
                         >
                           {msg.msg}
                         </p>
@@ -846,7 +846,7 @@ export function AdminResellers() {
                                 value={rejectReason}
                                 onChange={(e) => setRejectReason(e.target.value)}
                                 placeholder="Motivo da recusa (obrigatório)..."
-                                className="w-full rounded-lg border border-border-base/60 bg-bg-surface-hover/40 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--ring-focus)]"
+                                className="w-full rounded-lg border border-border-base bg-bg-surface-hover px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500/30"
                               />
                               <div className="flex gap-2">
                                 <button
@@ -868,7 +868,7 @@ export function AdminResellers() {
                                     setRejectReason("");
                                   }}
                                   disabled={busy}
-                                  className="rounded-lg border border-border-base/60 bg-bg-surface px-4 py-2 text-sm font-bold text-text-base hover:bg-bg-surface-hover"
+                                  className="rounded-lg border border-border-base bg-bg-surface px-4 py-2 text-sm font-bold text-text-base hover:bg-bg-surface-hover"
                                 >
                                   Cancelar
                                 </button>

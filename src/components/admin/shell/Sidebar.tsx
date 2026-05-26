@@ -26,26 +26,21 @@ export function Sidebar({
 }: SidebarProps) {
   return (
     <aside
-      className={`flex h-full flex-col bg-bg-base border-r border-border-base/60 ${
+      className={`flex h-full flex-col bg-bg-surface border-r border-border-base ${
         collapsed ? "w-[68px]" : "w-60"
       } transition-[width] duration-200 ${className}`}
     >
       <div
-        className={`flex items-center gap-2 border-b border-border-base/50 px-3 py-3 ${
+        className={`flex items-center gap-2 border-b border-border-base h-14 px-3 ${
           collapsed ? "justify-center" : "justify-between"
         }`}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-600">
-            <Shield className="h-4 w-4 text-white" />
-          </div>
+          <Shield className="h-4 w-4 shrink-0 text-primary-600" />
           {!collapsed && (
             <div className="min-w-0">
-              <div className="text-sm font-bold text-text-base leading-none">
+              <div className="text-[14px] font-bold text-text-base leading-none">
                 VS Admin
-              </div>
-              <div className="mt-0.5 text-[10px] uppercase tracking-wide text-text-muted">
-                Painel de controle
               </div>
             </div>
           )}
@@ -54,7 +49,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onToggleCollapsed}
-            className="hidden lg:inline-flex h-7 w-7 items-center justify-center rounded-lg text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+            className="hidden lg:inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
             aria-label="Colapsar sidebar"
           >
             <ChevronLeft size={14} />
@@ -66,7 +61,7 @@ export function Sidebar({
         {NAV_GROUPS.map((group) => (
           <div key={group.id} className="mb-4 last:mb-0">
             {!collapsed && (
-              <div className="mb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-text-muted/80">
+              <div className="mb-1 px-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted">
                 {group.label}
               </div>
             )}
@@ -80,19 +75,19 @@ export function Sidebar({
                       type="button"
                       onClick={() => onNavigate(item.id)}
                       title={collapsed ? item.label : undefined}
-                      className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all ${
+                      className={`group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-bold transition-colors ${
                         active
-                          ? "bg-primary-600 text-white shadow-[var(--shadow-card-sm)]"
+                          ? "bg-bg-surface-hover text-text-base"
                           : "text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
                       } ${collapsed ? "justify-center" : ""}`}
                     >
                       {active && !collapsed && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-white/80" />
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary-600" />
                       )}
                       <NavIcon
                         name={item.iconName}
                         className={`h-4 w-4 shrink-0 ${
-                          active ? "text-white" : "text-text-muted group-hover:text-text-base"
+                          active ? "text-primary-600" : "text-text-muted group-hover:text-text-base"
                         }`}
                       />
                       {!collapsed && (
@@ -100,11 +95,7 @@ export function Sidebar({
                       )}
                       {badge > 0 && (
                         <span
-                          className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
-                            active
-                              ? "bg-white/20 text-white"
-                              : "bg-[var(--danger)] text-white"
-                          } ${collapsed ? "absolute -top-0.5 -right-0.5 min-w-[16px] text-center" : ""}`}
+                          className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none bg-danger text-white ${collapsed ? "absolute -top-0.5 -right-0.5 min-w-[16px] text-center" : ""}`}
                         >
                           {badge > 99 ? "99+" : badge}
                         </span>
@@ -118,23 +109,23 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className="border-t border-border-base/50 p-2">
+      <div className="border-t border-border-base p-2">
         <button
           type="button"
           onClick={onLogout}
           title={collapsed ? "Sair do Admin" : undefined}
-          className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)] ${
+          className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-bold text-danger transition-colors hover:bg-danger-soft ${
             collapsed ? "justify-center" : ""
           }`}
         >
           <LogOut className="h-4 w-4" />
-          {!collapsed && <span>Sair do Admin</span>}
+          {!collapsed && <span>Sair</span>}
         </button>
         {onToggleCollapsed && collapsed && (
           <button
             type="button"
             onClick={onToggleCollapsed}
-            className="mt-1 hidden lg:flex w-full items-center justify-center rounded-xl py-1.5 text-text-muted hover:bg-bg-surface-hover hover:text-text-base"
+            className="mt-1 hidden lg:flex w-full items-center justify-center rounded-md py-1.5 text-text-muted hover:bg-bg-surface-hover hover:text-text-base transition-colors"
             aria-label="Expandir sidebar"
           >
             <ChevronLeft size={14} className="rotate-180" />
