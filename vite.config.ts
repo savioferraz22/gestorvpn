@@ -35,8 +35,8 @@ export default defineConfig(({mode}) => {
           name: 'VS Plus',
           short_name: 'VS Plus',
           description: 'Gestor de Assinaturas VS Plus',
-          theme_color: '#4f46e5',
-          background_color: '#f8fafc',
+          theme_color: '#43286E',
+          background_color: '#F6F2EA',
           display: 'standalone',
           icons: [
             {

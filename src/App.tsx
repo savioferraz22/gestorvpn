@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2, Pencil, Check } from "lucide-react";
+import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2, Pencil, Check, Sun, Moon } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 import { SystemNoticeBanner } from "./components/shared/SystemNoticeBanner";
 import { AppUpdateBanner } from "./components/shared/AppUpdateBanner";
@@ -331,6 +331,29 @@ export default function App() {
 
   // User sidebar mobile open state
   const [userSidebarOpen, setUserSidebarOpen] = useState(false);
+
+  // Theme — initialized from <html class="dark"> applied by inline script in index.html
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light"
+  );
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", theme === "dark" ? "#0E0B14" : "#43286E");
+  }, [theme]);
+  useEffect(() => {
+    if (localStorage.getItem("vs_plus_theme")) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => setTheme(e.matches ? "dark" : "light");
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    try { localStorage.setItem("vs_plus_theme", next); } catch {}
+  };
 
   const troubleshootingSteps = [
     {
@@ -1785,42 +1808,34 @@ export default function App() {
                 className="w-full flex-1 flex justify-center items-center p-6"
               >
                 <div className="w-full max-w-sm">
-                  {/* Glossy Header Effect */}
-                  <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-primary-500/10 to-transparent pointer-events-none" />
-
-                  <div className="pt-10 pb-8 text-center flex flex-col items-center relative z-10 space-y-3">
-                    <div className="flex items-center justify-center relative p-4">
-                      <div className="absolute inset-0 bg-primary-500 blur-3xl opacity-20 rounded-full w-32 h-32 mx-auto" />
-                      <img src="/logo-icon.png" alt="VS Plus" className="h-16 md:h-20 w-auto object-contain relative z-10 drop-shadow-lg" />
-                    </div>
-                    <div>
+                  <div className="pt-8 pb-6 flex flex-col items-center relative z-10 gap-4">
+                    <img src="/logo-icon.png" alt="VS Plus" className="h-14 md:h-16 w-auto object-contain" />
+                    <div className="text-center">
                       <h1 className="text-2xl font-bold text-text-base tracking-tight">Bem-vindo(a) de volta</h1>
-                      <p className="text-text-muted mt-1 text-sm font-medium">
-                        Conecte-se para gerenciar sua assinatura
-                      </p>
+                      <p className="text-text-muted mt-1 text-sm">Acesse para gerenciar sua assinatura</p>
                     </div>
                   </div>
 
-                  <div className="space-y-6 relative z-10 pt-2">
-                    <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-5">
-                      <div className="relative group">
-                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                          <User className="h-5 w-5 text-text-muted transition-colors group-focus-within:text-primary-500" />
+                  <div className="space-y-5 relative z-10">
+                    <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4">
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
+                          <User className="h-4 w-4 text-text-muted" />
                         </div>
                         <input
                           id="username"
                           type="text"
                           value={username}
                           onChange={handleLoginChange}
-                          className="w-full pl-12 pr-4 py-4 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 focus:bg-bg-surface outline-none transition-all font-semibold text-text-base placeholder-text-muted shadow-sm"
+                          className="w-full pl-10 pr-4 h-12 rounded-md bg-bg-surface border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted"
                           placeholder="Seu nome de usuário"
                           disabled={loading}
                         />
                       </div>
 
                       {error && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="flex items-start gap-3 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100">
-                          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="flex items-start gap-2 p-3 bg-danger-soft text-danger rounded-md border border-danger/20">
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                           <span className="text-sm font-medium">{error}</span>
                         </motion.div>
                       )}
@@ -1828,79 +1843,79 @@ export default function App() {
                       <button
                         type="submit"
                         disabled={loading || !username.trim()}
-                        className="relative w-full overflow-hidden bg-primary-600 hover:bg-primary-700 text-white font-semibold py-4 px-4 rounded-2xl transition-all shadow-[0_8px_16px_-6px_rgba(79,70,229,0.5)] flex items-center justify-center disabled:opacity-60 disabled:shadow-none active:scale-[0.98]"
+                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-12 px-4 rounded-md transition-colors flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.98]"
                       >
                         {loading ? (
                           <Loader2 className="w-5 h-5 animate-spin" />
                         ) : (
                           <>
-                            Acessar Painel
-                            <ArrowLeft className="w-5 h-5 ml-2 transform rotate-180" />
+                            Acessar painel
+                            <ArrowLeft className="w-4 h-4 transform rotate-180" />
                           </>
                         )}
                       </button>
                     </form>
 
-                    <div className="relative pt-2 pb-2">
+                    <div className="relative py-1">
                       <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-border-base border-dashed"></div>
+                        <div className="w-full border-t border-border-base"></div>
                       </div>
-                      <div className="relative flex justify-center text-sm">
-                        <span className="px-4 bg-bg-surface text-text-muted font-medium text-xs uppercase tracking-wider">Ou</span>
+                      <div className="relative flex justify-center">
+                        <span className="px-3 bg-bg-base text-text-muted text-[11px] uppercase tracking-[0.12em] font-bold">Ou</span>
                       </div>
                     </div>
 
                     <button
                       onClick={() => { setError(""); setView("create_user"); }}
-                      className="w-full bg-bg-surface hover:bg-bg-surface-hover text-text-base font-semibold py-4 px-4 rounded-2xl transition-colors flex items-center justify-center border border-border-base active:scale-[0.98] shadow-sm"
+                      className="w-full bg-bg-surface hover:bg-bg-surface-hover text-text-base font-bold h-12 px-4 rounded-md transition-colors flex items-center justify-center border border-border-base active:scale-[0.98]"
                     >
-                      <UserPlus className="w-5 h-5 mr-3 text-primary-600" />
-                      Criar Teste Grátis (2 Dias)
+                      <UserPlus className="w-4 h-4 mr-2 text-primary-600" />
+                      Criar teste grátis (2 dias)
                     </button>
 
                     {/* ── Trabalhe Conosco divider ── */}
-                    <div className="relative pt-2 pb-1">
+                    <div className="relative py-1">
                       <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-emerald-200 dark:border-emerald-900 border-dashed"></div>
+                        <div className="w-full border-t border-border-base"></div>
                       </div>
                       <div className="relative flex justify-center">
-                        <span className="px-3 bg-bg-surface text-emerald-600 font-bold text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="px-3 bg-bg-base text-emerald-600 dark:text-emerald-400 font-bold text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5">
                           <DollarSign className="w-3.5 h-3.5" />
-                          Trabalhe Conosco
+                          Trabalhe conosco
                         </span>
                       </div>
                     </div>
 
                     {/* Reseller login field + buttons */}
                     <div className="space-y-2">
-                      <div className="relative group">
-                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                          <Store className="h-5 h-5 text-text-muted group-focus-within:text-emerald-500 transition-colors" />
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
+                          <Store className="h-4 w-4 text-text-muted" />
                         </div>
                         <input
                           type="text"
                           value={resellerUsername}
                           onChange={e => setResellerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
                           onKeyDown={e => e.key === "Enter" && handleResellerLogin()}
-                          className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 focus:bg-bg-surface outline-none transition-all font-semibold text-text-base placeholder-text-muted shadow-sm text-sm"
+                          className="w-full pl-10 pr-4 h-11 rounded-md bg-bg-surface border border-border-base focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted text-sm"
                           placeholder="Usuário revendedor (opcional)"
                         />
                       </div>
                       {resellerError && (
-                        <p className="text-xs text-red-500 font-medium px-1">{resellerError}</p>
+                        <p className="text-xs text-danger font-medium px-1">{resellerError}</p>
                       )}
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={handleResellerLogin}
                           disabled={resellerLoading || !resellerUsername.trim()}
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold py-3 px-2 rounded-2xl transition-colors flex items-center justify-center active:scale-[0.98] shadow-sm text-xs gap-1.5"
+                          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold h-11 px-2 rounded-md transition-colors flex items-center justify-center active:scale-[0.98] text-[12px] gap-1.5"
                         >
                           {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Store className="w-4 h-4 shrink-0" />}
-                          Acessar Área do Revendedor
+                          Acessar revendedor
                         </button>
                         <button
                           onClick={() => { setResellerError(""); setView("reseller_info"); }}
-                          className="flex-1 bg-bg-surface hover:bg-bg-surface-hover text-emerald-600 font-semibold py-3 px-2 rounded-2xl transition-colors flex items-center justify-center border border-emerald-300 active:scale-[0.98] shadow-sm text-xs gap-1.5"
+                          className="bg-bg-surface hover:bg-bg-surface-hover text-emerald-600 dark:text-emerald-400 font-bold h-11 px-2 rounded-md transition-colors flex items-center justify-center border border-emerald-500/40 active:scale-[0.98] text-[12px] gap-1.5"
                         >
                           <TrendingUp className="w-4 h-4 shrink-0" />
                           Contratar / Conhecer
@@ -1908,13 +1923,21 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="pt-4 text-center">
+                    <div className="pt-2 flex items-center justify-center gap-3">
                       <button
                         onClick={() => { setError(""); setAdminPass(""); setIsAdminAuth(false); setView("admin"); }}
-                        className="text-text-muted hover:text-text-base inline-flex items-center justify-center text-sm font-medium transition-colors p-2 rounded-xl"
+                        className="text-text-muted hover:text-text-base inline-flex items-center justify-center text-sm font-medium transition-colors p-2"
                       >
                         <Lock className="w-4 h-4 mr-2 opacity-70" />
-                        Área Administrativa
+                        Área administrativa
+                      </button>
+                      <span className="w-px h-4 bg-border-base" />
+                      <button
+                        onClick={toggleTheme}
+                        className="text-text-muted hover:text-text-base inline-flex items-center justify-center text-sm font-medium transition-colors p-2"
+                        aria-label={theme === "dark" ? "Tema claro" : "Tema escuro"}
+                      >
+                        {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
@@ -1930,73 +1953,72 @@ export default function App() {
                 exit={{ opacity: 0, scale: 0.98 }}
                 className="w-full flex-1 bg-bg-base overflow-x-hidden overflow-y-auto relative flex flex-col"
               >
-                {/* Premium Header */}
-                <div className="bg-gradient-to-br from-primary-600 to-primary-800 p-5 shadow-md relative z-10 shrink-0">
-                  <div className="flex justify-between items-center relative z-10">
-                    <div className="flex items-center gap-3">
-                      {/* Mobile hamburger */}
-                      <button
-                        onClick={() => setUserSidebarOpen(v => !v)}
-                        className="md:hidden p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-                      >
-                        <Menu className="w-5 h-5" />
-                      </button>
-                      <div
-                        onDoubleClick={() => { setError(""); setAdminPass(""); setIsAdminAuth(false); setView("admin"); }}
-                        className="w-12 h-12 flex items-center justify-center shadow-inner rounded-2xl overflow-hidden bg-black/20 backdrop-blur-md border border-white/10 cursor-pointer select-none transition-transform active:scale-95 hover:bg-black/30"
-                        title="Área Administrativa (Duplo Clique)"
-                      >
-                        <img src="/logo.png" alt="VS+" className="w-10 h-10 object-contain drop-shadow-md" />
-                      </div>
-                      <div>
-                        <h1 className="text-xl font-bold text-white tracking-tight leading-tight">Olá, {currentUser.login}</h1>
-                      </div>
+                {/* Utility header — solid ink, no gradient/glow */}
+                <header className="bg-primary-600 dark:bg-primary-800 h-14 px-3 flex items-center justify-between gap-2 relative z-10 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <button
+                      onClick={() => setUserSidebarOpen(v => !v)}
+                      className="md:hidden -ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors"
+                      aria-label="Abrir menu"
+                    >
+                      <Menu className="w-5 h-5" />
+                    </button>
+                    <div
+                      onDoubleClick={() => { setError(""); setAdminPass(""); setIsAdminAuth(false); setView("admin"); }}
+                      className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer select-none active:scale-95 transition-transform"
+                      title="Área Administrativa (Duplo Clique)"
+                    >
+                      <img src="/logo.png" alt="VS+" className="w-7 h-7 object-contain" />
                     </div>
+                    <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Olá, {currentUser.login}</h1>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={toggleTheme}
+                      className="p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors"
+                      aria-label={theme === "dark" ? "Mudar para tema claro" : "Mudar para tema escuro"}
+                      title={theme === "dark" ? "Tema claro" : "Tema escuro"}
+                    >
+                      {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                    </button>
                     {notifBell}
                   </div>
-                </div>
+                </header>
                 <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
                   <SystemNoticeBanner notice={systemNotice} variant="full" />
                   {/* Security Hint Banner for Unverified Users */}
                   {!showData && (
-                    <motion.div
+                    <motion.button
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="bg-primary-50 border border-primary-100 rounded-3xl p-4 flex items-center gap-3 shadow-sm relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-all"
+                      type="button"
+                      className="w-full bg-bg-surface border border-border-base rounded-xl p-4 flex items-center gap-3 text-left cursor-pointer active:scale-[0.99] transition-transform"
                       onClick={() => setShowVerifyModal(true)}
                     >
-                      <div className="absolute top-0 right-0 p-2 opacity-5 group-hover:opacity-10 transition-opacity">
-                        <Shield className="w-14 h-14 -rotate-12" />
-                      </div>
-                      <div className="w-10 h-10 bg-primary-600 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-primary-500/20">
-                        <Lock className="w-5 h-5" />
-                      </div>
-                      <div className="flex-1">
+                      <Lock className="w-5 h-5 text-primary-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="text-[14px] font-bold text-primary-900 tracking-tight">Painel em Modo Limitado</h3>
-                          <span className="bg-primary-200 text-primary-800 text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter">Dica Ativa</span>
+                          <h3 className="text-[14px] font-bold text-text-base">Painel em modo limitado</h3>
                         </div>
-                        <p className="text-[11px] text-primary-700 leading-snug font-medium mt-0.5">Clique aqui e digite sua senha para liberar o acesso total ao painel.</p>
+                        <p className="text-[12px] text-text-muted leading-snug mt-0.5">Toque para liberar o acesso total com sua senha.</p>
                       </div>
-                      <div className="bg-white/50 p-1.5 rounded-xl border border-primary-200 group-hover:bg-white transition-colors shrink-0">
-                        <ChevronRight className="w-4 h-4 text-primary-600" />
-                      </div>
-                    </motion.div>
+                      <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
+                    </motion.button>
                   )}
 
                   {/* Push notification soft-ask banner */}
                   {pushPermission === "default" && !pushSoftBannerDismissed && (
-                    <div className="bg-primary-50 border border-primary-200 rounded-2xl p-4 flex items-start gap-3">
-                      <Bell className="w-5 h-5 text-primary-500 shrink-0 mt-0.5" />
+                    <div className="bg-bg-surface border border-border-base rounded-xl p-4 flex items-start gap-3">
+                      <Bell className="w-5 h-5 text-primary-600 shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-primary-800">Ative as notificações</p>
-                        <p className="text-xs text-primary-700 mt-0.5">Receba avisos de vencimento, respostas de suporte e atualizações de solicitações.</p>
+                        <p className="text-sm font-bold text-text-base">Ative as notificações</p>
+                        <p className="text-xs text-text-muted mt-0.5 leading-snug">Receba avisos de vencimento, respostas de suporte e atualizações de solicitações.</p>
                         <div className="flex gap-2 mt-3">
-                          <button onClick={() => requestPushPermission(currentUser.login)} className="text-xs font-bold bg-primary-600 hover:bg-primary-700 text-white px-3 py-1.5 rounded-lg transition-colors">Ativar</button>
-                          <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-xs text-primary-600 hover:text-primary-800 px-3 py-1.5 transition-colors">Agora não</button>
+                          <button onClick={() => requestPushPermission(currentUser.login)} className="text-xs font-bold bg-primary-600 hover:bg-primary-700 text-white px-3 py-1.5 rounded-md transition-colors">Ativar</button>
+                          <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-xs font-bold text-text-muted hover:text-text-base px-3 py-1.5 transition-colors">Agora não</button>
                         </div>
                       </div>
-                      <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-text-muted hover:text-text-base transition-colors shrink-0"><X className="w-4 h-4" /></button>
+                      <button onClick={() => { localStorage.setItem("push_soft_dismissed_at", String(Date.now())); setPushSoftBannerDismissed(true); }} className="text-text-muted hover:text-text-base transition-colors shrink-0 -mr-1"><X className="w-4 h-4" /></button>
                     </div>
                   )}
 
@@ -2008,24 +2030,21 @@ export default function App() {
                         )
                       : [currentUser]
                     ).map((device, index) => (
-                      <div key={device.login} className="bg-bg-surface rounded-3xl p-5 border border-border-base space-y-4 relative overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                        <div className="absolute top-0 right-0 flex items-center gap-1.5 bg-primary-100/50 backdrop-blur-md text-primary-800 text-xs font-bold px-4 py-1.5 rounded-bl-2xl border-b border-l border-primary-200/50">
-                          Aparelho {index + 1}
+                      <div key={device.login} className="bg-bg-surface rounded-xl border border-border-base overflow-hidden">
+                        {/* Card header */}
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-base">
+                          <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-muted">Aparelho {index + 1}</span>
                           {device.status !== undefined && device.status !== null && (
                             (() => {
                               const s = String(device.status).toLowerCase();
                               const isOnline = s === 'online' || s === '1' || s === 'true' || s === 'ativo';
                               const isOffline = s === 'offline' || s === '0' || s === 'false' || s === 'inativo';
                               return (
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                                  isOnline ? 'bg-green-100 text-green-700' :
-                                  isOffline ? 'bg-gray-100 text-gray-500' :
-                                  'bg-red-100 text-red-600'
+                                <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                                  isOnline ? 'text-success' : isOffline ? 'text-text-muted' : 'text-danger'
                                 }`}>
                                   <span className={`w-1.5 h-1.5 rounded-full ${
-                                    isOnline ? 'bg-green-500' :
-                                    isOffline ? 'bg-gray-400' :
-                                    'bg-red-500'
+                                    isOnline ? 'bg-success' : isOffline ? 'bg-text-muted' : 'bg-danger'
                                   }`} />
                                   {isOnline ? 'Online' : isOffline ? 'Offline' : String(device.status)}
                                 </span>
@@ -2035,142 +2054,131 @@ export default function App() {
                         </div>
 
                         {/* User Section */}
-                        <div className="flex items-center pt-2 gap-4">
-                          <div className="w-10 h-10 rounded-2xl bg-primary-50 flex items-center justify-center flex-shrink-0 text-primary-600">
-                            <User className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5">Usuário</p>
-                            <div className="flex items-center justify-between">
-                              <p className="text-lg font-bold text-text-base font-mono">
-                                {device.login}
-                              </p>
-                              <button onClick={() => copyToClipboard(device.login)} className="bg-bg-surface-hover hover:bg-border-base p-1.5 rounded-xl text-text-muted hover:text-primary-600 transition-colors">
-                                <Copy className="w-4 h-4" />
-                              </button>
-                            </div>
+                        <div className="px-4 py-3 border-b border-border-base">
+                          <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted font-bold mb-1">Usuário</p>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-lg font-bold text-text-base font-mono truncate">{device.login}</p>
+                            <button
+                              onClick={() => copyToClipboard(device.login)}
+                              className="p-2 -mr-2 rounded-md text-text-muted hover:text-primary-600 hover:bg-bg-surface-hover transition-colors shrink-0"
+                              aria-label="Copiar usuário"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
 
                         {/* Password Section */}
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center flex-shrink-0 text-amber-600">
-                            <Lock className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5">Senha</p>
-                            {showData ? (
-                              <div className="flex items-center justify-between">
-                                <p className="text-lg font-bold text-text-base font-mono">
-                                  {device.senha || device.pass || device.password || "N/A"}
-                                </p>
-                                <button onClick={() => copyToClipboard(device.senha || device.pass || device.password || "")} className="bg-bg-surface-hover hover:bg-border-base p-1.5 rounded-xl text-text-muted hover:text-amber-600 transition-colors">
-                                  <Copy className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ) : (
-                              <p className="text-lg font-bold text-text-base font-mono tracking-[0.2em] pt-1">
-                                {maskText(device.senha || device.pass || device.password || "******")}
+                        <div className="px-4 py-3 border-b border-border-base">
+                          <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted font-bold mb-1">Senha</p>
+                          {showData ? (
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-lg font-bold text-text-base font-mono truncate">
+                                {device.senha || device.pass || device.password || "N/A"}
                               </p>
-                            )}
-                          </div>
+                              <button
+                                onClick={() => copyToClipboard(device.senha || device.pass || device.password || "")}
+                                className="p-2 -mr-2 rounded-md text-text-muted hover:text-primary-600 hover:bg-bg-surface-hover transition-colors shrink-0"
+                                aria-label="Copiar senha"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-lg font-bold text-text-base font-mono tracking-[0.2em]">
+                              {maskText(device.senha || device.pass || device.password || "******")}
+                            </p>
+                          )}
                         </div>
 
                         {/* UUID Section */}
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center flex-shrink-0 text-blue-600">
-                            <Key className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1 overflow-hidden">
-                            <p className="text-[10px] uppercase tracking-wider text-text-muted font-bold mb-0.5" title="UUID opcional usado no app CloudBR DT para conexão sem usuário/senha">UUID do Aparelho</p>
-                            {device.uuid && device.uuid !== "NULL" && device.uuid !== "" ? (
-                              <div className="flex flex-col gap-2">
-                                {showData ? (
-                                  <div className="flex items-center justify-between">
-                                    <p className="text-xs font-semibold text-text-base font-mono truncate mr-2 bg-bg-surface-hover px-2 py-1 rounded-lg border border-border-base">
-                                      {device.uuid}
-                                    </p>
-                                    <button onClick={() => copyToClipboard(device.uuid || "")} className="bg-bg-surface-hover hover:bg-border-base p-1.5 rounded-xl text-text-muted hover:text-blue-600 transition-colors flex-shrink-0">
-                                      <Copy className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <p className="text-xs font-semibold text-text-base font-mono truncate bg-bg-surface-hover px-2 py-1 rounded-lg border border-border-base mt-0.5">
-                                    {maskText(device.uuid)}
-                                  </p>
-                                )}
-                                {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid_correction' && r.status === 'aguardando') ? (
-                                  <div className="flex items-center bg-amber-50 text-amber-700 px-2.5 py-2 rounded-lg border border-amber-200">
-                                    <Clock className="w-3.5 h-3.5 mr-1.5 shrink-0" />
-                                    <p className="text-[11px] font-medium leading-tight">Correção de UUID em andamento. O novo UUID aparecerá aqui em breve.</p>
-                                  </div>
-                                ) : showData ? (
+                        <div className="px-4 py-3">
+                          <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted font-bold mb-1" title="UUID opcional usado no app CloudBR DT para conexão sem usuário/senha">UUID do Aparelho</p>
+                          {device.uuid && device.uuid !== "NULL" && device.uuid !== "" ? (
+                            <div className="flex flex-col gap-2.5">
+                              {showData ? (
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-xs font-semibold text-text-base font-mono truncate">{device.uuid}</p>
                                   <button
-                                    onClick={() => handleRequestUuidCorrection(device.login)}
-                                    disabled={loading}
-                                    className="w-full bg-bg-surface-hover hover:bg-blue-50 text-blue-700 text-[11px] font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors active:scale-95 border border-blue-200 disabled:opacity-60"
-                                    title="Use esta opção se o UUID atual não está conectando. Vamos gerar um novo no painel da VPN."
+                                    onClick={() => copyToClipboard(device.uuid || "")}
+                                    className="p-2 -mr-2 rounded-md text-text-muted hover:text-primary-600 hover:bg-bg-surface-hover transition-colors shrink-0"
+                                    aria-label="Copiar UUID"
                                   >
-                                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                                    Correção de UUID
+                                    <Copy className="w-4 h-4" />
                                   </button>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <div className="mt-1 flex flex-col gap-2">
-                                {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid' && r.status === 'aguardando') ? (
-                                  <div className="flex items-center bg-amber-50 text-amber-700 px-2.5 py-2 rounded-lg border border-amber-200">
-                                    <Clock className="w-3.5 h-3.5 mr-1.5 shrink-0" />
-                                    <p className="text-[11px] font-medium leading-tight">Solicitação de UUID em análise pelo administrador.</p>
+                                </div>
+                              ) : (
+                                <p className="text-xs font-semibold text-text-base font-mono truncate">{maskText(device.uuid)}</p>
+                              )}
+                              {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid_correction' && r.status === 'aguardando') ? (
+                                <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-warning-soft text-warning border border-warning/20">
+                                  <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                  <p className="text-[12px] font-medium leading-snug">Correção de UUID em andamento. O novo UUID aparecerá aqui em breve.</p>
+                                </div>
+                              ) : showData ? (
+                                <button
+                                  onClick={() => handleRequestUuidCorrection(device.login)}
+                                  disabled={loading}
+                                  className="w-full bg-bg-surface-hover hover:bg-border-base text-text-base text-[12px] font-bold py-2.5 px-3 rounded-md flex items-center justify-center gap-1.5 transition-colors active:scale-[0.98] disabled:opacity-60"
+                                  title="Use esta opção se o UUID atual não está conectando. Vamos gerar um novo no painel da VPN."
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                                  Correção de UUID
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-2.5">
+                              {currentUser.changeRequests?.some((r: any) => r.username === device.login && r.type === 'uuid' && r.status === 'aguardando') ? (
+                                <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-warning-soft text-warning border border-warning/20">
+                                  <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                  <p className="text-[12px] font-medium leading-snug">Solicitação de UUID em análise pelo administrador.</p>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-info-soft text-info border border-info/20">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                    <p className="text-[12px] font-medium leading-snug">
+                                      UUID não vinculado. Opcional — usado no app CloudBR DT para conexão sem usuário/senha.
+                                    </p>
                                   </div>
-                                ) : (
-                                  <>
-                                    <div className="flex items-center bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg border border-blue-100/50">
-                                      <AlertCircle className="w-3.5 h-3.5 mr-1.5 shrink-0" />
-                                      <p className="text-[11px] font-medium leading-tight">
-                                        UUID não vinculado. O UUID é opcional — usado no app CloudBR DT para conexão sem usuário/senha. Solicite ao administrador se desejar usar essa forma de conexão.
-                                      </p>
-                                    </div>
-                                    <button
-                                      onClick={() => handleRequestUuidReset(device.login)}
-                                      disabled={loading}
-                                      className="w-full bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors active:scale-95 shadow-sm disabled:opacity-60"
-                                    >
-                                      <Key className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                                      Solicitar UUID
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                                  <button
+                                    onClick={() => handleRequestUuidReset(device.login)}
+                                    disabled={loading}
+                                    className="w-full bg-primary-600 hover:bg-primary-700 text-white text-[13px] font-bold py-2.5 px-3 rounded-md flex items-center justify-center gap-1.5 transition-colors active:scale-[0.98] disabled:opacity-60"
+                                  >
+                                    <Key className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                                    Solicitar UUID
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
 
                     {/* Download App CTA */}
-                    <div className="rounded-3xl overflow-hidden border border-border-base shadow-sm">
+                    <div className="rounded-xl overflow-hidden border border-border-base">
                       <a
                         href="https://play.google.com/store/apps/details?id=google.android.a48"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-4 bg-bg-surface hover:bg-bg-surface-hover p-4 transition-colors active:scale-[0.98]"
+                        className="flex items-center gap-3 bg-bg-surface hover:bg-bg-surface-hover px-4 py-3 transition-colors active:scale-[0.98]"
                       >
-                        <div className="w-12 h-12 bg-primary-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-md">
-                          <Download className="w-6 h-6 text-white" />
-                        </div>
+                        <Download className="w-5 h-5 text-primary-600 flex-shrink-0" />
                         <div className="flex-1">
                           <p className="text-sm font-bold text-text-base">Baixar App CloudBR DT</p>
                           <p className="text-[11px] text-text-muted mt-0.5">Use seu usuário e senha para conectar</p>
                         </div>
                         <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0" />
                       </a>
-                      <div className="bg-amber-50 border-t border-amber-100 px-4 py-2.5 flex flex-col gap-1">
-                        <div className="flex items-center gap-2 text-amber-700">
+                      <div className="bg-warning-soft border-t border-border-base px-4 py-2 flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-warning">
                           <Smartphone className="w-3.5 h-3.5 flex-shrink-0" />
                           <p className="text-[11px] font-bold">Somente Android — não compatível com iPhone</p>
                         </div>
-                        <div className="flex items-center gap-2 text-amber-700">
+                        <div className="flex items-center gap-2 text-warning">
                           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                           <p className="text-[11px] font-bold">Funciona somente com chip TIM ou VIVO</p>
                         </div>
@@ -2178,25 +2186,25 @@ export default function App() {
                     </div>
 
                     {/* Expiration and Limit Card */}
-                    <div className="bg-bg-surface-hover rounded-3xl p-5 border border-border-base flex flex-col gap-5 shadow-sm">
-                      <div className="flex justify-between items-center bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm">
-                        <div className="flex flex-col items-center flex-1">
+                    <div className="bg-bg-surface rounded-xl border border-border-base p-4 flex flex-col gap-4">
+                      <div className="flex justify-between items-stretch gap-4">
+                        <div className="flex flex-col flex-1 min-w-0">
                           {groupData?.plan && (
-                            <p className="text-[11px] font-bold text-primary-600 bg-primary-50 border border-primary-100 px-2.5 py-0.5 rounded-full mb-1.5">
+                            <p className="text-[11px] font-bold text-primary-600 mb-1.5 truncate">
                               {groupData.plan.plan_months} {groupData.plan.plan_months === 1 ? "mês" : "meses"} · {groupData.plan.plan_devices} {groupData.plan.plan_devices === 1 ? "aparelho" : "aparelhos"}
                             </p>
                           )}
-                          <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Vencimento</p>
-                          <p className="text-xl font-bold text-primary-600">{formatDate(currentUser.expira)}</p>
+                          <p className="text-[11px] text-text-muted font-bold uppercase tracking-[0.08em] mb-1">Vencimento</p>
+                          <p className="text-2xl font-bold text-text-base font-mono">{formatDate(currentUser.expira)}</p>
                           {(() => {
                             const dateCorrection = currentUser.changeRequests?.find((r: any) => r.type === "date_correction" && r.status === "aguardando");
                             if (dateCorrection) {
                               const correctedDate = dateCorrection.requested_value.split("-").reverse().join("/");
                               return (
-                                <div className="mt-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-center">
-                                  <p className="text-[11px] font-bold text-blue-700">Acesso liberado</p>
-                                  <p className="text-[10px] text-blue-600 mt-0.5">Vencimento será corrigido para <span className="font-bold">{correctedDate}</span></p>
-                                  <p className="text-[9px] text-blue-500 mt-0.5">Aguardando aprovação do administrador</p>
+                                <div className="mt-2 bg-info-soft border border-info/20 rounded-md px-3 py-2">
+                                  <p className="text-[11px] font-bold text-info">Acesso liberado</p>
+                                  <p className="text-[11px] text-info/90 mt-0.5">Vencimento será corrigido para <span className="font-bold">{correctedDate}</span></p>
+                                  <p className="text-[10px] text-info/70 mt-0.5">Aguardando aprovação do administrador</p>
                                 </div>
                               );
                             }
@@ -2205,20 +2213,20 @@ export default function App() {
                             const diffMs = expiry.getTime() - now.getTime();
                             const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
                             if (diffDays <= 0) return (
-                              <span className="mt-1 text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">Expirado</span>
+                              <span className="mt-2 inline-flex w-fit items-center gap-1.5 text-[11px] font-bold text-danger"><span className="w-1.5 h-1.5 rounded-full bg-danger" />Expirado</span>
                             );
                             if (diffDays <= 7) return (
-                              <span className="mt-1 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Vence em {diffDays}d</span>
+                              <span className="mt-2 inline-flex w-fit items-center gap-1.5 text-[11px] font-bold text-warning"><span className="w-1.5 h-1.5 rounded-full bg-warning" />Vence em {diffDays}d</span>
                             );
                             return (
-                              <span className="mt-1 text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Ativo · {diffDays}d</span>
+                              <span className="mt-2 inline-flex w-fit items-center gap-1.5 text-[11px] font-bold text-success"><span className="w-1.5 h-1.5 rounded-full bg-success" />Ativo · {diffDays}d</span>
                             );
                           })()}
                         </div>
-                        <div className="w-px h-10 bg-border-base"></div>
-                        <div className="flex flex-col items-center flex-1">
-                          <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Conexões</p>
-                          <p className="text-xl font-bold text-text-base">{groupUsersDetails.length > 0 ? groupUsersDetails.length : 1} <span className="text-sm font-medium text-text-muted">Max</span></p>
+                        <div className="w-px bg-border-base"></div>
+                        <div className="flex flex-col flex-1">
+                          <p className="text-[11px] text-text-muted font-bold uppercase tracking-[0.08em] mb-1">Conexões</p>
+                          <p className="text-2xl font-bold text-text-base font-mono">{groupUsersDetails.length > 0 ? groupUsersDetails.length : 1}<span className="text-sm font-medium text-text-muted ml-1">max</span></p>
                         </div>
                       </div>
 
@@ -2226,24 +2234,23 @@ export default function App() {
                         <button
                           onClick={handleGeneratePix}
                           disabled={loading}
-                          className="relative overflow-hidden w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-4 px-4 rounded-2xl transition-all shadow-[0_8px_16px_-6px_rgba(79,70,229,0.5)] flex items-center justify-center disabled:opacity-60 disabled:shadow-none active:scale-[0.98]"
+                          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.98]"
                         >
-                          <div className="absolute inset-0 bg-white/20 blur-md opacity-0 hover:opacity-100 transition-opacity"></div>
                           {loading ? (
                             <Loader2 className="w-5 h-5 animate-spin" />
                           ) : (
                             <>
-                              <QrCode className="w-5 h-5 mr-2" />
-                               <span className="text-[15px]">Renovar Plano Agora</span>
+                              <QrCode className="w-5 h-5" />
+                              <span className="text-[15px]">Renovar Plano Agora</span>
                               {groupData && (
-                                <div className="ml-2 flex flex-col items-end">
+                                <span className="ml-auto flex flex-col items-end leading-tight">
                                   {calcLoyaltyPoints(currentUser.payments || []) >= 3 && (
-                                    <span className="text-[10px] text-green-300 font-bold -mb-1">Fidelidade -20%</span>
+                                    <span className="text-[10px] text-emerald-300 font-bold">Fidelidade −20%</span>
                                   )}
-                                  <span className="bg-primary-800/50 px-2 py-0.5 rounded-lg text-primary-100 text-[13px] font-medium border border-primary-500/30">
-                                    R$ {Math.floor(calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices) * (calcLoyaltyPoints(currentUser.payments || []) >= 3 ? 0.8 : 1))},00
+                                  <span className="text-[14px] font-bold font-mono">
+                                    R$ {Math.floor(calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices) * (calcLoyaltyPoints(currentUser.payments || []) >= 3 ? 0.8 : 1))}
                                   </span>
-                                </div>
+                                </span>
                               )}
                             </>
                           )}
@@ -2263,14 +2270,10 @@ export default function App() {
                                   setShowUsernameChangeModal(true);
                                 }
                               }}
-                              className="bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                              className="bg-bg-surface-hover hover:bg-border-base text-text-base font-bold py-3 px-2 rounded-md transition-colors flex flex-col items-center justify-center gap-2 active:scale-[0.97]"
                             >
-                              <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
-                                <div className="w-10 h-10 bg-primary-100/50 text-primary-600 rounded-xl flex items-center justify-center border border-primary-200 shadow-sm backdrop-blur-sm">
-                                  <User className="w-5 h-5" />
-                                </div>
-                                <span className="text-[11px]">Alterar Usuário</span>
-                              </div>
+                              <User className="w-5 h-5 text-primary-600" />
+                              <span className="text-[11px]">Alterar Usuário</span>
                             </button>
                             <button
                               onClick={() => {
@@ -2283,14 +2286,10 @@ export default function App() {
                                   setShowPasswordChangeModal(true);
                                 }
                               }}
-                              className="bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                              className="bg-bg-surface-hover hover:bg-border-base text-text-base font-bold py-3 px-2 rounded-md transition-colors flex flex-col items-center justify-center gap-2 active:scale-[0.97]"
                             >
-                              <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
-                                <div className="w-10 h-10 bg-primary-100/50 text-primary-600 rounded-xl flex items-center justify-center border border-primary-200 shadow-sm backdrop-blur-sm">
-                                  <Key className="w-5 h-5" />
-                                </div>
-                                <span className="text-[11px]">Alterar Senha</span>
-                              </div>
+                              <Key className="w-5 h-5 text-primary-600" />
+                              <span className="text-[11px]">Alterar Senha</span>
                             </button>
                             <button
                               onClick={() => {
@@ -2307,26 +2306,18 @@ export default function App() {
                                   setShowDateChangeModal(true);
                                 }
                               }}
-                              className={`bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95 ${!currentUser.hasGroupPaidOnce ? 'opacity-60' : ''}`}
+                              className={`bg-bg-surface-hover hover:bg-border-base text-text-base font-bold py-3 px-2 rounded-md transition-colors flex flex-col items-center justify-center gap-2 active:scale-[0.97] ${!currentUser.hasGroupPaidOnce ? 'opacity-60' : ''}`}
                               title={!currentUser.hasGroupPaidOnce ? 'Disponível após o primeiro pagamento' : undefined}
                             >
-                              <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
-                                <div className="w-10 h-10 bg-primary-100/50 text-primary-600 rounded-xl flex items-center justify-center border border-primary-200 shadow-sm backdrop-blur-sm">
-                                  <CalendarDays className="w-5 h-5" />
-                                </div>
-                                <span className="text-[11px]">Alterar Vencimento</span>
-                              </div>
+                              <CalendarDays className="w-5 h-5 text-primary-600" />
+                              <span className="text-[11px]">Alterar Vencimento</span>
                             </button>
                             <button
                               onClick={() => setShowPlanModal(true)}
-                              className="bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                              className="bg-bg-surface-hover hover:bg-border-base text-text-base font-bold py-3 px-2 rounded-md transition-colors flex flex-col items-center justify-center gap-2 active:scale-[0.97]"
                             >
-                              <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
-                                <div className="w-10 h-10 bg-primary-100/50 text-primary-600 rounded-xl flex items-center justify-center border border-primary-200 shadow-sm backdrop-blur-sm">
-                                  <Package className="w-5 h-5" />
-                                </div>
-                                <span className="text-[11px]">Alterar Plano</span>
-                              </div>
+                              <Package className="w-5 h-5 text-primary-600" />
+                              <span className="text-[11px]">Alterar Plano</span>
                             </button>
                             <button
                               onClick={async () => {
@@ -2353,11 +2344,9 @@ export default function App() {
                                   setLoading(false);
                                 }
                               }}
-                              className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                              className="bg-danger-soft hover:bg-danger/15 border border-danger/20 text-danger font-bold py-3 px-2 rounded-md transition-colors flex flex-col items-center justify-center gap-2 active:scale-[0.97]"
                             >
-                              <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-red-600 shadow-sm">
-                                <XCircle className="w-4 h-4" />
-                              </div>
+                              <XCircle className="w-5 h-5" />
                               <span className="text-[11px]">Reembolso</span>
                             </button>
                             {pushPermission !== "unsupported" && (
@@ -2371,14 +2360,16 @@ export default function App() {
                                     requestPushPermission(currentUser.login);
                                   }
                                 }}
-                                className="bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3 px-3 rounded-2xl transition-colors flex flex-col items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                                className="bg-bg-surface-hover hover:bg-border-base text-text-base font-bold py-3 px-2 rounded-md transition-colors flex flex-col items-center justify-center gap-2 active:scale-[0.97]"
                               >
-                                <div className="flex flex-col items-center gap-1.5 transition-transform hover:scale-105">
-                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-sm ${pushPermission === "granted" ? "bg-emerald-100 text-emerald-600 border-emerald-200" : pushPermission === "denied" ? "bg-gray-100 text-gray-400 border-gray-200" : "bg-primary-100/50 text-primary-600 border-primary-200"}`}>
-                                    {pushPermission === "granted" ? <BellRing className="w-5 h-5" /> : pushPermission === "denied" ? <BellOff className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
-                                  </div>
-                                  <span className="text-[11px]">{pushPermission === "granted" ? "Notifs. Ativas" : pushPermission === "denied" ? "Notifs. Bloq." : "Notificações"}</span>
-                                </div>
+                                {pushPermission === "granted" ? (
+                                  <BellRing className="w-5 h-5 text-success" />
+                                ) : pushPermission === "denied" ? (
+                                  <BellOff className="w-5 h-5 text-text-muted" />
+                                ) : (
+                                  <Bell className="w-5 h-5 text-primary-600" />
+                                )}
+                                <span className="text-[11px]">{pushPermission === "granted" ? "Notifs. Ativas" : pushPermission === "denied" ? "Notifs. Bloq." : "Notificações"}</span>
                               </button>
                             )}
                           </div>
@@ -2389,46 +2380,42 @@ export default function App() {
 
                   {/* Group & Plan Section */}
                   {groupData && showData && (
-                    <div className="bg-bg-surface-hover rounded-3xl p-5 border border-border-base flex flex-col gap-4 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-primary-500 opacity-5 rounded-full blur-2xl -mr-10 -mt-10"></div>
-
-                      <div className="flex justify-between items-center relative z-10 p-1">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-primary-100/50 flex items-center justify-center text-primary-600">
-                            <Smartphone className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-text-base leading-tight">Meu Plano</h3>
-                            <p className="text-[10px] uppercase font-semibold text-text-muted tracking-wider">
-                              {groupData.plan.plan_months} Mês(es) / {groupData.plan.plan_devices} Celular(es)
+                    <div className="bg-bg-surface rounded-xl border border-border-base overflow-hidden">
+                      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border-base">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Smartphone className="w-4 h-4 text-primary-600 shrink-0" />
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-bold text-text-base leading-tight">Meu plano</h3>
+                            <p className="text-[11px] text-text-muted truncate">
+                              {groupData.plan.plan_months} {groupData.plan.plan_months === 1 ? "mês" : "meses"} · {groupData.plan.plan_devices} {groupData.plan.plan_devices === 1 ? "aparelho" : "aparelhos"}
                             </p>
                           </div>
                         </div>
                         <button
                           onClick={() => setShowPlanModal(true)}
-                          className="bg-bg-surface hover:bg-border-base border border-border-base text-primary-600 px-3 py-1.5 rounded-xl font-semibold transition-colors text-xs shadow-sm active:scale-95"
+                          className="text-primary-600 font-bold transition-colors text-xs px-3 py-1.5 rounded-md hover:bg-bg-surface-hover active:scale-95"
                         >
                           Alterar
                         </button>
                       </div>
 
-                      <div className="space-y-3 relative z-10 pt-2 border-t border-border-base/50">
-                        <h4 className="text-[11px] font-bold text-text-muted uppercase tracking-wider pl-1">Aparelhos Vinculados ({groupData.users.length}/{groupData.plan.plan_devices})</h4>
+                      <div className="px-4 py-3">
+                        <h4 className="text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-2">Aparelhos vinculados ({groupData.users.length}/{groupData.plan.plan_devices})</h4>
 
-                        <div className="space-y-2">
+                        <div className="divide-y divide-border-base -mx-4">
                           {groupUsersDetails.length > 0 ? (
                             [...groupUsersDetails].sort((a, b) =>
                               a.login === currentUser.login ? -1 : b.login === currentUser.login ? 1 : 0
                             ).map((u, index) => (
-                              <div key={u.login} className="bg-bg-surface p-3 rounded-2xl border border-border-base flex justify-between items-center shadow-sm">
-                                <div className="flex flex-col">
-                                  <span className="text-[10px] text-primary-600 font-bold uppercase tracking-wider mb-0.5">Aparelho {index + 1}</span>
-                                  <span className="text-sm font-bold text-text-base">{u.login} {u.login === currentUser.login && <span className="text-text-muted font-medium text-xs ml-1">(Você)</span>}</span>
+                              <div key={u.login} className="px-4 py-2.5 flex justify-between items-center gap-3">
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-[10px] text-text-muted font-bold uppercase tracking-[0.08em]">Aparelho {index + 1}</span>
+                                  <span className="text-sm font-bold text-text-base font-mono truncate">{u.login}{u.login === currentUser.login && <span className="text-text-muted font-medium text-xs ml-2">(você)</span>}</span>
                                 </div>
                                 {u.login !== currentUser.login && (
                                   <button
                                     onClick={() => handleRemoveDevice(u.login)}
-                                    className="text-red-500 hover:text-red-700 p-2 bg-red-50 hover:bg-red-100 rounded-xl transition-colors active:scale-95"
+                                    className="text-danger p-2 -mr-2 rounded-md hover:bg-danger-soft active:scale-95 transition-colors shrink-0"
                                     title="Remover aparelho"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -2440,15 +2427,15 @@ export default function App() {
                             [...groupData.users].sort((a, b) =>
                               a === currentUser.login ? -1 : b === currentUser.login ? 1 : 0
                             ).map((u, index) => (
-                              <div key={u} className="bg-bg-surface p-3 rounded-2xl border border-border-base flex justify-between items-center shadow-sm">
-                                <div className="flex flex-col">
-                                  <span className="text-[10px] text-primary-600 font-bold uppercase tracking-wider mb-0.5">Aparelho {index + 1}</span>
-                                  <span className="text-sm font-bold text-text-base">{u} {u === currentUser.login && <span className="text-text-muted font-medium text-xs ml-1">(Você)</span>}</span>
+                              <div key={u} className="px-4 py-2.5 flex justify-between items-center gap-3">
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-[10px] text-text-muted font-bold uppercase tracking-[0.08em]">Aparelho {index + 1}</span>
+                                  <span className="text-sm font-bold text-text-base font-mono truncate">{u}{u === currentUser.login && <span className="text-text-muted font-medium text-xs ml-2">(você)</span>}</span>
                                 </div>
                                 {u !== currentUser.login && (
                                   <button
                                     onClick={() => handleRemoveDevice(u)}
-                                    className="text-red-500 hover:text-red-700 p-2 bg-red-50 hover:bg-red-100 rounded-xl transition-colors active:scale-95"
+                                    className="text-danger p-2 -mr-2 rounded-md hover:bg-danger-soft active:scale-95 transition-colors shrink-0"
                                     title="Remover aparelho"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -2466,10 +2453,10 @@ export default function App() {
                               setPlanUpgradeStep('prompt');
                               setShowPlanModal(true);
                             }}
-                            className="w-full bg-primary-50 hover:bg-primary-100 text-primary-700 font-bold py-3 px-4 rounded-2xl transition-all text-sm flex items-center justify-center mt-3 border border-primary-200 border-dashed active:scale-[0.98]"
+                            className="w-full bg-bg-surface-hover hover:bg-border-base text-primary-600 font-bold py-2.5 px-4 rounded-md transition-colors text-sm flex items-center justify-center mt-3 border border-primary-500/30 border-dashed active:scale-[0.98]"
                           >
                             <Plus className="w-4 h-4 mr-2" />
-                            Vincular Aparelho Extra
+                            Vincular aparelho extra
                           </button>
                         )}
                       </div>
@@ -2478,98 +2465,95 @@ export default function App() {
 
                   {/* My Requests Section */}
                   {showData && (currentUser.changeRequests?.length > 0 || currentUser.refundRequest) && (
-                    <div className="bg-bg-surface-hover rounded-3xl p-5 border border-border-base flex flex-col gap-4 shadow-sm relative overflow-hidden">
-                      <div className="flex items-center gap-3 mb-1">
-                        <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
-                          <RefreshCw className="w-4 h-4" />
-                        </div>
-                        <h3 className="font-bold text-text-base leading-tight">Minhas Solicitações</h3>
+                    <div className="bg-bg-surface rounded-xl border border-border-base overflow-hidden">
+                      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border-base">
+                        <RefreshCw className="w-4 h-4 text-primary-600" />
+                        <h3 className="text-sm font-bold text-text-base">Minhas solicitações</h3>
                       </div>
 
-                      <div className="space-y-3">
-                        {currentUser.changeRequests?.map((req: any) => (
-                          <div key={req.id} className="bg-bg-surface p-3 rounded-2xl border border-border-base shadow-sm space-y-2">
-                            <div className="flex justify-between items-start gap-2">
-                              <div className="flex flex-col gap-1 min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <p className="text-xs font-bold text-text-base">
-                                    {req.type === 'date_correction' ? 'Correção de Vencimento' : req.type === 'date' ? 'Alteração de Vencimento' : req.type === 'username' ? 'Alteração de Usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : req.type === 'uuid_correction' ? 'Correção de UUID' : 'Alteração de Senha'}
+                      <div className="divide-y divide-border-base">
+                        {currentUser.changeRequests?.map((req: any) => {
+                          const label = req.type === 'date_correction' ? 'Correção de vencimento' : req.type === 'date' ? 'Alteração de vencimento' : req.type === 'username' ? 'Alteração de usuário' : req.type === 'uuid' ? 'Solicitação de UUID' : req.type === 'uuid_correction' ? 'Correção de UUID' : 'Alteração de senha';
+                          const statusColor = req.status === 'aprovado' ? 'text-success' : req.status === 'aguardando' ? 'text-warning' : 'text-danger';
+                          const statusLabel = req.status === 'aprovado' ? 'Aprovado' : req.status === 'aguardando' ? 'Aguardando' : 'Rejeitado';
+                          return (
+                            <div key={req.id} className="px-4 py-3 space-y-2">
+                              <div className="flex justify-between items-start gap-3">
+                                <div className="flex flex-col gap-0.5 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-[13px] font-bold text-text-base">{label}</p>
+                                    <span className="text-[10px] text-text-muted font-bold uppercase tracking-[0.06em]">{getDeviceLabel(req.username)}</span>
+                                  </div>
+                                  <p className="text-[11px] text-text-muted">
+                                    {req.type === 'uuid' || req.type === 'uuid_correction' ? 'Aguarda ação do admin' : `Valor: ${req.requested_value}`}
                                   </p>
-                                  <span className="text-[10px] bg-primary-100 text-primary-700 px-2 py-0.5 rounded-md font-bold border border-primary-200">{getDeviceLabel(req.username)}</span>
                                 </div>
-                                <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">
-                                  {req.type === 'uuid' || req.type === 'uuid_correction' ? 'Aguarda ação do admin' : `Valor: ${req.requested_value}`}
-                                </p>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className={`text-[11px] font-bold uppercase tracking-[0.06em] ${statusColor}`}>
+                                    {statusLabel}
+                                  </span>
+                                  {req.status === 'aguardando' && req.type !== 'date_correction' && (
+                                    <button
+                                      onClick={() => confirmAction("Cancelar solicitação", "Tem certeza que deseja cancelar esta solicitação?", () => cancelChangeRequest(req.id))}
+                                      className="text-text-muted hover:text-danger p-1.5 -mr-1.5 rounded-md transition-colors"
+                                      title="Cancelar solicitação"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-lg font-bold ${req.status === 'aprovado' ? 'bg-green-100/50 text-green-700 border border-green-200' :
-                                  req.status === 'aguardando' ? 'bg-amber-100/50 text-amber-700 border border-amber-200' :
-                                    'bg-red-100/50 text-red-700 border border-red-200'
-                                  }`}>
-                                  {req.status === 'aprovado' ? 'Aprovado' : req.status === 'aguardando' ? 'Aguardando' : 'Rejeitado'}
+                              {req.type === 'date_correction' && req.status === 'aguardando' && (
+                                <div className="bg-info-soft border border-info/20 rounded-md px-3 py-2">
+                                  <p className="text-[10px] font-bold text-info uppercase tracking-[0.06em] mb-0.5">Data correta de vencimento</p>
+                                  <p className="text-xs text-info font-bold">{req.requested_value.split("-").reverse().join("/")}</p>
+                                  <p className="text-[10px] text-info/80 mt-1">Gerada automaticamente. Seu acesso já está liberado.</p>
+                                </div>
+                              )}
+                              {req.status === 'rejeitado' && req.approved_value && (
+                                <div className="bg-danger-soft border border-danger/20 rounded-md px-3 py-2">
+                                  <p className="text-[10px] font-bold text-danger uppercase tracking-[0.06em] mb-0.5">Motivo da recusa</p>
+                                  <p className="text-xs text-danger font-medium">{req.approved_value}</p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {currentUser.refundRequest && (() => {
+                          const statusColor = currentUser.refundRequest.status === 'realizado' ? 'text-success' : currentUser.refundRequest.status === 'aguardando' ? 'text-warning' : 'text-danger';
+                          const statusLabel = currentUser.refundRequest.status === 'realizado' ? 'Realizado' : currentUser.refundRequest.status === 'aguardando' ? 'Aguardando' : 'Rejeitado';
+                          return (
+                            <div className="px-4 py-3 flex justify-between items-center gap-3">
+                              <div className="flex flex-col gap-0.5 min-w-0">
+                                <p className="text-[13px] font-bold text-text-base">Reembolso</p>
+                                <p className="text-[11px] text-text-muted truncate">PIX: {currentUser.refundRequest.pix_key}</p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className={`text-[11px] font-bold uppercase tracking-[0.06em] ${statusColor}`}>
+                                  {statusLabel}
                                 </span>
-                                {req.status === 'aguardando' && req.type !== 'date_correction' && (
+                                {currentUser.refundRequest.status === 'aguardando' && (
                                   <button
-                                    onClick={() => confirmAction("Cancelar solicitação", "Tem certeza que deseja cancelar esta solicitação?", () => cancelChangeRequest(req.id))}
-                                    className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors border border-red-100"
-                                    title="Cancelar solicitação"
+                                    onClick={() => confirmAction("Cancelar reembolso", "Tem certeza que deseja cancelar a solicitação de reembolso?", () => cancelRefundRequest(currentUser.refundRequest.id))}
+                                    className="text-text-muted hover:text-danger p-1.5 -mr-1.5 rounded-md transition-colors"
+                                    title="Cancelar solicitação de reembolso"
                                   >
                                     <X className="w-3.5 h-3.5" />
                                   </button>
                                 )}
                               </div>
                             </div>
-                            {req.type === 'date_correction' && req.status === 'aguardando' && (
-                              <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
-                                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-0.5">Data correta de vencimento</p>
-                                <p className="text-xs text-blue-700 font-bold">{req.requested_value.split("-").reverse().join("/")}</p>
-                                <p className="text-[10px] text-blue-500 mt-1">Gerada automaticamente. Seu acesso já está liberado.</p>
-                              </div>
-                            )}
-                            {req.status === 'rejeitado' && req.approved_value && (
-                              <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-                                <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-0.5">Motivo da recusa</p>
-                                <p className="text-xs text-red-700 font-medium">{req.approved_value}</p>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {currentUser.refundRequest && (
-                          <div className="bg-bg-surface p-3 rounded-2xl border border-border-base flex justify-between items-center shadow-sm">
-                            <div className="flex flex-col gap-1">
-                              <p className="text-xs font-bold text-text-base">Reembolso</p>
-                              <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold overflow-hidden text-ellipsis max-w-[150px]">PIX: {currentUser.refundRequest.pix_key}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-lg font-bold ${currentUser.refundRequest.status === 'realizado' ? 'bg-green-100/50 text-green-700 border border-green-200' :
-                                currentUser.refundRequest.status === 'aguardando' ? 'bg-amber-100/50 text-amber-700 border border-amber-200' :
-                                  'bg-red-100/50 text-red-700 border border-red-200'
-                                }`}>
-                                {currentUser.refundRequest.status === 'realizado' ? 'Realizado' : currentUser.refundRequest.status === 'aguardando' ? 'Aguardando' : 'Rejeitado'}
-                              </span>
-                              {currentUser.refundRequest.status === 'aguardando' && (
-                                <button
-                                  onClick={() => confirmAction("Cancelar reembolso", "Tem certeza que deseja cancelar a solicitação de reembolso?", () => cancelRefundRequest(currentUser.refundRequest.id))}
-                                  className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1.5 rounded-lg transition-colors border border-red-100"
-                                  title="Cancelar solicitação de reembolso"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                   )}
 
                   {!showData && (
-                    <div className="relative overflow-hidden bg-gradient-to-br from-bg-surface to-bg-surface-hover border border-border-base rounded-3xl p-6 shadow-md text-center">
-                      <div className="w-12 h-12 bg-primary-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-primary-600 shadow-inner">
-                        <Lock className="w-6 h-6" />
-                      </div>
-                      <h3 className="font-bold text-lg text-text-base mb-1">Dados Ocultos</h3>
-                      <p className="text-xs text-text-muted mb-5 font-medium px-4">Digite sua senha atual para liberar a visualização dos dados confidenciais acima.</p>
+                    <div className="bg-bg-surface border border-border-base rounded-xl p-5 text-center">
+                      <Lock className="w-6 h-6 text-primary-600 mx-auto mb-3" />
+                      <h3 className="font-bold text-base text-text-base mb-1">Dados ocultos</h3>
+                      <p className="text-xs text-text-muted mb-4 px-2 leading-snug">Digite sua senha atual para liberar a visualização dos dados confidenciais acima.</p>
 
                       <form onSubmit={handleVerifyPassword} className="flex flex-col gap-3">
                         <input
@@ -2577,49 +2561,45 @@ export default function App() {
                           value={verifyPassword}
                           onChange={(e) => setVerifyPassword(e.target.value)}
                           placeholder="Sua senha de acesso"
-                          className="w-full px-4 py-3.5 rounded-2xl bg-bg-surface border border-border-base focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 outline-none text-sm font-semibold text-center tracking-widest transition-all shadow-sm"
+                          className="w-full px-3 h-11 rounded-md bg-bg-base border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm font-semibold text-center tracking-widest transition-all"
                         />
                         <button
                           type="submit"
                           disabled={isVerifying || !verifyPassword}
-                          className="w-full bg-text-base hover:bg-black text-bg-base font-bold px-4 py-3.5 rounded-2xl text-sm transition-all disabled:opacity-70 flex items-center justify-center shadow-lg active:scale-95"
+                          className="w-full bg-text-base hover:opacity-90 text-bg-base font-bold px-4 h-11 rounded-md text-sm transition-opacity disabled:opacity-70 flex items-center justify-center gap-2 active:scale-[0.98]"
                         >
-                          {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4 mr-2" />}
-                          Revelar Dados
+                          {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Eye className="w-4 h-4" /> Revelar dados</>}
                         </button>
                       </form>
-                      {verifyError && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-500 text-xs mt-3 font-semibold">{verifyError}</motion.p>}
+                      {verifyError && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-danger text-xs mt-3 font-semibold">{verifyError}</motion.p>}
                     </div>
                   )}
 
                   {/* Loyalty Points Section */}
                   {showData && (
-                    <div className="bg-gradient-to-br from-yellow-500/10 to-transparent border border-yellow-200/30 rounded-3xl p-5 shadow-sm mt-6 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-400 opacity-5 rounded-full blur-2xl -mr-10 -mt-10"></div>
-                      <div className="flex items-center justify-between mb-3 relative z-10">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-yellow-100 flex items-center justify-center text-yellow-600 shadow-inner">
-                            <Star className="w-4 h-4" />
-                          </div>
-                          <h3 className="text-sm font-bold text-text-base">Programa de Fidelidade</h3>
+                    <div className="bg-bg-surface border border-border-base rounded-xl overflow-hidden mt-2">
+                      <div className="px-4 py-3 border-b border-border-base flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Star className="w-4 h-4 text-warning shrink-0" />
+                          <h3 className="text-sm font-bold text-text-base truncate">Programa de fidelidade</h3>
                         </div>
-                        <span className="text-[10px] uppercase tracking-wider font-bold bg-yellow-100 text-yellow-800 px-3 py-1.5 rounded-xl border border-yellow-200 shadow-sm">
-                          {calcLoyaltyPoints(currentUser.payments || []) || 0}/3 Pontos
+                        <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-text-muted shrink-0">
+                          {calcLoyaltyPoints(currentUser.payments || []) || 0}/3 pontos
                         </span>
                       </div>
-                      <div className="flex flex-col mb-1 relative z-10 px-0.5 space-y-3">
-                        <p className="text-xs text-text-muted font-medium leading-relaxed">
-                          Pague em dia ou adiantado e ganhe 1 ponto. Junte 3 pontos e ganhe <strong className="text-green-600 bg-green-50 px-1 py-0.5 rounded">20% de desconto</strong> na próxima renovação!
+                      <div className="px-4 py-3 space-y-3">
+                        <p className="text-xs text-text-muted leading-relaxed">
+                          Pague em dia ou adiantado e ganhe 1 ponto. Junte 3 pontos e ganhe <strong className="text-success">20% de desconto</strong> na próxima renovação.
                         </p>
-                        <div className="w-full bg-bg-surface-hover rounded-full h-3 mb-1 border border-border-base/50 p-0.5 overflow-hidden">
-                          <div className="bg-gradient-to-r from-yellow-400 to-yellow-500 h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(250,204,21,0.5)]" style={{ width: `${((calcLoyaltyPoints(currentUser.payments || []) || 0) / 3) * 100}%` }}></div>
+                        <div className="w-full bg-bg-surface-hover rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-warning h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${((calcLoyaltyPoints(currentUser.payments || []) || 0) / 3) * 100}%` }}></div>
                         </div>
                         <button
                           onClick={() => setShowHistory(!showHistory)}
-                          className="w-full text-[11px] uppercase tracking-wider font-bold bg-bg-surface hover:bg-border-base text-yellow-700 border border-yellow-200/50 px-4 py-3 rounded-xl transition-colors shadow-sm active:scale-95 flex justify-center items-center mt-2"
+                          className="w-full text-[12px] font-bold bg-bg-surface-hover hover:bg-border-base text-text-base px-4 py-2.5 rounded-md transition-colors active:scale-[0.98] flex justify-center items-center gap-2"
                         >
-                          <History className="w-3.5 h-3.5 mr-2 opacity-80" />
-                          {showHistory ? "Ocultar Histórico" : "Ver Histórico de Transações"}
+                          <History className="w-3.5 h-3.5" />
+                          {showHistory ? "Ocultar histórico" : "Ver histórico de transações"}
                         </button>
                       </div>
 
@@ -2629,12 +2609,10 @@ export default function App() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="space-y-2 border-t border-yellow-200/30 pt-4 mt-2"
+                            className="border-t border-border-base divide-y divide-border-base"
                           >
                             {(!currentUser.payments || currentUser.payments.filter((p: any) => p.status === "approved").length === 0) ? (
-                              <div className="bg-bg-surface/50 border border-border-base/50 rounded-2xl p-4 text-center">
-                                <p className="text-xs font-semibold text-text-muted">Nenhum pagamento registrado.</p>
-                              </div>
+                              <p className="px-4 py-4 text-xs font-medium text-text-muted text-center">Nenhum pagamento registrado.</p>
                             ) : (
                               currentUser.payments.filter((p: any) => p.status === "approved").map((payment: any, idx: number) => {
                                 let meta: any = {};
@@ -2643,24 +2621,24 @@ export default function App() {
                                 const earnedPoint = meta.paidOnTime === true && !meta.discountApplied;
                                 const usedDiscount = meta.discountApplied === true;
                                 return (
-                                  <div key={payment.id || idx} className="flex flex-col bg-bg-surface p-3 rounded-2xl border border-border-base shadow-sm">
-                                    <div className="flex justify-between items-center mb-1">
-                                      <span className="text-sm font-bold text-text-base">
-                                        {payment.type === 'new_device' ? 'Novo Aparelho' : 'Renovação do Plano'}
+                                  <div key={payment.id || idx} className="px-4 py-3">
+                                    <div className="flex justify-between items-center mb-1 gap-2">
+                                      <span className="text-sm font-bold text-text-base truncate">
+                                        {payment.type === 'new_device' ? 'Novo aparelho' : 'Renovação do plano'}
                                       </span>
                                       {earnedPoint && (
-                                        <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-200">+1 Ponto</span>
+                                        <span className="text-[11px] font-bold text-warning whitespace-nowrap">+1 ponto</span>
                                       )}
                                       {usedDiscount && (
-                                        <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">Desconto -20%</span>
+                                        <span className="text-[11px] font-bold text-success whitespace-nowrap">−20% aplicado</span>
                                       )}
                                       {!earnedPoint && !usedDiscount && (
-                                        <span className="text-xs font-bold text-text-muted bg-bg-surface-hover px-2 py-0.5 rounded border border-border-base">Sem ponto</span>
+                                        <span className="text-[11px] font-bold text-text-muted whitespace-nowrap">sem ponto</span>
                                       )}
                                     </div>
-                                    <div className="flex justify-between items-center text-[10px] text-text-muted font-medium">
+                                    <div className="flex justify-between items-center text-[11px] text-text-muted">
                                       <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {formatDate(payment.paid_at || payment.created_at)}</span>
-                                      <span className="flex items-center gap-1"><CreditCard className="w-3 h-3" /> {amount ? `R$ ${amount},00` : "—"}</span>
+                                      <span className="flex items-center gap-1 font-mono"><CreditCard className="w-3 h-3" /> {amount ? `R$ ${amount}` : "—"}</span>
                                     </div>
                                   </div>
                                 );
@@ -2674,39 +2652,32 @@ export default function App() {
 
                   {/* Referrals Section */}
                   {showData && (
-                    <div className="bg-gradient-to-br from-primary-500/5 to-transparent border border-primary-200/30 rounded-3xl p-5 shadow-sm mt-4 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-primary-400 opacity-5 rounded-full blur-2xl -mr-10 -mt-10"></div>
-                      <div className="flex flex-col mb-3 relative z-10 space-y-4">
-                        <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-5 rounded-2xl text-white shadow-md relative overflow-hidden group w-full">
-                          <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none group-hover:scale-110 transition-transform duration-500"></div>
-                          <h3 className="text-sm font-bold text-white">Indique e Ganhe</h3>
-                          <p className="text-[11px] text-white/90 mt-1 mb-3">Recomende nosso app para um amigo e ganhe 1 mês grátis quando ele assinar!</p>
-                          <div className="bg-black/10 rounded-xl p-3 backdrop-blur-sm border border-white/10 text-xs">
-                            <p className="font-semibold mb-1">Como funciona:</p>
-                            <ol className="list-decimal pl-4 space-y-1 text-[11px] text-white/90">
-                              <li>Copie seu link de indicação abaixo e envie para o amigo.</li>
-                              <li>Ao abrir o link, a página já abre com seu usuário preenchido automaticamente.</li>
-                              <li>Quando ele assinar, você ganha 30 dias grátis!</li>
-                            </ol>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-center gap-2">
-                          <p className="text-[11px] text-text-muted font-medium text-center leading-relaxed">
-                            Seu código de indicação: <strong className="font-mono bg-bg-surface border border-border-base px-2 py-1 rounded-lg text-text-base">{currentUser.login}</strong>
-                          </p>
-                          <button
-                            onClick={() => copyToClipboard(`https://vsplusnet.com.br/?ref=${currentUser.login}`)}
-                            className="w-full text-[11px] font-bold bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl transition-colors shadow-sm active:scale-95 flex justify-center items-center gap-2"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                            Copiar Link de Indicação
-                          </button>
-                        </div>
+                    <div className="bg-bg-surface border border-border-base rounded-xl overflow-hidden mt-2">
+                      <div className="bg-emerald-600 dark:bg-emerald-700 p-4 text-white">
+                        <h3 className="text-sm font-bold">Indique e ganhe</h3>
+                        <p className="text-[12px] text-white/85 mt-1 leading-snug">Recomende para um amigo e ganhe 1 mês grátis quando ele assinar.</p>
+                        <ol className="mt-3 list-decimal pl-4 space-y-0.5 text-[11px] text-white/90">
+                          <li>Copie seu link e envie para o amigo.</li>
+                          <li>O link já abre com seu usuário preenchido.</li>
+                          <li>Quando ele assinar, você ganha 30 dias grátis.</li>
+                        </ol>
+                      </div>
+                      <div className="px-4 py-3 space-y-3">
+                        <p className="text-[12px] text-text-muted text-center">
+                          Seu código de indicação: <strong className="font-mono text-text-base">{currentUser.login}</strong>
+                        </p>
+                        <button
+                          onClick={() => copyToClipboard(`https://vsplusnet.com.br/?ref=${currentUser.login}`)}
+                          className="w-full text-[13px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-md transition-colors active:scale-[0.98] flex justify-center items-center gap-2"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          Copiar link de indicação
+                        </button>
                         <button
                           onClick={() => setShowReferrals(!showReferrals)}
-                          className="w-full text-[11px] uppercase tracking-wider font-bold bg-bg-surface hover:bg-border-base text-primary-600 border border-border-base px-4 py-3 rounded-xl transition-colors shadow-sm active:scale-95 flex justify-center items-center"
+                          className="w-full text-[12px] font-bold bg-bg-surface-hover hover:bg-border-base text-text-base px-4 py-2.5 rounded-md transition-colors active:scale-[0.98] flex justify-center items-center"
                         >
-                          {showReferrals ? "Ocultar Indicações" : "Ver Indicações"}
+                          {showReferrals ? "Ocultar indicações" : "Ver indicações"}
                         </button>
                       </div>
 
@@ -2716,23 +2687,22 @@ export default function App() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="space-y-2 border-t border-border-base/50 pt-4 mt-2"
+                            className="border-t border-border-base divide-y divide-border-base"
                           >
                             {(!currentUser.referrals || currentUser.referrals.length === 0) ? (
-                              <div className="bg-bg-surface/50 border border-border-base/50 rounded-2xl p-4 text-center">
-                                <p className="text-sm font-semibold text-text-muted">Você ainda não indicou ninguém.</p>
-                              </div>
+                              <p className="px-4 py-4 text-sm font-medium text-text-muted text-center">Você ainda não indicou ninguém.</p>
                             ) : (
                               currentUser.referrals.map((ref) => (
-                                <div key={ref.id} className="flex justify-between items-center bg-bg-surface p-3 rounded-2xl border border-border-base shadow-sm">
-                                  <span className="text-sm font-bold text-text-base">{ref.referred_username}</span>
-                                  <span className={`text-[10px] uppercase tracking-wider font-bold px-2.5 py-1 rounded-lg ${ref.status === 'testing' ? 'bg-yellow-100/50 text-yellow-700 border border-yellow-200' :
-                                    ref.status === 'paid' ? 'bg-blue-100/50 text-blue-700 border border-blue-200' :
-                                      'bg-green-100/50 text-green-700 border border-green-200'
-                                    }`}>
+                                <div key={ref.id} className="px-4 py-3 flex justify-between items-center gap-3">
+                                  <span className="text-sm font-bold text-text-base font-mono truncate">{ref.referred_username}</span>
+                                  <span className={`text-[11px] uppercase tracking-[0.06em] font-bold whitespace-nowrap ${
+                                    ref.status === 'testing' ? 'text-warning' :
+                                    ref.status === 'paid' ? 'text-info' :
+                                    'text-success'
+                                  }`}>
                                     {ref.status === 'testing' ? 'Testando' :
                                       ref.status === 'paid' ? 'Pagou' :
-                                        'Bônus Recebido'}
+                                        'Bônus recebido'}
                                   </span>
                                 </div>
                               ))
@@ -2744,24 +2714,18 @@ export default function App() {
                   )}
 
                   {error && (
-                    <div className="p-3 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100">
+                    <div className="p-3 bg-danger-soft text-danger text-sm rounded-md border border-danger/20">
                       {error}
                     </div>
                   )}
 
-                  <div className="flex flex-col gap-3 mt-6">
-                    <button className="flex flex-col items-center gap-1.5 p-3 rounded-2xl bg-bg-surface border border-border-base hover:bg-bg-surface-hover transition-colors shadow-sm w-full">
-                      <div className="w-10 h-10 bg-primary-100 text-primary-600 rounded-xl flex items-center justify-center shadow-inner">
-                        <Download className="w-5 h-5" />
-                      </div>
-                      <span className="text-[11px] font-medium text-text-muted">Baixar App CloudBR DT</span>
-                    </button>
+                  <div className="flex flex-col gap-2 mt-4">
                     <button
                       onClick={() => { setView("help"); }}
-                      className="w-full bg-bg-base border border-border-base hover:bg-bg-surface-hover text-text-base font-bold py-3.5 px-4 rounded-2xl transition-all flex items-center justify-center shadow-sm text-sm active:scale-95 mb-6"
+                      className="w-full bg-bg-surface border border-border-base hover:bg-bg-surface-hover text-text-base font-bold h-11 px-4 rounded-md transition-colors flex items-center justify-center text-sm active:scale-[0.98] mb-4"
                     >
-                      <HelpCircle className="w-5 h-5 mr-3 text-text-muted" />
-                      Central de Ajuda
+                      <HelpCircle className="w-4 h-4 mr-2 text-text-muted" />
+                      Central de ajuda
                     </button>
                   </div>
                 </div>
@@ -2773,20 +2737,20 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                     >
                       <motion.div
-                        initial={{ scale: 0.95 }}
+                        initial={{ scale: 0.97 }}
                         animate={{ scale: 1 }}
-                        exit={{ scale: 0.95 }}
-                        className="bg-bg-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col border border-border-base/50"
+                        exit={{ scale: 0.97 }}
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-md overflow-hidden max-h-[92vh] flex flex-col"
                       >
-                        <div className="p-5 border-b border-border-base/50 flex justify-between items-center bg-gradient-to-r from-bg-surface to-bg-surface-hover">
-                          <h2 className="text-xl font-bold text-text-base">
-                            {planUpgradeStep === 'select' ? 'Alterar Plano' :
-                              planUpgradeStep === 'prompt' ? 'Novo Aparelho' :
-                                planUpgradeStep === 'existing' ? 'Vincular Acesso' :
-                                  planUpgradeStep === 'new' ? 'Criar Acesso' : 'Pagamento'}
+                        <div className="px-4 py-3 border-b border-border-base flex justify-between items-center">
+                          <h2 className="text-base font-bold text-text-base">
+                            {planUpgradeStep === 'select' ? 'Alterar plano' :
+                              planUpgradeStep === 'prompt' ? 'Novo aparelho' :
+                                planUpgradeStep === 'existing' ? 'Vincular acesso' :
+                                  planUpgradeStep === 'new' ? 'Criar acesso' : 'Pagamento'}
                           </h2>
                           <button onClick={() => {
                             if (planUpgradeStep !== 'select' && planUpgradeStep !== 'pix') {
@@ -2795,81 +2759,81 @@ export default function App() {
                               setShowPlanModal(false);
                               setPlanUpgradeStep('select');
                             }
-                          }} className="text-text-muted hover:text-text-muted">
-                            <XCircle className="w-5 h-5" />
+                          }} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
 
-                        <div className="p-4 overflow-y-auto flex-1 space-y-6">
+                        <div className="p-4 overflow-y-auto flex-1 space-y-5">
                           {planUpgradeStep === 'select' && (
-                            <div className="space-y-8">
+                            <div className="space-y-5">
                               {/* Months selector */}
                               <div>
-                                <h3 className="font-semibold text-text-base mb-1 flex items-center gap-2">
+                                <h3 className="font-bold text-text-base text-sm mb-1 flex items-center gap-2">
                                   <Clock className="w-4 h-4 text-primary-600" />
                                   Meses
                                 </h3>
-                                <p className="text-xs text-text-muted mb-3">Plano base: 1 mês. Cada mês extra: +R$ 10.</p>
-                                <div className="flex items-center justify-between bg-bg-surface-hover rounded-2xl p-4 border border-border-base">
+                                <p className="text-xs text-text-muted mb-2">Base: 1 mês. Cada mês extra: +R$ 10.</p>
+                                <div className="flex items-center justify-between bg-bg-surface-hover rounded-md p-3">
                                   <button
                                     onClick={() => setPlanMonths(m => Math.max(1, m - 1))}
-                                    className="w-10 h-10 rounded-xl bg-bg-surface border border-border-base text-xl font-bold text-primary-600 flex items-center justify-center hover:bg-primary-50 active:scale-95 transition-all"
-                                  >-</button>
+                                    className="w-10 h-10 rounded-md bg-bg-surface border border-border-base text-lg font-bold text-text-base flex items-center justify-center hover:bg-bg-base active:scale-95 transition-colors"
+                                  >−</button>
                                   <div className="text-center">
-                                    <p className="text-3xl font-black text-text-base">{planMonths}</p>
-                                    <p className="text-xs text-text-muted font-medium">{planMonths === 1 ? 'Mês' : 'Meses'}</p>
+                                    <p className="text-2xl font-bold text-text-base font-mono">{planMonths}</p>
+                                    <p className="text-[11px] text-text-muted font-medium">{planMonths === 1 ? 'Mês' : 'Meses'}</p>
                                   </div>
                                   <button
                                     onClick={() => setPlanMonths(m => Math.min(12, m + 1))}
-                                    className="w-10 h-10 rounded-xl bg-primary-600 text-white text-xl font-bold flex items-center justify-center hover:bg-primary-700 active:scale-95 transition-all shadow-md"
+                                    className="w-10 h-10 rounded-md bg-primary-600 text-white text-lg font-bold flex items-center justify-center hover:bg-primary-700 active:scale-95 transition-colors"
                                   >+</button>
                                 </div>
                               </div>
 
                               {/* Devices selector */}
                               <div>
-                                <h3 className="font-semibold text-text-base mb-1 flex items-center gap-2">
-                                  <Smartphone className="w-4 h-4 text-blue-600" />
+                                <h3 className="font-bold text-text-base text-sm mb-1 flex items-center gap-2">
+                                  <Smartphone className="w-4 h-4 text-primary-600" />
                                   Celulares
                                 </h3>
-                                <p className="text-xs text-text-muted mb-3">Plano base: 1 celular. Cada celular extra: +R$ 10.</p>
-                                <div className="flex items-center justify-between bg-bg-surface-hover rounded-2xl p-4 border border-border-base">
+                                <p className="text-xs text-text-muted mb-2">Base: 1 celular. Cada celular extra: +R$ 10.</p>
+                                <div className="flex items-center justify-between bg-bg-surface-hover rounded-md p-3">
                                   <button
                                     onClick={() => setPlanDevices(d => Math.max(1, d - 1))}
-                                    className="w-10 h-10 rounded-xl bg-bg-surface border border-border-base text-xl font-bold text-blue-600 flex items-center justify-center hover:bg-blue-50 active:scale-95 transition-all"
-                                  >-</button>
+                                    className="w-10 h-10 rounded-md bg-bg-surface border border-border-base text-lg font-bold text-text-base flex items-center justify-center hover:bg-bg-base active:scale-95 transition-colors"
+                                  >−</button>
                                   <div className="text-center">
-                                    <p className="text-3xl font-black text-text-base">{planDevices}</p>
-                                    <p className="text-xs text-text-muted font-medium">{planDevices === 1 ? 'Celular' : 'Celulares'}</p>
+                                    <p className="text-2xl font-bold text-text-base font-mono">{planDevices}</p>
+                                    <p className="text-[11px] text-text-muted font-medium">{planDevices === 1 ? 'Celular' : 'Celulares'}</p>
                                   </div>
                                   <button
                                     onClick={() => setPlanDevices(d => Math.min(10, d + 1))}
-                                    className="w-10 h-10 rounded-xl bg-blue-600 text-white text-xl font-bold flex items-center justify-center hover:bg-blue-700 active:scale-95 transition-all shadow-md"
+                                    className="w-10 h-10 rounded-md bg-primary-600 text-white text-lg font-bold flex items-center justify-center hover:bg-primary-700 active:scale-95 transition-colors"
                                   >+</button>
                                 </div>
                               </div>
 
                               {/* Price preview */}
-                              <div className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-3xl p-5 text-white">
-                                <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-3">Resumo do Plano</p>
-                                <div className="space-y-1.5 text-sm mb-4">
+                              <div className="bg-primary-600 dark:bg-primary-800 rounded-md p-4 text-white">
+                                <p className="text-white/70 text-[11px] font-bold uppercase tracking-[0.08em] mb-2">Resumo do plano</p>
+                                <div className="space-y-1.5 text-sm mb-3 font-mono">
                                   <div className="flex justify-between">
-                                    <span className="text-white/80">Taxa base</span>
+                                    <span className="text-white/80 font-sans">Taxa base</span>
                                     <span className="font-bold">R$ 5</span>
                                   </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-white/80">{planDevices} celular{planDevices > 1 ? "es" : ""} × {planMonths} {planMonths > 1 ? "meses" : "mês"} × R$ 10</span>
-                                    <span className="font-bold">+ R$ {planDevices * planMonths * 10}</span>
+                                  <div className="flex justify-between gap-2">
+                                    <span className="text-white/80 font-sans text-xs">{planDevices} celular{planDevices > 1 ? "es" : ""} × {planMonths} {planMonths > 1 ? "meses" : "mês"} × R$ 10</span>
+                                    <span className="font-bold whitespace-nowrap">+ R$ {planDevices * planMonths * 10}</span>
                                   </div>
                                   {calcLoyaltyPoints(currentUser?.payments || []) >= 3 && (
-                                    <div className="flex justify-between text-green-300">
-                                      <span className="font-bold">🎉 Desconto fidelidade -20%</span>
-                                      <span className="font-bold">- R$ {Math.round(calcPlanPrice(planMonths, planDevices) * 0.2)}</span>
+                                    <div className="flex justify-between text-emerald-300">
+                                      <span className="font-bold font-sans">Fidelidade −20%</span>
+                                      <span className="font-bold">− R$ {Math.round(calcPlanPrice(planMonths, planDevices) * 0.2)}</span>
                                     </div>
                                   )}
-                                  <div className="border-t border-white/20 pt-2 mt-2 flex justify-between">
-                                    <span className="font-black text-lg">Total</span>
-                                    <span className="font-black text-2xl">
+                                  <div className="border-t border-white/20 pt-2 mt-1 flex justify-between">
+                                    <span className="font-bold text-base font-sans">Total</span>
+                                    <span className="font-bold text-xl">
                                       R$ {calcLoyaltyPoints(currentUser?.payments || []) >= 3
                                         ? Math.floor(calcPlanPrice(planMonths, planDevices) * 0.8)
                                         : calcPlanPrice(planMonths, planDevices)}
@@ -2878,9 +2842,9 @@ export default function App() {
                                 </div>
                                 <button
                                   onClick={() => handleSelectPlan('custom', planMonths, planDevices, calcPlanPrice(planMonths, planDevices))}
-                                  className="w-full bg-white text-primary-700 font-black py-3.5 rounded-2xl text-base hover:bg-white/90 active:scale-[0.98] transition-all shadow-lg"
+                                  className="w-full bg-white text-primary-700 font-bold h-11 rounded-md text-sm hover:bg-white/90 active:scale-[0.98] transition-all"
                                 >
-                                  Selecionar e Continuar
+                                  Selecionar e continuar
                                 </button>
                               </div>
                             </div>
@@ -2888,113 +2852,107 @@ export default function App() {
 
                           {planUpgradeStep === 'prompt' && (
                             <div className="space-y-4">
-                              <p className="text-text-muted text-sm">
-                                Você está adicionando um novo aparelho ao seu plano. O segundo aparelho já possui um acesso criado ou você deseja criar um novo?
+                              <p className="text-text-muted text-sm leading-snug">
+                                Você está adicionando um novo aparelho. Ele já tem um acesso criado ou você quer criar um novo?
                               </p>
-                              <div className="grid gap-3">
+                              <div className="grid gap-2">
                                 <button
                                   onClick={() => setPlanUpgradeStep('existing')}
-                                  className="w-full bg-bg-surface border-2 border-border-base hover:border-primary-500 hover:bg-primary-50 text-text-base font-medium py-4 px-4 rounded-xl transition-colors text-left"
+                                  className="w-full bg-bg-surface-hover hover:bg-border-base border border-border-base text-text-base font-medium py-3 px-4 rounded-md transition-colors text-left active:scale-[0.99]"
                                 >
-                                  <div className="font-bold text-primary-700 mb-1">Já tenho um acesso</div>
-                                  <div className="text-sm text-text-muted font-normal">Vou apenas vincular uma conta existente ao meu grupo.</div>
+                                  <div className="font-bold text-text-base mb-0.5">Já tenho um acesso</div>
+                                  <div className="text-xs text-text-muted">Vincular uma conta existente ao meu grupo.</div>
                                 </button>
                                 <button
                                   onClick={() => setPlanUpgradeStep('new')}
-                                  className="w-full bg-bg-surface border-2 border-border-base hover:border-blue-500 hover:bg-blue-50 text-text-base font-medium py-4 px-4 rounded-xl transition-colors text-left"
+                                  className="w-full bg-bg-surface-hover hover:bg-border-base border border-border-base text-text-base font-medium py-3 px-4 rounded-md transition-colors text-left active:scale-[0.99]"
                                 >
-                                  <div className="font-bold text-blue-700 mb-1">Criar novo acesso</div>
-                                  <div className="text-sm text-text-muted font-normal">Quero criar um usuário novo e pagar a diferença dos dias restantes.</div>
+                                  <div className="font-bold text-text-base mb-0.5">Criar novo acesso</div>
+                                  <div className="text-xs text-text-muted">Criar usuário novo e pagar proporcionalmente.</div>
                                 </button>
                               </div>
                             </div>
                           )}
 
                           {planUpgradeStep === 'existing' && (
-                            <div className="space-y-4">
-                              <p className="text-text-muted text-sm">
-                                Digite o usuário e senha do acesso que você deseja vincular ao seu grupo.
+                            <div className="space-y-3">
+                              <p className="text-text-muted text-sm leading-snug">
+                                Digite o usuário e senha do acesso que deseja vincular ao seu grupo.
                               </p>
-                              <div className="space-y-3">
-                                <input
-                                  type="text"
-                                  value={upgradeUsername}
-                                  onChange={handleUpgradeUsernameChange}
-                                  placeholder="Usuário do aparelho"
-                                  className="w-full px-4 py-3 rounded-xl border border-border-base focus:ring-2 focus:ring-primary-500 outline-none"
-                                />
-                                <input
-                                  type="password"
-                                  value={upgradePassword}
-                                  onChange={(e) => setUpgradePassword(e.target.value)}
-                                  placeholder="Senha do usuário"
-                                  className="w-full px-4 py-3 rounded-xl border border-border-base focus:ring-2 focus:ring-primary-500 outline-none"
-                                />
-                              </div>
-                              {upgradeError && <p className="text-red-500 text-sm">{upgradeError}</p>}
+                              <input
+                                type="text"
+                                value={upgradeUsername}
+                                onChange={handleUpgradeUsernameChange}
+                                placeholder="Usuário do aparelho"
+                                className="w-full px-3 h-11 rounded-md border border-border-base bg-bg-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm font-mono"
+                              />
+                              <input
+                                type="password"
+                                value={upgradePassword}
+                                onChange={(e) => setUpgradePassword(e.target.value)}
+                                placeholder="Senha do usuário"
+                                className="w-full px-3 h-11 rounded-md border border-border-base bg-bg-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm font-mono"
+                              />
+                              {upgradeError && <p className="text-danger text-sm font-medium">{upgradeError}</p>}
                               <button
                                 onClick={handleLinkExistingDevice}
                                 disabled={loading || !upgradeUsername || !upgradePassword}
-                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 rounded-xl transition-colors disabled:opacity-70 flex justify-center items-center"
+                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors disabled:opacity-60 active:scale-[0.98] flex justify-center items-center"
                               >
-                                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Vincular Aparelho"}
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Vincular aparelho"}
                               </button>
                             </div>
                           )}
 
                           {planUpgradeStep === 'new' && (
-                            <div className="space-y-4">
-                              <p className="text-text-muted text-sm">
-                                Escolha um nome de usuário para o novo aparelho. O valor será calculado proporcionalmente aos dias restantes do seu plano principal.
+                            <div className="space-y-3">
+                              <p className="text-text-muted text-sm leading-snug">
+                                Escolha um nome de usuário para o novo aparelho. O valor será calculado proporcionalmente aos dias restantes do plano principal.
                               </p>
-                              <div>
-                                <input
-                                  type="text"
-                                  value={upgradeUsername}
-                                  onChange={handleUpgradeUsernameChange}
-                                  placeholder="Novo usuário"
-                                  className="w-full px-4 py-3 rounded-xl border border-border-base focus:ring-2 focus:ring-blue-500 outline-none"
-                                />
-                              </div>
-                              {upgradeError && <p className="text-red-500 text-sm">{upgradeError}</p>}
+                              <input
+                                type="text"
+                                value={upgradeUsername}
+                                onChange={handleUpgradeUsernameChange}
+                                placeholder="Novo usuário"
+                                className="w-full px-3 h-11 rounded-md border border-border-base bg-bg-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm font-mono"
+                              />
+                              {upgradeError && <p className="text-danger text-sm font-medium">{upgradeError}</p>}
                               <button
                                 onClick={handleCreateNewDevicePix}
                                 disabled={loading || !upgradeUsername}
-                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-xl transition-colors disabled:opacity-70 flex justify-center items-center"
+                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors disabled:opacity-60 active:scale-[0.98] flex justify-center items-center"
                               >
-                                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Continuar para Pagamento"}
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Continuar para pagamento"}
                               </button>
                             </div>
                           )}
 
                           {planUpgradeStep === 'pix' && upgradePix && (
-                            <div className="space-y-6 text-center">
-                              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                                <p className="text-sm text-blue-800 mb-1">Valor proporcional para <strong>{upgradePix.remainingDays} dias</strong>:</p>
-                                <p className="text-3xl font-bold text-blue-900">R$ {upgradePix.amount.toFixed(2).replace('.', ',')}</p>
+                            <div className="space-y-4 text-center">
+                              <div className="bg-info-soft border border-info/20 p-3 rounded-md">
+                                <p className="text-sm text-info mb-1">Valor proporcional para <strong>{upgradePix.remainingDays} dias</strong></p>
+                                <p className="text-2xl font-bold text-info font-mono">R$ {upgradePix.amount.toFixed(2).replace('.', ',')}</p>
                               </div>
 
-                              <div className="bg-bg-surface p-4 rounded-xl border border-border-base inline-block">
+                              <div className="inline-block bg-white p-3 rounded-md border border-border-base">
                                 <img
                                   src={`data:image/png;base64,${upgradePix.qrCodeBase64}`}
-                                  alt="QR Code PIX"
-                                  className="w-48 h-48 mx-auto"
+                                  alt="QR Code Pix"
+                                  className="w-48 h-48"
                                 />
                               </div>
 
-                              <div className="space-y-3">
-                                <button
-                                  onClick={() => copyToClipboard(upgradePix.qrCode)}
-                                  className="w-full bg-bg-surface-hover hover:bg-bg-surface text-text-base font-medium py-3 px-4 rounded-xl transition-colors flex items-center justify-center"
-                                >
-                                  <Copy className="w-5 h-5 mr-2" />
-                                  Copiar Código PIX
-                                </button>
-                                <p className="text-sm text-text-muted flex items-center justify-center">
-                                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                  Aguardando pagamento...
-                                </p>
-                              </div>
+                              <button
+                                onClick={() => copyToClipboard(upgradePix.qrCode)}
+                                className="w-full bg-bg-surface-hover hover:bg-border-base text-text-base font-bold h-11 px-4 rounded-md transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
+                              >
+                                <Copy className="w-4 h-4" />
+                                Copiar código Pix
+                              </button>
+                              <p className="text-sm text-text-muted flex items-center justify-center gap-2">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Aguardando pagamento…
+                              </p>
                             </div>
                           )}
                         </div>
@@ -3010,25 +2968,25 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
                     >
                       <motion.div
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.9, opacity: 0 }}
-                        className="bg-bg-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-border-base/50"
+                        initial={{ scale: 0.97 }}
+                        animate={{ scale: 1 }}
+                        exit={{ scale: 0.97 }}
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-md overflow-hidden"
                       >
-                        <div className="p-5 border-b border-border-base/50 flex justify-between items-center bg-gradient-to-r from-bg-surface to-bg-surface-hover">
-                          <h2 className="text-xl font-bold text-text-base">Selecionar Aparelho</h2>
-                          <button onClick={() => setShowDevicePickerModal(false)} className="text-text-muted hover:text-text-base">
-                            <X className="w-5 h-5" />
+                        <div className="px-4 py-3 border-b border-border-base flex justify-between items-center">
+                          <h2 className="text-base font-bold text-text-base">Selecionar aparelho</h2>
+                          <button onClick={() => setShowDevicePickerModal(false)} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="p-6">
-                          <p className="text-sm text-text-muted mb-6">
+                        <div className="p-4">
+                          <p className="text-sm text-text-muted mb-3 leading-snug">
                             Em qual aparelho você deseja realizar esta alteração?
                           </p>
-                          <div className="space-y-3">
+                          <div className="bg-bg-base border border-border-base rounded-md divide-y divide-border-base overflow-hidden">
                             {(groupUsersDetails.length > 0
                               ? [...groupUsersDetails].sort((a, b) =>
                                   a.login === currentUser.login ? -1 : b.login === currentUser.login ? 1 : 0
@@ -3038,18 +2996,16 @@ export default function App() {
                               <button
                                 key={device.login}
                                 onClick={() => handleDevicePick(device.login)}
-                                className="w-full flex items-center justify-between p-4 rounded-2xl border border-border-base bg-bg-base hover:bg-primary-50 hover:border-primary-200 transition-all group active:scale-[0.98]"
+                                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-bg-surface-hover transition-colors text-left active:scale-[0.99]"
                               >
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 rounded-xl bg-bg-surface-hover flex items-center justify-center text-text-muted group-hover:bg-primary-100 group-hover:text-primary-600 transition-colors">
-                                    <Smartphone className="w-5 h-5" />
-                                  </div>
-                                  <div className="text-left">
-                                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Aparelho {idx + 1}</p>
-                                    <p className="text-sm font-bold text-text-base font-mono">{device.login}</p>
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <Smartphone className="w-4 h-4 text-primary-600 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-[0.08em] mb-0.5">Aparelho {idx + 1}</p>
+                                    <p className="text-sm font-bold text-text-base font-mono truncate">{device.login}</p>
                                   </div>
                                 </div>
-                                <ChevronRight className="w-5 h-5 text-text-muted group-hover:text-primary-600 transition-colors" />
+                                <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
                               </button>
                             ))}
                           </div>
@@ -3066,54 +3022,52 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                     >
                       <motion.div
-                        initial={{ scale: 0.95 }}
+                        initial={{ scale: 0.97 }}
                         animate={{ scale: 1 }}
-                        exit={{ scale: 0.95 }}
-                        className="bg-bg-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-border-base/50"
+                        exit={{ scale: 0.97 }}
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-md overflow-hidden"
                       >
-                        <div className="p-5 border-b border-border-base/50 flex justify-between items-center bg-gradient-to-r from-bg-surface to-bg-surface-hover">
-                          <h2 className="text-xl font-bold text-text-base">Alterar Data de Vencimento</h2>
-                          <button onClick={() => setShowDateChangeModal(false)} className="text-text-muted hover:text-text-base">
-                            <X className="w-5 h-5" />
+                        <div className="px-4 py-3 border-b border-border-base flex justify-between items-center">
+                          <h2 className="text-base font-bold text-text-base">Alterar data de vencimento</h2>
+                          <button onClick={() => setShowDateChangeModal(false)} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="p-6 space-y-4">
-                          <div className="flex items-center gap-2 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl mb-2">
-                            <Smartphone className="w-4 h-4 text-primary-600" />
-                            <div className="flex flex-col">
-                              <span className="text-[10px] uppercase font-bold text-primary-600 leading-none">Editando: {getDeviceLabel(selectedChangeDevice || currentUser?.login || "")}</span>
-                              <span className="text-xs font-mono font-bold text-text-base leading-tight">{selectedChangeDevice || currentUser?.login}</span>
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-center gap-2 px-3 py-2 bg-bg-surface-hover rounded-md">
+                            <Smartphone className="w-4 h-4 text-primary-600 shrink-0" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[10px] uppercase font-bold text-text-muted tracking-[0.06em] leading-none">Editando: {getDeviceLabel(selectedChangeDevice || currentUser?.login || "")}</span>
+                              <span className="text-xs font-mono font-bold text-text-base leading-tight truncate">{selectedChangeDevice || currentUser?.login}</span>
                             </div>
                           </div>
-                          <p className="text-sm text-text-muted mb-4">
-                            Você pode alterar sua data de vencimento em até 15 dias de diferença da data atual. Limite de 1 alteração a cada 30 dias.
+                          <p className="text-sm text-text-muted leading-snug">
+                            Diferença máxima de 15 dias da data atual. Limite de 1 alteração a cada 30 dias.
                           </p>
-                          <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium text-text-base mb-1">Nova Data Desejada</label>
-                              <input
-                                type="date"
-                                value={newDate}
-                                onChange={(e) => setNewDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-border-base focus:ring-2 focus:ring-primary-500 outline-none text-sm bg-bg-base text-text-base"
-                              />
-                            </div>
-                            {requestStatus && (
-                              <div className={`p-3 rounded-lg text-sm ${requestStatus.includes('sucesso') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                                {requestStatus}
-                              </div>
-                            )}
-                            <button
-                              onClick={handleDateChange}
-                              disabled={loading || !newDate}
-                              className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-xl transition-colors disabled:opacity-70 flex items-center justify-center"
-                            >
-                              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Alterar Data"}
-                            </button>
+                          <div>
+                            <label className="block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-1.5">Nova data</label>
+                            <input
+                              type="date"
+                              value={newDate}
+                              onChange={(e) => setNewDate(e.target.value)}
+                              className="w-full px-3 h-11 rounded-md border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm bg-bg-base text-text-base font-mono"
+                            />
                           </div>
+                          {requestStatus && (
+                            <div className={`p-3 rounded-md text-sm font-medium border ${requestStatus.includes('sucesso') ? 'bg-success-soft text-success border-success/20' : 'bg-danger-soft text-danger border-danger/20'}`}>
+                              {requestStatus}
+                            </div>
+                          )}
+                          <button
+                            onClick={handleDateChange}
+                            disabled={loading || !newDate}
+                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors disabled:opacity-60 active:scale-[0.98] flex items-center justify-center"
+                          >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Solicitar alteração"}
+                          </button>
                         </div>
                       </motion.div>
                     </motion.div>
@@ -3127,55 +3081,53 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                     >
                       <motion.div
-                        initial={{ scale: 0.95 }}
+                        initial={{ scale: 0.97 }}
                         animate={{ scale: 1 }}
-                        exit={{ scale: 0.95 }}
-                        className="bg-bg-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-border-base/50"
+                        exit={{ scale: 0.97 }}
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-md overflow-hidden"
                       >
-                        <div className="p-5 border-b border-border-base/50 flex justify-between items-center bg-gradient-to-r from-bg-surface to-bg-surface-hover">
-                          <h2 className="text-xl font-bold text-text-base">Alterar Usuário</h2>
-                          <button onClick={() => setShowUsernameChangeModal(false)} className="text-text-muted hover:text-text-base">
-                            <X className="w-5 h-5" />
+                        <div className="px-4 py-3 border-b border-border-base flex justify-between items-center">
+                          <h2 className="text-base font-bold text-text-base">Alterar usuário</h2>
+                          <button onClick={() => setShowUsernameChangeModal(false)} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="p-6 space-y-4">
-                          <div className="flex items-center gap-2 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl mb-2">
-                            <Smartphone className="w-4 h-4 text-primary-600" />
-                            <div className="flex flex-col">
-                              <span className="text-[10px] uppercase font-bold text-primary-600 leading-none">Editando: {getDeviceLabel(selectedChangeDevice || currentUser?.login || "")}</span>
-                              <span className="text-xs font-mono font-bold text-text-base leading-tight">{selectedChangeDevice || currentUser?.login}</span>
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-center gap-2 px-3 py-2 bg-bg-surface-hover rounded-md">
+                            <Smartphone className="w-4 h-4 text-primary-600 shrink-0" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[10px] uppercase font-bold text-text-muted tracking-[0.06em] leading-none">Editando: {getDeviceLabel(selectedChangeDevice || currentUser?.login || "")}</span>
+                              <span className="text-xs font-mono font-bold text-text-base leading-tight truncate">{selectedChangeDevice || currentUser?.login}</span>
                             </div>
                           </div>
-                          <p className="text-sm text-text-muted">
-                            Digite o novo nome de usuário desejado. Todo o seu histórico será migrado automaticamente.
+                          <p className="text-sm text-text-muted leading-snug">
+                            Todo o seu histórico será migrado automaticamente.
                           </p>
-                          <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium text-text-base mb-1">Alterar Usuário</label>
-                              <input
-                                type="text"
-                                value={changeUsernameValue}
-                                onChange={(e) => setChangeUsernameValue(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-border-base focus:ring-2 focus:ring-primary-500 outline-none text-sm bg-bg-base text-text-base"
-                                placeholder="Digite o novo usuário"
-                              />
-                            </div>
-                            {requestStatus && (
-                              <div className={`p-3 rounded-lg text-sm ${requestStatus.includes('sucesso') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                                {requestStatus}
-                              </div>
-                            )}
-                            <button
-                              onClick={handleUsernameChange}
-                              disabled={loading || !changeUsernameValue}
-                              className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-xl transition-colors disabled:opacity-70 flex items-center justify-center"
-                            >
-                              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Alterar Usuário"}
-                            </button>
+                          <div>
+                            <label className="block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-1.5">Novo usuário</label>
+                            <input
+                              type="text"
+                              value={changeUsernameValue}
+                              onChange={(e) => setChangeUsernameValue(e.target.value)}
+                              className="w-full px-3 h-11 rounded-md border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm bg-bg-base text-text-base font-mono"
+                              placeholder="Digite o novo usuário"
+                            />
                           </div>
+                          {requestStatus && (
+                            <div className={`p-3 rounded-md text-sm font-medium border ${requestStatus.includes('sucesso') ? 'bg-success-soft text-success border-success/20' : 'bg-danger-soft text-danger border-danger/20'}`}>
+                              {requestStatus}
+                            </div>
+                          )}
+                          <button
+                            onClick={handleUsernameChange}
+                            disabled={loading || !changeUsernameValue}
+                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors disabled:opacity-60 active:scale-[0.98] flex items-center justify-center"
+                          >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Solicitar alteração"}
+                          </button>
                         </div>
                       </motion.div>
                     </motion.div>
@@ -3189,7 +3141,7 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4"
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4"
                       onClick={() => setShowPushInstructions(false)}
                     >
                       <motion.div
@@ -3197,42 +3149,40 @@ export default function App() {
                         animate={{ y: 0, opacity: 1 }}
                         exit={{ y: 40, opacity: 0 }}
                         onClick={e => e.stopPropagation()}
-                        className="bg-bg-surface rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4"
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-sm overflow-hidden"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-amber-100 rounded-2xl flex items-center justify-center">
-                            <BellOff className="w-5 h-5 text-amber-600" />
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-text-base text-sm">Como reativar as notificações</h3>
-                            <p className="text-xs text-text-muted">O navegador bloqueou. Siga os passos abaixo:</p>
+                        <div className="px-4 py-3 border-b border-border-base flex items-center gap-2.5">
+                          <BellOff className="w-4 h-4 text-warning shrink-0" />
+                          <div className="min-w-0">
+                            <h3 className="text-base font-bold text-text-base">Reativar notificações</h3>
+                            <p className="text-[11px] text-text-muted">O navegador bloqueou. Siga os passos abaixo.</p>
                           </div>
                         </div>
-                        <div className="space-y-3">
-                          <div className="bg-bg-surface-hover rounded-2xl p-3 space-y-1.5">
-                            <p className="text-xs font-bold text-text-base flex items-center gap-2"><Smartphone className="w-3.5 h-3.5 text-primary-500" /> Android (Chrome)</p>
-                            <ol className="text-xs text-text-muted space-y-1 list-none pl-4">
-                              <li>1. Toque nos 3 pontinhos ⋮ no Chrome</li>
-                              <li>2. Configurações → Configurações do site</li>
-                              <li>3. Notificações → encontre este site</li>
-                              <li>4. Mude para <strong className="text-text-base">Permitir</strong></li>
+                        <div className="p-4 space-y-3">
+                          <div className="bg-bg-surface-hover rounded-md p-3 space-y-1.5">
+                            <p className="text-xs font-bold text-text-base flex items-center gap-2"><Smartphone className="w-3.5 h-3.5 text-primary-600" /> Android (Chrome)</p>
+                            <ol className="text-xs text-text-muted space-y-1 list-none pl-1">
+                              <li><span className="font-bold font-mono text-primary-600 mr-1">01</span>Toque nos 3 pontinhos ⋮ no Chrome</li>
+                              <li><span className="font-bold font-mono text-primary-600 mr-1">02</span>Configurações → Configurações do site</li>
+                              <li><span className="font-bold font-mono text-primary-600 mr-1">03</span>Notificações → encontre este site</li>
+                              <li><span className="font-bold font-mono text-primary-600 mr-1">04</span>Mude para <strong className="text-text-base">Permitir</strong></li>
                             </ol>
                           </div>
-                          <div className="bg-bg-surface-hover rounded-2xl p-3 space-y-1.5">
-                            <p className="text-xs font-bold text-text-base flex items-center gap-2"><Settings2 className="w-3.5 h-3.5 text-primary-500" /> Desktop (Chrome)</p>
-                            <ol className="text-xs text-text-muted space-y-1 list-none pl-4">
-                              <li>1. Clique no ícone 🔒 na barra de endereço</li>
-                              <li>2. Notificações → <strong className="text-text-base">Permitir</strong></li>
-                              <li>3. Recarregue a página</li>
+                          <div className="bg-bg-surface-hover rounded-md p-3 space-y-1.5">
+                            <p className="text-xs font-bold text-text-base flex items-center gap-2"><Settings2 className="w-3.5 h-3.5 text-primary-600" /> Desktop (Chrome)</p>
+                            <ol className="text-xs text-text-muted space-y-1 list-none pl-1">
+                              <li><span className="font-bold font-mono text-primary-600 mr-1">01</span>Clique no ícone 🔒 na barra de endereço</li>
+                              <li><span className="font-bold font-mono text-primary-600 mr-1">02</span>Notificações → <strong className="text-text-base">Permitir</strong></li>
+                              <li><span className="font-bold font-mono text-primary-600 mr-1">03</span>Recarregue a página</li>
                             </ol>
                           </div>
+                          <button
+                            onClick={() => setShowPushInstructions(false)}
+                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 rounded-md transition-colors text-sm active:scale-[0.98]"
+                          >
+                            Entendi
+                          </button>
                         </div>
-                        <button
-                          onClick={() => setShowPushInstructions(false)}
-                          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3 rounded-2xl transition-colors text-sm"
-                        >
-                          Entendido
-                        </button>
                       </motion.div>
                     </motion.div>
                   )}
@@ -3244,42 +3194,42 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4"
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
                     >
                       <motion.div
-                        initial={{ scale: 0.95 }}
+                        initial={{ scale: 0.97 }}
                         animate={{ scale: 1 }}
-                        exit={{ scale: 0.95 }}
-                        className="bg-bg-surface rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border border-border-base/50"
+                        exit={{ scale: 0.97 }}
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-sm overflow-hidden"
                       >
-                        <div className="p-5 border-b border-border-base/50 flex justify-between items-center bg-primary-600 text-white">
-                          <h2 className="text-lg font-bold">Confirmar Senha</h2>
-                          <button onClick={() => setShowVerifyModal(false)} className="text-white/70 hover:text-white">
-                            <XCircle className="w-5 h-5" />
+                        <div className="px-4 py-3 border-b border-border-base flex justify-between items-center">
+                          <h2 className="text-base font-bold text-text-base">Confirmar senha</h2>
+                          <button onClick={() => setShowVerifyModal(false)} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-                        <form onSubmit={handleVerifyPassword} className="p-6 space-y-4">
-                          <p className="text-sm text-text-muted">
-                            Para sua segurança, digite sua senha do painel para desbloquear o acesso completo neste aparelho.
+                        <form onSubmit={handleVerifyPassword} className="p-4 space-y-3">
+                          <p className="text-sm text-text-muted leading-snug">
+                            Digite sua senha do painel para desbloquear o acesso completo neste aparelho.
                           </p>
-                          <div className="space-y-2">
-                            <label className="text-xs font-bold text-text-muted uppercase tracking-wider pl-1">Senha de Acesso</label>
+                          <div>
+                            <label className="block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-1.5">Senha de acesso</label>
                             <input
                               type="password"
                               value={verifyPassword}
                               onChange={(e) => setVerifyPassword(e.target.value)}
                               placeholder="Digite sua senha"
-                              className="w-full px-4 py-3 rounded-xl border border-border-base bg-bg-base text-text-base focus:ring-2 focus:ring-primary-500 outline-none"
+                              className="w-full px-3 h-11 rounded-md border border-border-base bg-bg-base text-text-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all"
                               autoFocus
                             />
-                            {verifyError && <p className="text-red-500 text-xs pl-1 font-medium">{verifyError}</p>}
+                            {verifyError && <p className="text-danger text-xs mt-1.5 font-medium">{verifyError}</p>}
                           </div>
                           <button
                             type="submit"
                             disabled={isVerifying || !verifyPassword}
-                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-3.5 rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 rounded-md transition-colors active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
                           >
-                            {isVerifying ? <Loader2 className="w-5 h-5 animate-spin" /> : "Confirmar e Desbloquear"}
+                            {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar e desbloquear"}
                           </button>
                         </form>
                       </motion.div>
@@ -3294,58 +3244,56 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                     >
                       <motion.div
-                        initial={{ scale: 0.95 }}
+                        initial={{ scale: 0.97 }}
                         animate={{ scale: 1 }}
-                        exit={{ scale: 0.95 }}
-                        className="bg-bg-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-border-base/50"
+                        exit={{ scale: 0.97 }}
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-md overflow-hidden"
                       >
-                        <div className="p-5 border-b border-border-base/50 flex justify-between items-center bg-gradient-to-r from-bg-surface to-bg-surface-hover">
-                          <h2 className="text-xl font-bold text-text-base">Alterar Senha</h2>
-                          <button onClick={() => setShowPasswordChangeModal(false)} className="text-text-muted hover:text-text-base">
-                            <X className="w-5 h-5" />
+                        <div className="px-4 py-3 border-b border-border-base flex justify-between items-center">
+                          <h2 className="text-base font-bold text-text-base">Alterar senha</h2>
+                          <button onClick={() => setShowPasswordChangeModal(false)} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="p-6 space-y-4">
-                          <div className="flex items-center gap-2 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl mb-2">
-                            <Smartphone className="w-4 h-4 text-primary-600" />
-                            <div className="flex flex-col">
-                              <span className="text-[10px] uppercase font-bold text-primary-600 leading-none">Editando: {getDeviceLabel(selectedChangeDevice || currentUser?.login || "")}</span>
-                              <span className="text-xs font-mono font-bold text-text-base leading-tight">{selectedChangeDevice || currentUser?.login}</span>
+                        <div className="p-4 space-y-3">
+                          <div className="flex items-center gap-2 px-3 py-2 bg-bg-surface-hover rounded-md">
+                            <Smartphone className="w-4 h-4 text-primary-600 shrink-0" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[10px] uppercase font-bold text-text-muted tracking-[0.06em] leading-none">Editando: {getDeviceLabel(selectedChangeDevice || currentUser?.login || "")}</span>
+                              <span className="text-xs font-mono font-bold text-text-base leading-tight truncate">{selectedChangeDevice || currentUser?.login}</span>
                             </div>
                           </div>
-                          <p className="text-sm text-text-muted">
-                            Digite a nova senha desejada para o seu acesso (apenas números, entre 4 e 10 dígitos).
+                          <p className="text-sm text-text-muted leading-snug">
+                            Digite a nova senha (apenas números, entre 4 e 10 dígitos).
                           </p>
-                          <div className="space-y-4">
-                            <div>
-                              <label className="block text-sm font-medium text-text-base mb-1">Alterar Senha</label>
-                              <input
-                                type="password"
-                                inputMode="numeric"
-                                pattern="\d{4,10}"
-                                maxLength={10}
-                                value={newPassword}
-                                onChange={(e) => setNewPassword(e.target.value.replace(/\D/g, ''))}
-                                className="w-full px-3 py-2 rounded-lg border border-border-base focus:ring-2 focus:ring-primary-500 outline-none text-sm bg-bg-base text-text-base"
-                                placeholder="Digite a nova senha (4 a 10 números)"
-                              />
-                            </div>
-                            {requestStatus && (
-                              <div className={`p-3 rounded-lg text-sm ${requestStatus.includes('sucesso') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                                {requestStatus}
-                              </div>
-                            )}
-                            <button
-                              onClick={handlePasswordChange}
-                              disabled={loading || !newPassword}
-                              className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-xl transition-colors disabled:opacity-70 flex items-center justify-center"
-                            >
-                              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Alterar Senha"}
-                            </button>
+                          <div>
+                            <label className="block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-1.5">Nova senha</label>
+                            <input
+                              type="password"
+                              inputMode="numeric"
+                              pattern="\d{4,10}"
+                              maxLength={10}
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value.replace(/\D/g, ''))}
+                              className="w-full px-3 h-11 rounded-md border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm bg-bg-base text-text-base font-mono"
+                              placeholder="4 a 10 números"
+                            />
                           </div>
+                          {requestStatus && (
+                            <div className={`p-3 rounded-md text-sm font-medium border ${requestStatus.includes('sucesso') ? 'bg-success-soft text-success border-success/20' : 'bg-danger-soft text-danger border-danger/20'}`}>
+                              {requestStatus}
+                            </div>
+                          )}
+                          <button
+                            onClick={handlePasswordChange}
+                            disabled={loading || !newPassword}
+                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors disabled:opacity-60 active:scale-[0.98] flex items-center justify-center"
+                          >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Solicitar alteração"}
+                          </button>
                         </div>
                       </motion.div>
                     </motion.div>
@@ -3359,63 +3307,63 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                     >
                       <motion.div
-                        initial={{ scale: 0.95 }}
+                        initial={{ scale: 0.97 }}
                         animate={{ scale: 1 }}
-                        exit={{ scale: 0.95 }}
-                        className="bg-bg-surface rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-border-base/50"
+                        exit={{ scale: 0.97 }}
+                        className="bg-bg-surface rounded-xl border border-border-base w-full max-w-md overflow-hidden"
                       >
-                        <div className="p-5 border-b border-border-base/50 flex justify-between items-center bg-gradient-to-r from-bg-surface to-bg-surface-hover">
-                          <h2 className="text-xl font-bold text-text-base">Cancelar Plano / Reembolso</h2>
-                          <button onClick={() => setShowRefundModal(false)} className="text-text-muted hover:text-text-base">
-                            <X className="w-5 h-5" />
+                        <div className="px-4 py-3 border-b border-border-base flex justify-between items-center">
+                          <h2 className="text-base font-bold text-text-base">Cancelar plano / reembolso</h2>
+                          <button onClick={() => setShowRefundModal(false)} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-                        <div className="p-6">
+                        <div className="p-4">
                           {currentUser?.refundRequest ? (
-                            <div className="text-center py-4">
+                            <div className="py-2">
                               {currentUser.refundRequest.status === 'realizado' ? (
-                                <div className="space-y-4">
-                                  <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-1" />
-                                  <h3 className="text-lg font-bold text-text-base">Reembolso Concluído</h3>
+                                <div className="space-y-3 text-center">
+                                  <CheckCircle2 className="w-9 h-9 text-success mx-auto" />
+                                  <h3 className="text-base font-bold text-text-base">Reembolso concluído</h3>
                                   <p className="text-text-muted text-xs">
                                     O seu reembolso foi aprovado e processado com sucesso.
                                   </p>
-                                  <div className="bg-bg-surface-hover p-4 rounded-2xl border border-border-base text-left space-y-3 shadow-inner">
-                                    <div className="flex justify-between items-center text-xs">
-                                      <span className="text-text-muted font-medium">Data/Hora:</span>
-                                      <span className="font-bold text-text-base">{formatDate(currentUser.refundRequest.refunded_at)}</span>
+                                  <div className="bg-bg-surface-hover border border-border-base rounded-md text-left divide-y divide-border-base">
+                                    <div className="flex justify-between items-center text-xs px-3 py-2">
+                                      <span className="text-text-muted font-medium">Data</span>
+                                      <span className="font-bold text-text-base font-mono">{formatDate(currentUser.refundRequest.refunded_at)}</span>
                                     </div>
-                                    <div className="flex justify-between items-center text-xs">
-                                      <span className="text-text-muted font-medium">Chave Pix:</span>
-                                      <span className="font-bold text-text-base">{currentUser.refundRequest.pix_key}</span>
+                                    <div className="flex justify-between items-center text-xs px-3 py-2">
+                                      <span className="text-text-muted font-medium">Chave Pix</span>
+                                      <span className="font-bold text-text-base font-mono truncate ml-3">{currentUser.refundRequest.pix_key}</span>
                                     </div>
-                                    <div className="flex justify-between items-center text-xs">
-                                      <span className="text-text-muted font-medium">Tipo:</span>
+                                    <div className="flex justify-between items-center text-xs px-3 py-2">
+                                      <span className="text-text-muted font-medium">Tipo</span>
                                       <span className="font-bold text-text-base uppercase">{currentUser.refundRequest.pix_type}</span>
                                     </div>
                                   </div>
-                                  <div className="bg-amber-50 border border-amber-100 p-3 rounded-xl">
-                                    <p className="text-[11px] text-amber-800 leading-tight">
+                                  <div className="bg-warning-soft border border-warning/20 px-3 py-2 rounded-md text-left">
+                                    <p className="text-[11px] text-warning leading-snug font-medium">
                                       Os pontos de fidelidade foram revogados devido ao reembolso. Seu acesso permanecerá inativo após o vencimento atual.
                                     </p>
                                   </div>
                                 </div>
                               ) : currentUser.refundRequest.status === 'rejeitado' ? (
-                                <div className="text-center py-4">
-                                  <XCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-                                  <h3 className="text-lg font-medium text-text-base mb-2">Reembolso Rejeitado</h3>
-                                  <p className="text-text-muted text-sm px-4">Sua solicitação de reembolso foi analisada e não pôde ser atendida no momento.</p>
-                                  <p className="text-text-muted text-[11px] mt-4">Para mais informações, abra um ticket de suporte.</p>
+                                <div className="text-center py-3">
+                                  <XCircle className="w-9 h-9 text-danger mx-auto mb-2" />
+                                  <h3 className="text-base font-bold text-text-base mb-1">Reembolso rejeitado</h3>
+                                  <p className="text-text-muted text-sm leading-snug">Sua solicitação foi analisada e não pôde ser atendida no momento.</p>
+                                  <p className="text-text-muted text-[11px] mt-3">Para mais informações, abra um ticket de suporte.</p>
                                 </div>
                               ) : (
-                                <>
-                                  <Clock className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-                                  <h3 className="text-lg font-medium text-text-base mb-2">Reembolso em Andamento</h3>
-                                  <p className="text-text-muted text-sm px-4">Sua solicitação está aguardando revisão pelo administrador e será processada em breve.</p>
-                                </>
+                                <div className="text-center py-3">
+                                  <Clock className="w-9 h-9 text-warning mx-auto mb-2" />
+                                  <h3 className="text-base font-bold text-text-base mb-1">Reembolso em andamento</h3>
+                                  <p className="text-text-muted text-sm leading-snug">Sua solicitação está aguardando revisão pelo administrador.</p>
+                                </div>
                               )}
                             </div>
                           ) : (
@@ -3426,65 +3374,65 @@ export default function App() {
 
                                 if (!isEligible) {
                                   return (
-                                    <div className="text-center py-4">
-                                      <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-                                      <h3 className="text-lg font-medium text-text-base mb-2">Reembolso Indisponível</h3>
-                                      <p className="text-text-muted text-sm mb-4">
+                                    <div className="text-center py-3">
+                                      <AlertCircle className="w-9 h-9 text-warning mx-auto mb-2" />
+                                      <h3 className="text-base font-bold text-text-base mb-2">Reembolso indisponível</h3>
+                                      <p className="text-text-muted text-sm mb-3 leading-snug">
                                         {currentUser?.lastPaymentDate
                                           ? "Já se passaram 7 dias desde o seu último pagamento. Você não está mais apto a solicitar reembolso."
-                                          : "Você não possui pagamentos recentes registrados no sistema para solicitar reembolso."}
+                                          : "Você não possui pagamentos recentes registrados no sistema."}
                                       </p>
-                                      <p className="text-text-muted text-sm">
-                                        Seu acesso continuará ativo até o vencimento ({formatDate(currentUser?.expira || '')}). Para cancelar, basta não renovar no próximo vencimento.
+                                      <p className="text-text-muted text-xs leading-snug">
+                                        Seu acesso continuará ativo até {formatDate(currentUser?.expira || '')}. Para cancelar, basta não renovar no próximo vencimento.
                                       </p>
                                     </div>
                                   );
                                 }
 
                                 return (
-                                  <div className="space-y-4">
-                                    <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-start">
-                                      <Shield className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0 mt-0.5" />
-                                      <p className="text-sm text-blue-800">
+                                  <div className="space-y-3">
+                                    <div className="bg-info-soft border border-info/20 p-3 rounded-md flex items-start gap-2">
+                                      <Shield className="w-4 h-4 text-info shrink-0 mt-0.5" />
+                                      <p className="text-sm text-info leading-snug">
                                         Garantia de 7 dias ativa. Você pode solicitar o reembolso do seu último pagamento.
                                       </p>
                                     </div>
 
                                     <div>
-                                      <label className="block text-sm font-medium text-text-base mb-1">Tipo de Chave Pix</label>
+                                      <label className="block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-1.5">Tipo de chave Pix</label>
                                       <select
                                         value={pixType}
                                         onChange={(e) => setPixType(e.target.value)}
-                                        className="w-full px-3 py-2 rounded-lg border border-border-base focus:ring-2 focus:ring-primary-500 outline-none text-sm bg-bg-base text-text-base"
+                                        className="w-full px-3 h-11 rounded-md border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm bg-bg-base text-text-base font-medium appearance-none cursor-pointer"
                                       >
                                         <option value="cpf">CPF</option>
                                         <option value="cnpj">CNPJ</option>
                                         <option value="telefone">Telefone</option>
                                         <option value="email">E-mail</option>
-                                        <option value="aleatoria">Chave Aleatória</option>
+                                        <option value="aleatoria">Chave aleatória</option>
                                       </select>
                                     </div>
                                     <div>
-                                      <label className="block text-sm font-medium text-text-base mb-1">Chave Pix</label>
+                                      <label className="block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-1.5">Chave Pix</label>
                                       <input
                                         type="text"
                                         value={pixKey}
                                         onChange={(e) => setPixKey(e.target.value)}
                                         placeholder="Digite sua chave Pix"
-                                        className="w-full px-3 py-2 rounded-lg border border-border-base focus:ring-2 focus:ring-primary-500 outline-none text-sm bg-bg-base text-text-base"
+                                        className="w-full px-3 h-11 rounded-md border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none text-sm bg-bg-base text-text-base font-mono"
                                       />
                                     </div>
                                     {requestStatus && (
-                                      <div className={`p-3 rounded-lg text-sm ${requestStatus.includes('sucesso') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                      <div className={`p-3 rounded-md text-sm font-medium border ${requestStatus.includes('sucesso') ? 'bg-success-soft text-success border-success/20' : 'bg-danger-soft text-danger border-danger/20'}`}>
                                         {requestStatus}
                                       </div>
                                     )}
                                     <button
                                       onClick={handleRefund}
                                       disabled={loading || !pixKey}
-                                      className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-xl transition-colors disabled:opacity-70 flex items-center justify-center"
+                                      className="w-full bg-danger hover:opacity-90 text-white font-bold h-11 px-4 rounded-md transition-opacity disabled:opacity-60 active:scale-[0.98] flex items-center justify-center"
                                     >
-                                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Solicitar Reembolso"}
+                                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Solicitar reembolso"}
                                     </button>
                                   </div>
                                 );
@@ -3506,91 +3454,90 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
+                className="w-full flex-1 bg-bg-base overflow-hidden flex flex-col"
               >
-                <div className="bg-primary-600 p-4 flex justify-between items-center flex-shrink-0">
-                  {/* Mobile hamburger for help view */}
-                  <div className="flex items-center">
-                    <button onClick={() => setView("dashboard")} className="text-primary-100 hover:text-white mr-3">
+                <header className="bg-primary-600 dark:bg-primary-800 h-14 px-3 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <button onClick={() => setView("dashboard")} className="-ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Voltar">
                       <ArrowLeft className="w-5 h-5" />
                     </button>
-                    <h1 className="text-lg font-semibold text-white">Central de Ajuda</h1>
+                    <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Central de ajuda</h1>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => { fetchUserTickets(); setView("tickets"); }} className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center font-medium">
-                      <MessageSquare className="w-4 h-4 mr-1" />
-                      Meus Tickets
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => { fetchUserTickets(); setView("tickets"); }} className="text-[12px] font-bold text-white/90 hover:text-white hover:bg-white/10 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5">
+                      <MessageSquare className="w-4 h-4" />
+                      Meus tickets
                     </button>
                     {notifBell}
                   </div>
-                </div>
+                </header>
 
-                <div className="flex-1 overflow-y-auto p-0 bg-bg-surface-hover pb-20 md:pb-0">
+                <div className="flex-1 overflow-y-auto pb-20 md:pb-0">
                   {/* Como Conectar */}
-                  <div className="p-5 border-b border-border-base bg-bg-surface">
-                    <h2 className="font-semibold text-text-base flex items-center mb-4">
-                      <Smartphone className="w-5 h-5 mr-2 text-blue-600" />
-                      Como Conectar (Passo a Passo)
+                  <section className="px-4 py-5 border-b border-border-base">
+                    <h2 className="font-bold text-text-base flex items-center mb-3 text-[15px]">
+                      <Smartphone className="w-4 h-4 mr-2 text-primary-600" />
+                      Como conectar (passo a passo)
                     </h2>
-                    <ol className="space-y-3 text-sm text-text-muted pl-1">
-                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">1.</span> <span>Baixe o app CloudBR DT na Play Store.</span></li>
-                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">2.</span> <span>Faça login usando seu Usuário e Senha (ou UUID).</span></li>
-                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">3.</span> <span>Selecione a opção compatível com sua operadora (TIM/Vivo).</span></li>
-                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">4.</span> <span>Desligue o Wi-Fi e ligue os Dados Móveis (chip sem crédito).</span></li>
-                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">5.</span> <span>Clique em conectar e aguarde.</span></li>
-                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">6.</span> <span>Pronto! Internet ilimitada liberada.</span></li>
+                    <ol className="space-y-2 text-sm text-text-muted">
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">01</span><span>Baixe o app CloudBR DT na Play Store.</span></li>
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">02</span><span>Faça login usando seu usuário e senha (ou UUID).</span></li>
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">03</span><span>Selecione a opção compatível com sua operadora (TIM/Vivo).</span></li>
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">04</span><span>Desligue o Wi-Fi e ligue os dados móveis (chip sem crédito).</span></li>
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">05</span><span>Clique em conectar e aguarde.</span></li>
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">06</span><span>Pronto. Internet ilimitada liberada.</span></li>
                     </ol>
-                  </div>
+                  </section>
 
                   {/* Solução de Problemas */}
-                  <div className="p-5 border-b border-border-base">
-                    <h2 className="font-semibold text-text-base flex items-center mb-4">
-                      <Settings2 className="w-5 h-5 mr-2 text-amber-500" />
-                      Problemas de Conexão? Resolva Aqui
+                  <section className="px-4 py-5 border-b border-border-base">
+                    <h2 className="font-bold text-text-base flex items-center mb-3 text-[15px]">
+                      <Settings2 className="w-4 h-4 mr-2 text-warning" />
+                      Problemas de conexão
                     </h2>
-                    <div className="space-y-2">
+                    <div className="bg-bg-surface border border-border-base rounded-xl divide-y divide-border-base overflow-hidden">
                       {troubleshootingSteps.map((step, i) => (
-                        <div key={i} className="bg-bg-surface border border-border-base rounded-xl overflow-hidden shadow-sm">
+                        <div key={i}>
                           <button
                             onClick={() => setOpenTrouble(openTrouble === i ? null : i)}
-                            className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-bg-surface-hover transition-colors"
+                            className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-bg-surface-hover transition-colors gap-3"
                           >
-                            <span className="font-medium text-sm text-text-base pr-4">{step.title}</span>
-                            {openTrouble === i ? <ChevronUp className="w-4 h-4 text-text-muted flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />}
+                            <span className="font-bold text-sm text-text-base">{step.title}</span>
+                            {openTrouble === i ? <ChevronUp className="w-4 h-4 text-text-muted shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted shrink-0" />}
                           </button>
                           {openTrouble === i && (
-                            <div className="px-4 pb-4 pt-1 text-sm text-text-muted border-t border-border-base bg-bg-surface-hover/50">
+                            <div className="px-4 pb-4 text-sm text-text-muted leading-relaxed">
                               {step.content}
                             </div>
                           )}
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </section>
 
                   {/* FAQ */}
-                  <div className="p-5">
-                    <h2 className="font-semibold text-text-base flex items-center mb-4">
-                      <HelpCircle className="w-5 h-5 mr-2 text-primary-600" />
-                      Dúvidas Frequentes
+                  <section className="px-4 py-5">
+                    <h2 className="font-bold text-text-base flex items-center mb-3 text-[15px]">
+                      <HelpCircle className="w-4 h-4 mr-2 text-primary-600" />
+                      Dúvidas frequentes
                     </h2>
-                    <div className="space-y-2">
+                    <div className="bg-bg-surface border border-border-base rounded-xl divide-y divide-border-base overflow-hidden">
                       {faqItems.map((faq, i) => (
-                        <div key={i} className="bg-bg-surface border border-border-base rounded-xl overflow-hidden shadow-sm">
+                        <div key={i}>
                           <button
                             onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                            className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-bg-surface-hover transition-colors"
+                            className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-bg-surface-hover transition-colors gap-3"
                           >
-                            <span className="font-medium text-sm text-text-base pr-4">{faq.title}</span>
-                            {openFaq === i ? <ChevronUp className="w-4 h-4 text-text-muted flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />}
+                            <span className="font-bold text-sm text-text-base">{faq.title}</span>
+                            {openFaq === i ? <ChevronUp className="w-4 h-4 text-text-muted shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted shrink-0" />}
                           </button>
                           {openFaq === i && (
-                            <div className="px-4 pb-4 pt-1 text-sm text-text-muted border-t border-border-base bg-bg-surface-hover/50">
+                            <div className="px-4 pb-4 text-sm text-text-muted leading-relaxed">
                               {faq.content.includes("http") ? (
                                 <span>
                                   {faq.content.split(/(https?:\/\/[^\s]+)/g).map((part, j) =>
                                     part.match(/https?:\/\/[^\s]+/) ? (
-                                      <a key={j} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">{part}</a>
+                                      <a key={j} href={part} target="_blank" rel="noopener noreferrer" className="text-info hover:underline break-all">{part}</a>
                                     ) : (
                                       <span key={j}>{part}</span>
                                     )
@@ -3604,17 +3551,17 @@ export default function App() {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </section>
                 </div>
 
                 <div className="p-4 bg-bg-surface border-t border-border-base flex-shrink-0">
-                  <p className="text-xs text-center text-text-muted mb-2 font-medium">Não conseguiu resolver seu problema?</p>
+                  <p className="text-xs text-center text-text-muted mb-2 font-medium">Não conseguiu resolver?</p>
                   <button
                     onClick={() => { fetchUserTickets(); setView("tickets"); }}
-                    className="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-medium py-3 px-4 rounded-xl transition-colors flex items-center justify-center shadow-sm text-sm"
+                    className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors flex items-center justify-center text-sm active:scale-[0.98]"
                   >
                     <MessageSquare className="w-4 h-4 mr-2" />
-                    Abrir Ticket de Suporte
+                    Abrir ticket de suporte
                   </button>
                 </div>
               </motion.div>
@@ -3623,105 +3570,97 @@ export default function App() {
             {view === "create_user" && (
               <motion.div
                 key="create_user"
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                className="w-full flex-1 flex justify-center items-center p-6"
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.97 }}
+                className="w-full flex-1 flex justify-center items-start p-6 overflow-y-auto"
               >
                 <div className="w-full max-w-sm">
-                  {/* Glossy Header Effect */}
-                  <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-primary-500/10 to-transparent pointer-events-none" />
-
-                  <div className="pt-8 pb-6 text-center flex flex-col items-center relative z-10 space-y-3">
+                  <div className="pt-2 pb-6 flex flex-col items-center relative gap-3">
                     <button
                       onClick={() => setView("login")}
-                      className="absolute left-0 top-2 p-2 text-text-muted hover:text-text-base transition-colors bg-bg-surface-hover rounded-full"
+                      className="absolute left-0 top-0 p-2 -ml-2 text-text-muted hover:text-text-base transition-colors rounded-md"
+                      aria-label="Voltar"
                     >
                       <ArrowLeft className="w-5 h-5" />
                     </button>
-                    <div className="flex items-center justify-center relative bg-bg-surface-hover p-4 rounded-3xl shadow-sm border border-border-base mt-4">
-                      <UserPlus className="w-8 h-8 text-primary-600" />
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-text-base tracking-tight">Criar Acesso Grátis</h2>
-                      <p className="text-text-muted mt-1 text-sm font-medium">
-                        Crie seu teste gratuito de 2 dias
-                      </p>
+                    <UserPlus className="w-7 h-7 text-primary-600 mt-2" />
+                    <div className="text-center">
+                      <h2 className="text-2xl font-bold text-text-base tracking-tight">Criar acesso grátis</h2>
+                      <p className="text-text-muted mt-1 text-sm">Teste gratuito de 2 dias</p>
                     </div>
                   </div>
 
-                  <div className="space-y-6 relative z-10 pt-2">
-                    <form onSubmit={handleCreateFreeUser} className="space-y-5">
-                      <div className="space-y-4">
-                        <div className="relative group">
-                          <label htmlFor="newUsername" className="block text-xs font-semibold text-text-muted mb-1.5 uppercase tracking-wider px-1">
-                            Escolha seu Usuário
-                          </label>
+                  <div className="space-y-4">
+                    <form onSubmit={handleCreateFreeUser} className="space-y-4">
+                      <div>
+                        <label htmlFor="newUsername" className="block text-[11px] font-bold text-text-muted mb-1.5 uppercase tracking-[0.08em]">
+                          Escolha seu usuário
+                        </label>
+                        <input
+                          id="newUsername"
+                          type="text"
+                          value={newUsername}
+                          onChange={(e) => setNewUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10))}
+                          className="w-full px-3 h-12 rounded-md bg-bg-surface border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted"
+                          placeholder="Ex: joao123"
+                          disabled={loading}
+                          maxLength={10}
+                        />
+                        <p className={`text-[11px] mt-1.5 font-medium ${newUsername.length > 0 && newUsername.length < 4 ? "text-danger" : "text-text-muted"}`}>
+                          {newUsername.length > 0 && newUsername.length < 4
+                            ? `Mínimo 4 caracteres (${newUsername.length}/4)`
+                            : "Apenas letras e números (4 a 10 caracteres)"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label htmlFor="referrerUsername" className="block text-[11px] font-bold text-text-muted mb-1.5 uppercase tracking-[0.08em]">
+                          Quem te indicou? <span className="font-normal normal-case text-text-muted/80">(opcional)</span>
+                        </label>
+                        <div className="relative">
                           <input
-                            id="newUsername"
+                            id="referrerUsername"
                             type="text"
-                            value={newUsername}
-                            onChange={(e) => setNewUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10))}
-                            className="w-full px-4 py-4 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 focus:bg-bg-surface outline-none transition-all font-semibold text-text-base placeholder-text-muted shadow-sm"
-                            placeholder="Ex: joao123"
+                            value={referrerUsername}
+                            onChange={(e) => setReferrerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10))}
+                            className={`w-full px-3 h-12 rounded-md border focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted ${referrerUsername ? 'bg-success-soft border-success/40' : 'bg-bg-surface border-border-base'}`}
+                            placeholder="Deixe em branco se não foi indicado"
                             disabled={loading}
                             maxLength={10}
                           />
-                          <p className={`text-[11px] mt-1.5 px-1 font-medium ${newUsername.length > 0 && newUsername.length < 4 ? "text-red-500" : "text-text-muted"}`}>
-                            {newUsername.length > 0 && newUsername.length < 4
-                              ? `Mínimo 4 caracteres (${newUsername.length}/4)`
-                              : "Apenas letras e números (4 a 10 caracteres)"}
-                          </p>
-                        </div>
-
-                        <div className="relative group">
-                          <label htmlFor="referrerUsername" className="block text-xs font-semibold text-text-muted mb-1.5 uppercase tracking-wider px-1">
-                            Quem te indicou? <span className="text-primary-500 font-normal">(Opcional)</span>
-                          </label>
-                          <div className="relative">
-                            <input
-                              id="referrerUsername"
-                              type="text"
-                              value={referrerUsername}
-                              onChange={(e) => setReferrerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10))}
-                              className={`w-full px-4 py-4 rounded-2xl border focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted shadow-sm ${referrerUsername ? 'bg-green-50 border-green-300 text-green-800' : 'bg-bg-surface-hover border-border-base focus:bg-bg-surface'}`}
-                              placeholder="Deixe em branco se não foi indicado"
-                              disabled={loading}
-                              maxLength={10}
-                            />
-                            {referrerUsername && (
-                              <button
-                                type="button"
-                                onClick={() => setReferrerUsername("")}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-green-600 hover:text-red-500 transition-colors"
-                                title="Limpar"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
                           {referrerUsername && (
-                            <p className="text-[11px] text-green-700 font-semibold mt-1.5 px-1 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Indicado por: <strong>{referrerUsername}</strong>
-                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setReferrerUsername("")}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-text-muted hover:text-danger transition-colors"
+                              title="Limpar"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
+                        {referrerUsername && (
+                          <p className="text-[11px] text-success font-bold mt-1.5 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Indicado por: <span className="font-mono">{referrerUsername}</span>
+                          </p>
+                        )}
                       </div>
 
                       {error && (
                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-3">
-                          <div className="flex items-start gap-3 p-4 bg-red-50 text-red-700 rounded-2xl border border-red-100">
-                            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                          <div className="flex items-start gap-2 p-3 bg-danger-soft text-danger rounded-md border border-danger/20">
+                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                             <span className="text-sm font-medium">{error}</span>
                           </div>
                           {existingTestUsername && (
-                            <div className="bg-primary-50 border border-primary-200 rounded-2xl p-4 flex flex-col gap-3">
-                              <div className="flex items-center gap-2 text-primary-700">
-                                <User className="w-4 h-4 flex-shrink-0" />
-                                <p className="text-sm font-semibold">Conta encontrada: <span className="font-mono font-bold">{existingTestUsername}</span></p>
+                            <div className="bg-bg-surface border border-border-base rounded-md p-4 flex flex-col gap-3">
+                              <div className="flex items-center gap-2">
+                                <User className="w-4 h-4 text-primary-600 shrink-0" />
+                                <p className="text-sm font-bold text-text-base">Conta encontrada: <span className="font-mono">{existingTestUsername}</span></p>
                               </div>
-                              <p className="text-[11px] text-primary-600">Acesse sua conta para renovar ou continuar usando o serviço.</p>
+                              <p className="text-[12px] text-text-muted">Acesse sua conta para renovar ou continuar usando o serviço.</p>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -3729,7 +3668,7 @@ export default function App() {
                                   localStorage.setItem("vpn_saved_username", existingTestUsername);
                                   handleLogin(existingTestUsername);
                                 }}
-                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
+                                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
                               >
                                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
                                   <>
@@ -3746,12 +3685,12 @@ export default function App() {
                       <button
                         type="submit"
                         disabled={loading || !newUsername.trim()}
-                        className="relative w-full overflow-hidden bg-primary-600 hover:bg-primary-700 text-white font-semibold py-4 px-4 rounded-2xl transition-all shadow-[0_8px_16px_-6px_rgba(79,70,229,0.5)] flex items-center justify-center disabled:opacity-60 disabled:shadow-none active:scale-[0.98] mt-2"
+                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-12 px-4 rounded-md transition-colors flex items-center justify-center disabled:opacity-60 active:scale-[0.98] mt-2"
                       >
                         {loading ? (
                           <Loader2 className="w-5 h-5 animate-spin" />
                         ) : (
-                          "Gerar Conta Teste"
+                          "Gerar conta teste"
                         )}
                       </button>
                     </form>
@@ -3768,109 +3707,102 @@ export default function App() {
                 className="w-full flex-1 overflow-y-auto"
               >
                 {/* Success header */}
-                <div className="bg-gradient-to-br from-green-500 to-emerald-600 px-6 pt-10 pb-8 text-white relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10" />
-                  <div className="relative z-10 flex flex-col items-center text-center gap-3">
-                    <div className="w-16 h-16 bg-white/20 rounded-3xl flex items-center justify-center backdrop-blur-sm border border-white/30 shadow-lg">
-                      <CheckCircle2 className="w-9 h-9 text-white" />
-                    </div>
+                <div className="bg-emerald-600 dark:bg-emerald-700 px-6 pt-8 pb-6 text-white">
+                  <div className="flex flex-col items-center text-center gap-3">
+                    <CheckCircle2 className="w-10 h-10 text-white" />
                     <div>
-                      <h2 className="text-2xl font-black tracking-tight">Teste Criado!</h2>
-                      <p className="text-green-100 mt-1 text-sm font-medium">Seu acesso de 2 dias está pronto. Anote suas credenciais abaixo.</p>
+                      <h2 className="text-2xl font-bold tracking-tight">Teste criado</h2>
+                      <p className="text-white/85 mt-1 text-sm">Seu acesso de 2 dias está pronto. Anote suas credenciais abaixo.</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="p-5 space-y-5 max-w-md mx-auto pb-10">
+                <div className="p-4 space-y-4 max-w-md mx-auto pb-10">
 
                   {/* Credentials card */}
-                  <div className="bg-bg-surface border border-border-base rounded-3xl shadow-sm overflow-hidden divide-y divide-border-base">
-                    <div className="px-4 py-3 bg-bg-surface-hover">
-                      <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Suas Credenciais de Acesso</p>
+                  <div className="bg-bg-surface border border-border-base rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-border-base">
+                      <p className="text-[11px] font-bold text-text-muted uppercase tracking-[0.08em]">Suas credenciais de acesso</p>
                     </div>
-                    <div className="p-4 flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Usuário</p>
-                        <p className="font-mono text-lg font-bold text-text-base">{credentials.username}</p>
+                    <div className="px-4 py-3 flex items-center justify-between border-b border-border-base">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-0.5">Usuário</p>
+                        <p className="font-mono text-lg font-bold text-text-base truncate">{credentials.username}</p>
                       </div>
-                      <button onClick={() => copyToClipboard(credentials.username)} className="p-2.5 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors text-primary-600 border border-primary-100">
+                      <button onClick={() => copyToClipboard(credentials.username)} className="p-2 -mr-2 rounded-md text-text-muted hover:text-primary-600 hover:bg-bg-surface-hover transition-colors shrink-0" aria-label="Copiar usuário">
                         <Copy className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="p-4 flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5">Senha</p>
-                        <p className="font-mono text-lg font-bold text-text-base">{credentials.password}</p>
+                    <div className="px-4 py-3 flex items-center justify-between">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-text-muted uppercase tracking-[0.08em] mb-0.5">Senha</p>
+                        <p className="font-mono text-lg font-bold text-text-base truncate">{credentials.password}</p>
                       </div>
-                      <button onClick={() => copyToClipboard(credentials.password)} className="p-2.5 bg-primary-50 hover:bg-primary-100 rounded-xl transition-colors text-primary-600 border border-primary-100">
+                      <button onClick={() => copyToClipboard(credentials.password)} className="p-2 -mr-2 rounded-md text-text-muted hover:text-primary-600 hover:bg-bg-surface-hover transition-colors shrink-0" aria-label="Copiar senha">
                         <Copy className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="px-4 py-3 bg-amber-50 border-t border-amber-100 flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-[11px] text-amber-700 font-semibold">Anote ou tire um print dessas informações. Você vai precisar delas para conectar no app.</p>
+                    <div className="px-4 py-2.5 bg-warning-soft border-t border-border-base flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                      <p className="text-[12px] text-warning font-bold leading-snug">Anote ou tire um print. Você vai precisar para conectar no app.</p>
                     </div>
                   </div>
 
                   <AnimatePresence>
                     {copied && (
-                      <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-center text-sm text-green-600 font-semibold">
-                        Copiado!
+                      <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-center text-sm text-success font-bold">
+                        Copiado
                       </motion.p>
                     )}
                   </AnimatePresence>
 
                   {/* Download CTA */}
-                  <div className="rounded-3xl overflow-hidden border border-border-base shadow-sm">
-                    <div className="bg-primary-600 px-4 py-2.5">
-                      <p className="text-[11px] font-bold text-primary-100 uppercase tracking-wider">Passo 1 — Baixe o app</p>
+                  <div className="rounded-xl overflow-hidden border border-border-base">
+                    <div className="bg-primary-600 dark:bg-primary-800 px-4 py-2">
+                      <p className="text-[11px] font-bold text-white/85 uppercase tracking-[0.08em]">Passo 1 — Baixe o app</p>
                     </div>
                     <a
                       href="https://play.google.com/store/apps/details?id=google.android.a48"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-4 bg-bg-surface hover:bg-bg-surface-hover p-4 transition-colors active:scale-[0.98]"
+                      className="flex items-center gap-3 bg-bg-surface hover:bg-bg-surface-hover px-4 py-3 transition-colors active:scale-[0.99]"
                     >
-                      <div className="w-14 h-14 bg-primary-600 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-md">
-                        <Download className="w-7 h-7 text-white" />
-                      </div>
-                      <div className="flex-1">
+                      <Download className="w-5 h-5 text-primary-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
                         <p className="font-bold text-text-base">Baixar CloudBR DT</p>
                         <p className="text-[11px] text-text-muted mt-0.5">Disponível na Google Play Store</p>
                       </div>
-                      <ChevronRight className="w-5 h-5 text-primary-600 flex-shrink-0" />
+                      <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
                     </a>
-                    <div className="bg-amber-50 border-t border-amber-100 px-4 py-3 flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2 text-amber-700">
+                    <div className="bg-warning-soft border-t border-border-base px-4 py-2 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 text-warning">
                         <Smartphone className="w-3.5 h-3.5 shrink-0" />
                         <p className="text-[11px] font-bold">Somente Android — não funciona em iPhone</p>
                       </div>
-                      <div className="flex items-center gap-2 text-amber-700">
+                      <div className="flex items-center gap-2 text-warning">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                        <p className="text-[11px] font-bold">Requer chip TIM ou VIVO — outras operadoras não funcionam</p>
+                        <p className="text-[11px] font-bold">Requer chip TIM ou VIVO</p>
                       </div>
                     </div>
                   </div>
 
                   {/* Step-by-step guide */}
-                  <div className="bg-bg-surface border border-border-base rounded-3xl overflow-hidden shadow-sm">
-                    <div className="bg-primary-600 px-4 py-2.5">
-                      <p className="text-[11px] font-bold text-primary-100 uppercase tracking-wider">Passo 2 — Como conectar</p>
+                  <div className="bg-bg-surface border border-border-base rounded-xl overflow-hidden">
+                    <div className="bg-primary-600 dark:bg-primary-800 px-4 py-2">
+                      <p className="text-[11px] font-bold text-white/85 uppercase tracking-[0.08em]">Passo 2 — Como conectar</p>
                     </div>
-                    <div className="p-4 space-y-4">
+                    <div className="divide-y divide-border-base">
                       {[
-                        { n: "1", icon: <Download className="w-4 h-4" />, title: "Instale o CloudBR DT", desc: "Baixe e instale o app pela Play Store. Abra-o com o Wi-Fi ligado na primeira vez para carregar as configurações." },
-                        { n: "2", icon: <User className="w-4 h-4" />, title: "Faça login no app", desc: `Na tela inicial do app, toque no ícone de usuário e insira seu usuário (${credentials.username}) e sua senha.` },
-                        { n: "3", icon: <RefreshCw className="w-4 h-4" />, title: "Escolha o servidor", desc: "Selecione qualquer servidor DT disponível na lista. Procure pelos servidores com sinal mais forte (mais barras)." },
-                        { n: "4", icon: <CheckCircle2 className="w-4 h-4" />, title: "Conecte e aproveite!", desc: "Toque no botão de conectar. Aguarde até aparecer 'Conectado'. Pronto — sua internet ilimitada está funcionando!" },
+                        { n: "01", title: "Instale o CloudBR DT", desc: "Baixe e instale pela Play Store. Abra com Wi-Fi ligado na primeira vez para carregar configurações." },
+                        { n: "02", title: "Faça login no app", desc: `Na tela inicial, toque no ícone de usuário e insira seu usuário (${credentials.username}) e senha.` },
+                        { n: "03", title: "Escolha o servidor", desc: "Selecione qualquer servidor DT disponível. Prefira os com sinal mais forte." },
+                        { n: "04", title: "Conecte e aproveite", desc: "Toque em conectar. Aguarde até aparecer 'Conectado'." },
                       ].map(step => (
-                        <div key={step.n} className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-primary-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm text-sm font-black">
-                            {step.n}
-                          </div>
-                          <div className="flex-1 pt-0.5">
+                        <div key={step.n} className="flex items-start gap-3 px-4 py-3">
+                          <span className="font-bold font-mono text-primary-600 text-xs pt-0.5">{step.n}</span>
+                          <div className="flex-1">
                             <p className="text-sm font-bold text-text-base">{step.title}</p>
-                            <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">{step.desc}</p>
+                            <p className="text-[12px] text-text-muted mt-0.5 leading-snug">{step.desc}</p>
                           </div>
                         </div>
                       ))}
@@ -3878,48 +3810,46 @@ export default function App() {
                   </div>
 
                   {/* Tips */}
-                  <div className="bg-bg-surface border border-border-base rounded-3xl overflow-hidden shadow-sm">
-                    <div className="bg-bg-surface-hover px-4 py-2.5 border-b border-border-base">
-                      <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Informações importantes</p>
+                  <div className="bg-bg-surface border border-border-base rounded-xl overflow-hidden">
+                    <div className="px-4 py-2 border-b border-border-base">
+                      <p className="text-[11px] font-bold text-text-muted uppercase tracking-[0.08em]">Informações importantes</p>
                     </div>
                     <div className="divide-y divide-border-base">
                       {[
-                        { icon: <Clock className="w-4 h-4 text-primary-600" />, text: "Seu teste dura 2 dias. Após isso, acesse sua conta e renove para continuar." },
-                        { icon: <Shield className="w-4 h-4 text-primary-600" />, text: "Sua internet funciona via VPN. Alguns apps de banco ou apostas podem pedir verificação — isso é normal." },
-                        { icon: <Key className="w-4 h-4 text-primary-600" />, text: "Guarde bem seu usuário e senha. Você vai usá-los para acessar o app e renovar sua conta." },
-                        { icon: <MessageSquare className="w-4 h-4 text-primary-600" />, text: "Teve algum problema? Acesse sua conta e abra um ticket de suporte. Respondemos rapidinho!" },
-                        { icon: <CreditCard className="w-4 h-4 text-primary-600" />, text: "Gostou? Renove pelo nosso site antes do teste acabar e garanta seu acesso sem interrupção." },
+                        { icon: <Clock className="w-4 h-4 text-primary-600" />, text: "Seu teste dura 2 dias. Depois disso, renove para continuar." },
+                        { icon: <Shield className="w-4 h-4 text-primary-600" />, text: "Sua internet funciona via VPN. Apps de banco ou apostas podem pedir verificação — é normal." },
+                        { icon: <Key className="w-4 h-4 text-primary-600" />, text: "Guarde bem seu usuário e senha. Vai precisar para acessar e renovar." },
+                        { icon: <MessageSquare className="w-4 h-4 text-primary-600" />, text: "Algum problema? Acesse sua conta e abra um ticket de suporte." },
+                        { icon: <CreditCard className="w-4 h-4 text-primary-600" />, text: "Gostou? Renove antes do teste acabar para não ficar sem acesso." },
                       ].map((tip, i) => (
-                        <div key={i} className="flex items-start gap-3 p-3.5">
-                          <div className="w-7 h-7 rounded-lg bg-primary-50 border border-primary-100 flex items-center justify-center flex-shrink-0">
-                            {tip.icon}
-                          </div>
-                          <p className="text-[11px] text-text-muted leading-relaxed pt-0.5">{tip.text}</p>
+                        <div key={i} className="flex items-start gap-3 px-4 py-3">
+                          <span className="shrink-0 mt-0.5">{tip.icon}</span>
+                          <p className="text-[12px] text-text-muted leading-snug">{tip.text}</p>
                         </div>
                       ))}
                     </div>
                   </div>
 
                   {/* Action buttons */}
-                  <div className="flex flex-col gap-3 pt-2">
+                  <div className="flex flex-col gap-2 pt-1">
                     <button
                       onClick={() => {
                         setUsername(credentials.username);
                         handleLogin(credentials.username);
                       }}
-                      className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold py-4 px-4 rounded-2xl transition-all shadow-lg shadow-primary-500/30 active:scale-[0.98] flex items-center justify-center gap-2"
+                      className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-12 px-4 rounded-md transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
                     >
                       <User className="w-5 h-5" />
-                      Acessar Minha Conta
+                      Acessar minha conta
                     </button>
                     <a
                       href="https://play.google.com/store/apps/details?id=google.android.a48"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="w-full bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3.5 px-4 rounded-2xl transition-colors flex items-center justify-center gap-2 text-sm shadow-sm"
+                      className="w-full bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-bold h-11 px-4 rounded-md transition-colors flex items-center justify-center gap-2 text-sm active:scale-[0.98]"
                     >
                       <Download className="w-4 h-4 text-primary-600" />
-                      Baixar CloudBR DT na Play Store
+                      Baixar CloudBR DT
                     </a>
                   </div>
 
@@ -3933,103 +3863,100 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="max-w-md w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden"
+                className="max-w-md w-full bg-bg-surface rounded-xl border border-border-base overflow-hidden"
               >
-                <div className="p-4 border-b border-border-base flex items-center">
+                <header className="h-14 px-3 border-b border-border-base flex items-center gap-2">
                   <button
                     onClick={() => setView("dashboard")}
-                    className="text-text-muted hover:text-text-muted transition-colors mr-4"
+                    className="-ml-1 p-2 rounded-md text-text-muted hover:text-text-base transition-colors"
+                    aria-label="Voltar"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
-                  <h2 className="text-lg font-semibold text-text-base">Pagamento</h2>
-                </div>
+                  <h2 className="text-[15px] font-bold text-text-base">Pagamento</h2>
+                </header>
 
-                <div className="p-6">
+                <div className="p-5">
                   {paymentStatus === "approved" ? (
                     <motion.div
-                      initial={{ scale: 0.9, opacity: 0 }}
+                      initial={{ scale: 0.97, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
-                      className="text-center py-6"
+                      className="text-center py-4"
                     >
-                      <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <CheckCircle2 className="w-10 h-10 text-primary-600" />
-                      </div>
-                      <h2 className="text-2xl font-bold text-text-base mb-2">
-                        Pagamento Aprovado!
+                      <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-3" />
+                      <h2 className="text-xl font-bold text-text-base mb-1">
+                        Pagamento aprovado
                       </h2>
-                      <p className="text-text-muted mb-5 text-sm">
-                        Aguarde enquanto sincronizamos seu acesso...
+                      <p className="text-text-muted mb-4 text-sm">
+                        Aguarde enquanto sincronizamos seu acesso.
                       </p>
                       {/* Progress bar */}
-                      <div className="w-full bg-primary-100 rounded-full h-2 mb-3 overflow-hidden">
+                      <div className="w-full bg-bg-surface-hover rounded-full h-1.5 mb-2 overflow-hidden">
                         <div
-                          className="h-full bg-primary-600 rounded-full transition-all duration-1000"
+                          className="h-full bg-success rounded-full transition-all duration-1000"
                           style={{ width: `${((12 - renewalCountdown) / 12) * 100}%` }}
                         />
                       </div>
-                      <p className="text-xs text-text-muted mb-5">
-                        Redirecionando em <span className="font-bold text-primary-600">{renewalCountdown}s</span>...
+                      <p className="text-xs text-text-muted mb-4 font-mono">
+                        Redirecionando em <span className="font-bold text-text-base">{renewalCountdown}s</span>
                       </p>
                       <button
                         onClick={() => { setView("dashboard"); setPaymentData(null); setPaymentStatus("pending"); setRenewalCountdown(0); }}
-                        className="w-full border border-border-base text-text-muted font-medium py-2.5 px-4 rounded-xl transition-colors hover:bg-bg-surface-hover text-sm"
+                        className="w-full border border-border-base text-text-muted font-medium py-2.5 px-4 rounded-md transition-colors hover:bg-bg-surface-hover text-sm"
                       >
-                        Ir agora (dados podem estar desatualizados)
+                        Ir agora
                       </button>
                     </motion.div>
                   ) : pixExpired ? (
                     <motion.div
-                      initial={{ scale: 0.9, opacity: 0 }}
+                      initial={{ scale: 0.97, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
-                      className="text-center py-6"
+                      className="text-center py-4"
                     >
-                      <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <XCircle className="w-10 h-10 text-red-500" />
-                      </div>
-                      <h2 className="text-xl font-bold text-text-base mb-2">QR Code expirado</h2>
-                      <p className="text-text-muted mb-6 text-sm">
-                        O tempo limite de 15 minutos foi atingido. Gere um novo PIX para continuar.
+                      <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
+                      <h2 className="text-xl font-bold text-text-base mb-1">QR Code expirado</h2>
+                      <p className="text-text-muted mb-5 text-sm">
+                        O tempo limite de 15 minutos foi atingido. Gere um novo Pix para continuar.
                       </p>
                       <button
                         onClick={() => { setPaymentData(null); setPaymentStatus("pending"); setPixExpired(false); setView("dashboard"); }}
-                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-4 rounded-xl transition-colors"
+                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors active:scale-[0.98]"
                       >
-                        Voltar ao Painel
+                        Voltar ao painel
                       </button>
                     </motion.div>
                   ) : (
-                    <div className="space-y-6">
+                    <div className="space-y-5">
                       {groupData && (
-                        <div className="bg-primary-50 border border-primary-100 rounded-2xl p-4 flex items-center justify-between">
-                          <div>
-                            <p className="text-[10px] uppercase tracking-wider font-bold text-primary-500 mb-0.5">Renovação do Plano</p>
-                            <p className="text-sm font-semibold text-text-base">{groupData.plan.plan_months} {groupData.plan.plan_months === 1 ? 'mês' : 'meses'} · {groupData.plan.plan_devices} {groupData.plan.plan_devices === 1 ? 'aparelho' : 'aparelhos'}</p>
+                        <div className="bg-bg-surface-hover border border-border-base rounded-md p-4 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[11px] uppercase tracking-[0.08em] font-bold text-text-muted mb-0.5">Renovação do plano</p>
+                            <p className="text-sm font-bold text-text-base">{groupData.plan.plan_months} {groupData.plan.plan_months === 1 ? 'mês' : 'meses'} · {groupData.plan.plan_devices} {groupData.plan.plan_devices === 1 ? 'aparelho' : 'aparelhos'}</p>
                             {paymentData?.discountApplied && (
-                              <p className="text-[11px] text-green-600 font-bold mt-0.5">🎉 Desconto fidelidade -20% aplicado!</p>
+                              <p className="text-[11px] text-success font-bold mt-0.5">Desconto fidelidade −20% aplicado</p>
                             )}
                           </div>
-                          <div className="text-right">
+                          <div className="text-right shrink-0">
                             {paymentData?.discountApplied && (
-                              <p className="text-xs line-through text-text-muted">R$ {calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices)},00</p>
+                              <p className="text-xs line-through text-text-muted font-mono">R$ {calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices)}</p>
                             )}
-                            <p className="text-2xl font-black text-primary-600">
-                              R$ {paymentData?.amount != null ? Math.floor(paymentData.amount) : calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices)},00
+                            <p className="text-2xl font-bold text-primary-600 font-mono">
+                              R$ {paymentData?.amount != null ? Math.floor(paymentData.amount) : calcPlanPrice(groupData.plan.plan_months, groupData.plan.plan_devices)}
                             </p>
                           </div>
                         </div>
                       )}
                       <div className="text-center">
-                        <h3 className="text-xl font-semibold text-text-base mb-2">
+                        <h3 className="text-lg font-bold text-text-base mb-1">
                           Pague com Pix
                         </h3>
                         <p className="text-sm text-text-muted">
-                          Abra o app do seu banco e escaneie o QR Code ou copie o código abaixo.
+                          Escaneie o QR Code ou copie o código.
                         </p>
                       </div>
 
                       <div className="flex justify-center">
-                        <div className="p-4 bg-bg-surface border-2 border-border-base rounded-2xl shadow-sm">
+                        <div className="p-3 bg-white border border-border-base rounded-md">
                           <img
                             src={`data:image/jpeg;base64,${paymentData.qrCodeBase64}`}
                             alt="QR Code Pix"
@@ -4038,43 +3965,41 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <label className="block text-sm font-medium text-text-base">
-                          Pix Copia e Cola
+                      <div className="space-y-1.5">
+                        <label className="block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em]">
+                          Pix copia e cola
                         </label>
                         <div className="flex gap-2">
                           <input
                             type="text"
                             readOnly
                             value={paymentData.qrCode}
-                            className="flex-1 px-3 py-2 bg-bg-surface-hover border border-border-base rounded-lg text-sm text-text-muted outline-none"
+                            className="flex-1 px-3 h-11 bg-bg-base border border-border-base rounded-md text-sm text-text-muted font-mono outline-none"
                           />
                           <button
                             onClick={() => copyToClipboard(paymentData.qrCode)}
-                            className="px-4 py-2 bg-bg-surface-hover hover:bg-bg-surface text-text-base rounded-lg transition-colors flex items-center justify-center min-w-[100px]"
+                            className="px-4 h-11 bg-bg-surface-hover hover:bg-border-base text-text-base rounded-md transition-colors flex items-center justify-center min-w-[100px] active:scale-[0.96]"
                           >
                             {copied ? (
-                              <span className="text-primary-600 font-medium text-sm">
-                                Copiado!
-                              </span>
+                              <span className="text-success font-bold text-sm">Copiado</span>
                             ) : (
                               <>
                                 <Copy className="w-4 h-4 mr-2" />
-                                <span className="text-sm font-medium">Copiar</span>
+                                <span className="text-sm font-bold">Copiar</span>
                               </>
                             )}
                           </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-center gap-3 text-sm text-text-muted pt-4 border-t border-border-base">
+                      <div className="flex items-center justify-center gap-3 text-sm text-text-muted pt-3 border-t border-border-base">
                         <Loader2 className="w-4 h-4 animate-spin text-primary-600" />
-                        Aguardando confirmação do pagamento...
+                        Aguardando confirmação do pagamento…
                       </div>
 
                       <button
                         onClick={() => { setPaymentData(null); setPaymentStatus("pending"); setPixExpired(false); setView("dashboard"); }}
-                        className="w-full text-sm text-text-muted hover:text-red-500 py-2 transition-colors"
+                        className="w-full text-sm font-medium text-text-muted hover:text-danger py-2 transition-colors"
                       >
                         Cancelar e voltar ao painel
                       </button>
@@ -4094,21 +4019,19 @@ export default function App() {
                 className="w-full flex-1 bg-bg-base overflow-y-auto"
               >
                 {/* Header */}
-                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-5 shadow-md">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setView("login")} className="text-white/80 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors">
-                      <ArrowLeft className="w-5 h-5" />
-                    </button>
-                    <div>
-                      <h1 className="text-xl font-bold text-white">Seja um Revendedor</h1>
-                      <p className="text-emerald-100 text-sm">Ganhe dinheiro com VS+</p>
-                    </div>
+                <header className="bg-emerald-600 dark:bg-emerald-700 h-14 px-3 flex items-center gap-2 shrink-0">
+                  <button onClick={() => setView("login")} className="-ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Voltar">
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <div className="min-w-0">
+                    <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Seja um revendedor</h1>
+                    <p className="text-[11px] text-white/75 truncate">Ganhe dinheiro com VS+</p>
                   </div>
-                </div>
+                </header>
 
                 <div className="p-5 space-y-6 max-w-lg mx-auto pb-12">
                   {/* Benefits */}
-                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-3">
+                  <div className="bg-bg-surface rounded-xl p-4 border border-border-base space-y-3">
                     <h2 className="font-bold text-text-base text-base flex items-center gap-2"><Star className="w-5 h-5 text-emerald-500" />Vantagens da Revenda</h2>
                     {[
                       { icon: <DollarSign className="w-4 h-4 text-emerald-500" />, text: "Lucro real: você escolhe o preço de venda" },
@@ -4124,23 +4047,23 @@ export default function App() {
                   </div>
 
                   {/* How it works */}
-                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base">
-                    <h2 className="font-bold text-text-base text-base flex items-center gap-2 mb-3"><Package className="w-5 h-5 text-emerald-500" />Como funciona</h2>
+                  <div className="bg-bg-surface rounded-xl p-4 border border-border-base">
+                    <h2 className="font-bold text-text-base text-base flex items-center gap-2 mb-3"><Package className="w-5 h-5 text-emerald-600" />Como funciona</h2>
                     {[
                       "Escolha a quantidade de logins (mínimo 10) e o período.",
-                      "Pague via PIX — conta ativada automaticamente.",
+                      "Pague via Pix — conta ativada automaticamente.",
                       "Acesse o painel CloudBR DT e crie logins para seus clientes.",
                       "Renove mensalmente e acumule desconto fidelidade.",
                     ].map((step, i) => (
                       <div key={i} className="flex gap-3 mb-2">
-                        <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">{i + 1}</div>
+                        <span className="font-bold font-mono text-emerald-600 text-xs pt-0.5">{String(i + 1).padStart(2, '0')}</span>
                         <span className="text-sm text-text-muted">{step}</span>
                       </div>
                     ))}
                   </div>
 
                   {/* Profit estimator */}
-                  <div className="bg-emerald-50 rounded-2xl p-5 shadow-sm border border-emerald-100">
+                  <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-xl p-4 border border-emerald-200/70 dark:border-emerald-800/40">
                     <h2 className="font-bold text-emerald-800 text-base flex items-center gap-2 mb-4"><BarChart2 className="w-5 h-5" />Simulador de Lucro</h2>
                     <div className="space-y-3">
                       <div>
@@ -4178,42 +4101,42 @@ export default function App() {
                   </div>
 
                   {/* Sign-up form */}
-                  <div className="bg-bg-surface rounded-2xl p-5 shadow-sm border border-border-base space-y-4">
-                    <h2 className="font-bold text-text-base text-base flex items-center gap-2"><Store className="w-5 h-5 text-emerald-500" />Contratar Agora</h2>
+                  <div className="bg-bg-surface rounded-xl p-4 border border-border-base space-y-3">
+                    <h2 className="font-bold text-text-base text-base flex items-center gap-2"><Store className="w-5 h-5 text-emerald-600" />Contratar agora</h2>
 
                     {/* Plan selector */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">Logins (mín. 10)</label>
-                        <div className="flex items-center gap-2 mt-1 border border-border-base rounded-xl overflow-hidden bg-bg-surface-hover">
-                          <button onClick={() => setHireLogins(l => Math.max(10, l - 5))} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">−</button>
-                          <span className="flex-1 text-center font-bold text-text-base">{hireLogins}</span>
-                          <button onClick={() => setHireLogins(l => l + 5)} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">+</button>
+                        <label className="text-[11px] font-bold text-text-muted uppercase tracking-[0.08em]">Logins (mín. 10)</label>
+                        <div className="flex items-center gap-2 mt-1 border border-border-base rounded-md overflow-hidden bg-bg-surface-hover">
+                          <button onClick={() => setHireLogins(l => Math.max(10, l - 5))} className="px-3 h-10 text-text-base hover:bg-border-base font-bold transition-colors">−</button>
+                          <span className="flex-1 text-center font-bold text-text-base font-mono">{hireLogins}</span>
+                          <button onClick={() => setHireLogins(l => l + 5)} className="px-3 h-10 text-text-base hover:bg-border-base font-bold transition-colors">+</button>
                         </div>
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">Meses</label>
-                        <div className="flex items-center gap-2 mt-1 border border-border-base rounded-xl overflow-hidden bg-bg-surface-hover">
-                          <button onClick={() => setHireMonths(m => Math.max(1, m - 1))} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">−</button>
-                          <span className="flex-1 text-center font-bold text-text-base">{hireMonths}</span>
-                          <button onClick={() => setHireMonths(m => m + 1)} className="px-3 py-2.5 text-text-muted hover:text-text-base font-bold transition-colors">+</button>
+                        <label className="text-[11px] font-bold text-text-muted uppercase tracking-[0.08em]">Meses</label>
+                        <div className="flex items-center gap-2 mt-1 border border-border-base rounded-md overflow-hidden bg-bg-surface-hover">
+                          <button onClick={() => setHireMonths(m => Math.max(1, m - 1))} className="px-3 h-10 text-text-base hover:bg-border-base font-bold transition-colors">−</button>
+                          <span className="flex-1 text-center font-bold text-text-base font-mono">{hireMonths}</span>
+                          <button onClick={() => setHireMonths(m => m + 1)} className="px-3 h-10 text-text-base hover:bg-border-base font-bold transition-colors">+</button>
                         </div>
                       </div>
                     </div>
 
                     {/* Price breakdown */}
-                    <div className="bg-emerald-50 rounded-xl p-3 text-sm space-y-1">
-                      <div className="flex justify-between text-emerald-800">
-                        <span>R$30 × {hireMonths} {hireMonths === 1 ? "mês" : "meses"}</span>
-                        <span className="font-semibold">R${30 * hireMonths}</span>
+                    <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-md px-3 py-2 text-sm space-y-1 font-mono">
+                      <div className="flex justify-between text-emerald-800 dark:text-emerald-300">
+                        <span className="font-sans">R$30 × {hireMonths} {hireMonths === 1 ? "mês" : "meses"}</span>
+                        <span className="font-bold">R$ {30 * hireMonths}</span>
                       </div>
-                      <div className="flex justify-between text-emerald-800">
-                        <span>{hireLogins} logins × R$1 × {hireMonths} {hireMonths === 1 ? "mês" : "meses"}</span>
-                        <span className="font-semibold">R${hireLogins * hireMonths}</span>
+                      <div className="flex justify-between text-emerald-800 dark:text-emerald-300">
+                        <span className="font-sans">{hireLogins} logins × R$1 × {hireMonths} {hireMonths === 1 ? "mês" : "meses"}</span>
+                        <span className="font-bold">R$ {hireLogins * hireMonths}</span>
                       </div>
-                      <div className="flex justify-between font-black text-emerald-900 border-t border-emerald-200 pt-1 mt-1">
-                        <span>Total</span>
-                        <span>R${calcResellerPrice(hireMonths, hireLogins)}</span>
+                      <div className="flex justify-between font-bold text-emerald-900 dark:text-emerald-200 border-t border-emerald-200 dark:border-emerald-800 pt-1 mt-1 text-base">
+                        <span className="font-sans">Total</span>
+                        <span>R$ {calcResellerPrice(hireMonths, hireLogins)}</span>
                       </div>
                     </div>
 
@@ -4223,17 +4146,17 @@ export default function App() {
                       value={hireUsername}
                       onChange={e => setHireUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
                       placeholder="Usuário desejado (sem espaços)"
-                      className="w-full px-4 py-3 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 outline-none text-sm font-semibold text-text-base"
+                      className="w-full px-3 h-11 rounded-md bg-bg-base border border-border-base focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none text-sm font-mono text-text-base"
                     />
                     <input
                       type="password"
                       value={hirePassword}
                       onChange={e => setHirePassword(e.target.value)}
                       placeholder="Senha"
-                      className="w-full px-4 py-3 rounded-xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 outline-none text-sm font-semibold text-text-base"
+                      className="w-full px-3 h-11 rounded-md bg-bg-base border border-border-base focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none text-sm font-mono text-text-base"
                     />
 
-                    {resellerError && <p className="text-sm text-red-500 font-medium">{resellerError}</p>}
+                    {resellerError && <p className="text-sm text-danger font-medium">{resellerError}</p>}
 
                     <button
                       disabled={resellerLoading || !hireUsername.trim() || !hirePassword.trim()}
@@ -4260,10 +4183,10 @@ export default function App() {
                           setResellerLoading(false);
                         }
                       }}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold h-12 rounded-md transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
                     >
                       {resellerLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <QrCode className="w-5 h-5" />}
-                      Gerar PIX e Contratar
+                      Gerar Pix e contratar
                     </button>
                   </div>
                 </div>
@@ -4299,42 +4222,48 @@ export default function App() {
                 className="w-full flex-1 bg-bg-base overflow-y-auto"
               >
                 {/* Header */}
-                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-5 shadow-md">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setResellerSidebarOpen(true)}
-                        className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors"
-                      >
-                        <Menu className="w-5 h-5" />
-                      </button>
-                      <div className="w-11 h-11 rounded-2xl bg-white/20 flex items-center justify-center">
-                        <Store className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <h1 className="text-lg font-bold text-white">Olá, {resellerData.reseller?.login}</h1>
-                        <p className="text-emerald-100 text-xs">Área do Revendedor</p>
-                      </div>
-                    </div>
+                <header className="bg-emerald-600 dark:bg-emerald-700 h-14 px-3 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <button
+                      onClick={() => setResellerSidebarOpen(true)}
+                      className="md:hidden -ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors"
+                      aria-label="Abrir menu"
+                    >
+                      <Menu className="w-5 h-5" />
+                    </button>
+                    <Store className="w-5 h-5 text-white shrink-0" />
+                    <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Olá, {resellerData.reseller?.login}</h1>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={toggleTheme}
+                      className="p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors"
+                      aria-label={theme === "dark" ? "Tema claro" : "Tema escuro"}
+                    >
+                      {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                    </button>
                     {notifBell}
                   </div>
-                  {/* Login + senha */}
-                  <div className="mt-4 bg-white/10 rounded-xl px-4 py-3">
-                    <p className="text-[10px] text-emerald-200 uppercase font-bold tracking-wide mb-2">Credenciais do Painel VPN</p>
-                    <p className="text-white font-semibold text-sm mb-1">Login: <span className="font-black">{resellerData.reseller?.login}</span></p>
+                </header>
+
+                {/* Credentials card — moved below header for clean utility look */}
+                <div className="px-4 pt-4 max-w-lg mx-auto w-full">
+                  <div className="bg-bg-surface rounded-xl border border-border-base px-4 py-3">
+                    <p className="text-[11px] text-text-muted uppercase font-bold tracking-[0.08em] mb-2">Credenciais do painel VPN</p>
+                    <p className="text-sm mb-1"><span className="text-text-muted">Login:</span> <span className="font-bold font-mono text-text-base">{resellerData.reseller?.login}</span></p>
                     {resellerVerifiedPass ? (
                       <div className="flex items-center gap-2">
-                        <p className="text-white text-sm">Senha: <span className="font-black">{showResellerPass ? resellerVerifiedPass : "••••••"}</span></p>
-                        <button onClick={() => setShowResellerPass(v => !v)} className="text-emerald-200 hover:text-white transition-colors">
+                        <p className="text-sm"><span className="text-text-muted">Senha:</span> <span className="font-bold font-mono text-text-base">{showResellerPass ? resellerVerifiedPass : "••••••"}</span></p>
+                        <button onClick={() => setShowResellerPass(v => !v)} className="text-text-muted hover:text-text-base p-1 transition-colors">
                           {showResellerPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <p className="text-white text-sm">Senha: <span className="font-black">{resellerData.reseller?.passwordHint ?? "••••••"}</span></p>
+                        <p className="text-sm"><span className="text-text-muted">Senha:</span> <span className="font-bold font-mono text-text-base">{resellerData.reseller?.passwordHint ?? "••••••"}</span></p>
                         <button
                           onClick={() => { setPassVerifyInput(""); setPassVerifyError(""); setShowPassVerifyModal(true); }}
-                          className="flex items-center gap-1.5 text-xs text-emerald-200 hover:text-white border border-white/20 rounded-lg px-2 py-1 transition-colors hover:bg-white/10"
+                          className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-base border border-border-base rounded-md px-2 py-1 transition-colors hover:bg-bg-surface-hover"
                           title="Revelar senha completa"
                         >
                           <Eye className="w-3.5 h-3.5" />
@@ -4973,13 +4902,12 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
               >
-                {/* Header */}
-                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-4 flex items-center gap-3 flex-shrink-0">
-                  <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors">
+                <header className="bg-emerald-600 dark:bg-emerald-700 h-14 px-3 flex items-center gap-2 shrink-0">
+                  <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden -ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Abrir menu">
                     <Menu className="w-5 h-5" />
                   </button>
-                  <h1 className="text-lg font-semibold text-white">Central de Ajuda</h1>
-                </div>
+                  <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Central de ajuda</h1>
+                </header>
 
                 <div className="flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-10">
 
@@ -5160,16 +5088,15 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col relative"
               >
-                {/* Header */}
-                <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-4 flex items-center justify-between gap-3 flex-shrink-0">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden text-white/80 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition-colors">
+                <header className="bg-emerald-600 dark:bg-emerald-700 h-14 px-3 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <button onClick={() => setResellerSidebarOpen(true)} className="md:hidden -ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Abrir menu">
                       <Menu className="w-5 h-5" />
                     </button>
-                    <h1 className="text-lg font-semibold text-white">Meus Chamados</h1>
+                    <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Meus chamados</h1>
                   </div>
                   {notifBell}
-                </div>
+                </header>
 
                 <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-4">
                   {resellerTickets.length === 0 ? (
@@ -5306,19 +5233,20 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="max-w-md w-full bg-bg-surface rounded-2xl shadow-xl overflow-hidden"
+                className="max-w-md w-full bg-bg-surface rounded-xl border border-border-base overflow-hidden"
               >
-                <div className="p-4 border-b border-border-base flex items-center">
+                <header className="h-14 px-3 border-b border-border-base flex items-center gap-2">
                   <button
                     onClick={() => setView(resellerPixData.mode === "hire" ? "reseller_info" : "reseller_dashboard")}
-                    className="text-text-muted hover:text-text-base transition-colors mr-4"
+                    className="-ml-1 p-2 rounded-md text-text-muted hover:text-text-base transition-colors"
+                    aria-label="Voltar"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
-                  <h2 className="text-lg font-semibold text-text-base">
-                    {resellerPixData.mode === "hire" ? "Contratar Revenda" : resellerPixData.mode === "logins_upgrade" ? "Adicionar Logins" : "Renovar Revenda"}
+                  <h2 className="text-[15px] font-bold text-text-base">
+                    {resellerPixData.mode === "hire" ? "Contratar revenda" : resellerPixData.mode === "logins_upgrade" ? "Adicionar logins" : "Renovar revenda"}
                   </h2>
-                </div>
+                </header>
 
                 <div className="p-6">
                   {resellerPixStatus === "approved" ? (
@@ -5432,161 +5360,144 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
+                className="w-full flex-1 bg-bg-base overflow-hidden flex flex-col"
               >
-                <div className="bg-primary-600 p-4 flex justify-between items-center flex-shrink-0">
-                  <div className="flex items-center">
-                    <button onClick={() => setView("dashboard")} className="text-primary-100 hover:text-white mr-3">
+                <header className="bg-primary-600 dark:bg-primary-800 h-14 px-3 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <button onClick={() => setView("dashboard")} className="-ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Voltar">
                       <ArrowLeft className="w-5 h-5" />
                     </button>
-                    <h1 className="text-lg font-semibold text-white">Meus Tickets</h1>
+                    <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Meus tickets</h1>
                   </div>
                   {notifBell}
-                </div>
+                </header>
 
-                <div className="p-4 flex-1 overflow-y-auto bg-bg-surface-hover pb-24 md:pb-4">
+                <div className="p-4 flex-1 overflow-y-auto pb-24 md:pb-4">
                   {systemNotice?.active && (
                     <div className="mb-4">
                       <SystemNoticeBanner notice={systemNotice} variant="full" />
                     </div>
                   )}
+
+                  {/* New ticket — inline expand (no modal) */}
+                  <div className="mb-4">
+                    {!showNewTicketModal ? (
+                      <button
+                        onClick={() => {
+                          if (hasPendingRequest(currentUser)) {
+                            showAlertDialog("Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket.", "Solicitação pendente");
+                            return;
+                          }
+                          setShowNewTicketModal(true);
+                        }}
+                        disabled={hasPendingRequest(currentUser)}
+                        className={`w-full flex items-center justify-center gap-2 h-12 px-4 rounded-md font-bold transition-colors active:scale-[0.98] ${hasPendingRequest(currentUser) ? "bg-bg-surface-hover text-text-muted cursor-not-allowed" : "bg-primary-600 hover:bg-primary-700 text-white"}`}
+                      >
+                        <Plus className="w-5 h-5" />
+                        Abrir novo ticket
+                      </button>
+                    ) : (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                        className="bg-bg-surface border border-border-base rounded-xl overflow-hidden"
+                      >
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-base">
+                          <h2 className="text-sm font-bold text-text-base">Novo ticket</h2>
+                          <button onClick={() => setShowNewTicketModal(false)} className="p-1.5 -mr-1.5 rounded-md text-text-muted hover:text-text-base hover:bg-bg-surface-hover transition-colors" aria-label="Fechar">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <form id="new-ticket-form" onSubmit={handleCreateTicket} className="p-4 space-y-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-text-muted tracking-[0.08em] uppercase mb-1.5">Categoria</label>
+                            <select
+                              value={ticketForm.category}
+                              onChange={e => setTicketForm({ ...ticketForm, category: e.target.value })}
+                              className="w-full pl-3 pr-10 h-11 rounded-md bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all font-semibold text-text-base appearance-none cursor-pointer"
+                            >
+                              <option>Suporte Técnico</option>
+                              <option>Financeiro</option>
+                              <option>Solicitar UUID</option>
+                              <option>Outros</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-text-muted tracking-[0.08em] uppercase mb-1.5">Assunto</label>
+                            <input
+                              type="text"
+                              placeholder="Ex: VPN não conecta, erro no Pix…"
+                              value={ticketForm.subject}
+                              onChange={e => setTicketForm({ ...ticketForm, subject: e.target.value })}
+                              className="w-full px-3 h-11 rounded-md bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-text-muted tracking-[0.08em] uppercase mb-1.5">Mensagem</label>
+                            <textarea
+                              placeholder="Detalhe seu problema."
+                              value={ticketForm.message}
+                              onChange={e => setTicketForm({ ...ticketForm, message: e.target.value })}
+                              className="w-full px-3 py-2.5 rounded-md bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all font-medium text-text-base placeholder-text-muted resize-none h-28"
+                              required
+                            />
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={loading || !ticketForm.subject || !ticketForm.message}
+                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+                          >
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><MessageSquare className="w-4 h-4" /> Enviar ticket</>}
+                          </button>
+                        </form>
+                      </motion.div>
+                    )}
+                  </div>
+
                   {tickets.length === 0 ? (
-                    <div className="text-center py-12 flex flex-col items-center justify-center h-full">
-                      <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mb-4">
-                        <MessageSquare className="w-10 h-10 text-primary-500" />
-                      </div>
-                      <h3 className="text-lg font-bold text-text-base mb-1">Precisa de ajuda?</h3>
-                      <p className="text-text-muted px-4 text-center">Você não possui tickets abertos no momento. Se precisar, basta abrir um novo abaixo.</p>
+                    <div className="text-center py-10 flex flex-col items-center justify-center">
+                      <MessageSquare className="w-8 h-8 text-text-muted mb-3" />
+                      <h3 className="text-base font-bold text-text-base mb-1">Sem tickets abertos</h3>
+                      <p className="text-text-muted text-sm px-4">Use o botão acima se precisar de suporte.</p>
                     </div>
                   ) : (
-                    <div className="space-y-3 pb-20"> {/* pb-20 prevents FAB from blocking last item */}
+                    <div className="bg-bg-surface border border-border-base rounded-xl overflow-hidden divide-y divide-border-base">
                       {tickets.map(t => (
                         <div
                           key={t.id}
                           onClick={() => { setCurrentTicket(t); fetchMessages(t.id); setTicketBackView("tickets"); setView("ticket_detail"); }}
-                          className="bg-bg-surface border border-border-base p-5 rounded-2xl cursor-pointer hover:border-primary-500 transition-all shadow-sm active:scale-[0.98] relative overflow-hidden group"
+                          className="px-4 py-3 cursor-pointer hover:bg-bg-surface-hover active:bg-bg-surface-hover transition-colors"
                         >
-                          <div className="flex justify-between items-start mb-3 relative z-10">
-                            <div className="flex items-center overflow-hidden pr-3 flex-1">
+                          <div className="flex justify-between items-start gap-3 mb-1.5">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
                               {t.status === 'answered' && (
-                                <span className="flex h-3 w-3 relative mr-3 flex-shrink-0">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-400 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-3 w-3 bg-primary-500"></span>
+                                <span className="relative inline-flex shrink-0">
+                                  <span className="animate-ping absolute inline-flex w-2 h-2 rounded-full bg-primary-500 opacity-75"></span>
+                                  <span className="relative inline-flex w-2 h-2 rounded-full bg-primary-600"></span>
                                 </span>
                               )}
-                              <h3 className="font-semibold text-text-base truncate">{t.subject}</h3>
+                              <h3 className="font-bold text-text-base truncate text-[15px]">{t.subject}</h3>
                             </div>
-                            <span className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0 font-medium ${t.status === 'open' ? 'bg-amber-100 text-amber-800' :
-                              t.status === 'answered' ? 'bg-primary-100 text-primary-800' :
-                                'bg-bg-surface-hover text-text-muted border border-border-base'
-                              }`}>
+                            <span className={`text-[11px] font-bold uppercase tracking-[0.06em] whitespace-nowrap shrink-0 ${
+                              t.status === 'open' ? 'text-warning'
+                              : t.status === 'answered' ? 'text-primary-600'
+                              : 'text-text-muted'
+                            }`}>
                               {t.status === 'open' ? 'Aberto' : t.status === 'answered' ? 'Respondido' : 'Fechado'}
                             </span>
                           </div>
-                          <div className="flex justify-between items-center text-xs text-text-muted relative z-10">
-                            <span className="bg-bg-surface-hover px-2 py-1 rounded-md">{t.category}</span>
+                          <div className="flex justify-between items-center text-[12px] text-text-muted">
+                            <span>{t.category}</span>
                             <span>{formatDate(t.created_at)}</span>
                           </div>
-                          <div className="absolute inset-0 bg-primary-50 opacity-0 group-hover:opacity-100 transition-opacity z-0" />
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
-
-                {/* Floating Action Button */}
-                <button
-                  onClick={() => {
-                    if (hasPendingRequest(currentUser)) {
-                      showAlertDialog("Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket.", "Solicitação pendente");
-                      return;
-                    }
-                    setShowNewTicketModal(true);
-                  }}
-                  disabled={hasPendingRequest(currentUser)}
-                  title={hasPendingRequest(currentUser) ? "Existe uma solicitação pendente. Aguarde o atendimento antes de abrir um novo ticket." : "Abrir novo ticket"}
-                  className={`absolute bottom-20 right-6 md:bottom-6 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all z-20 ${hasPendingRequest(currentUser) ? "bg-bg-surface-hover text-text-muted cursor-not-allowed opacity-70" : "bg-primary-600 hover:bg-primary-700 text-white hover:shadow-xl hover:-translate-y-1"}`}
-                >
-                  <Plus className="w-7 h-7" />
-                </button>
-
-                {/* New Ticket Modal */}
-                <AnimatePresence>
-                  {showNewTicketModal && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="absolute inset-0 bg-black/50 backdrop-blur-sm z-30 flex items-center justify-center p-4"
-                      onClick={() => setShowNewTicketModal(false)}
-                    >
-                      <motion.div
-                        initial={{ scale: 0.95, y: 20 }}
-                        animate={{ scale: 1, y: 0 }}
-                        exit={{ scale: 0.95, y: 20 }}
-                        onClick={e => e.stopPropagation()}
-                        className="bg-bg-surface w-full max-w-sm rounded-[2rem] shadow-2xl border border-border-base overflow-hidden flex flex-col max-h-full"
-                      >
-                        <div className="p-6 border-b border-border-base flex justify-between items-center bg-bg-surface shrink-0">
-                          <h2 className="text-xl font-bold text-text-base tracking-tight">Novo Ticket</h2>
-                          <button onClick={() => setShowNewTicketModal(false)} className="p-2 bg-bg-surface-hover hover:bg-border-base text-text-muted rounded-full transition-colors active:scale-95">
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
-                        
-                        <div className="p-6 overflow-y-auto">
-                          <form id="new-ticket-form" onSubmit={handleCreateTicket} className="space-y-4">
-                            <div>
-                               <label className="block text-xs font-semibold text-text-muted tracking-wider uppercase mb-2 ml-1">Categoria do Problema</label>
-                              <select
-                                value={ticketForm.category}
-                                onChange={e => setTicketForm({ ...ticketForm, category: e.target.value })}
-                                className="w-full pl-4 pr-10 py-3.5 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 focus:bg-bg-surface outline-none transition-all font-medium text-text-base appearance-none cursor-pointer"
-                              >
-                                <option>Suporte Técnico</option>
-                                <option>Financeiro</option>
-                                <option>Solicitar UUID</option>
-                                <option>Outros</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-text-muted tracking-wider uppercase mb-2 ml-1">Assunto Curto</label>
-                              <input
-                                type="text"
-                                placeholder="Ex: VPN não conecta, Erro no Pix..."
-                                value={ticketForm.subject}
-                                onChange={e => setTicketForm({ ...ticketForm, subject: e.target.value })}
-                                className="w-full px-4 py-3.5 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 focus:bg-bg-surface outline-none transition-all font-medium text-text-base placeholder-text-muted"
-                                required
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-text-muted tracking-wider uppercase mb-2 ml-1">Sua Mensagem</label>
-                              <textarea
-                                placeholder="Detalhe sua dúvida ou problema para que possamos ajudar rapidamente..."
-                                value={ticketForm.message}
-                                onChange={e => setTicketForm({ ...ticketForm, message: e.target.value })}
-                                className="w-full px-4 py-3.5 rounded-2xl bg-bg-surface-hover border border-border-base focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 focus:bg-bg-surface outline-none transition-all font-medium text-text-base placeholder-text-muted resize-none h-32"
-                                required
-                              />
-                            </div>
-                          </form>
-                        </div>
-
-                        <div className="p-6 border-t border-border-base bg-bg-surface-hover shrink-0">
-                          <button
-                            form="new-ticket-form"
-                            type="submit"
-                            disabled={loading || !ticketForm.subject || !ticketForm.message}
-                            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3.5 px-4 rounded-xl transition-all shadow-md active:scale-[0.98] disabled:opacity-60 disabled:scale-100 flex items-center justify-center"
-                          >
-                            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><MessageSquare className="w-5 h-5 mr-2" /> Enviar Ticket</>}
-                          </button>
-                        </div>
-                      </motion.div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </motion.div>
             )}
 
@@ -5599,8 +5510,8 @@ export default function App() {
                 exit={{ opacity: 0, x: -20 }}
                 className="w-full flex-1 bg-bg-surface overflow-hidden flex flex-col"
               >
-                <div className={`${view === "admin_ticket_detail" ? "bg-bg-surface-hover text-text-base" : "bg-primary-600 text-white"} p-4 flex justify-between items-center flex-shrink-0`}>
-                  <div className="flex items-center overflow-hidden">
+                <header className={`${view === "admin_ticket_detail" ? "bg-bg-surface border-b border-border-base text-text-base" : "bg-primary-600 dark:bg-primary-800 text-white"} h-14 px-3 flex items-center justify-between gap-2 shrink-0`}>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <button
                       onClick={() => {
                         if (view === "admin_ticket_detail") {
@@ -5615,23 +5526,23 @@ export default function App() {
                           setView(ticketBackView);
                         }
                       }}
-                      className={`${view === "admin_ticket_detail" ? "text-text-muted hover:text-text-base bg-bg-base" : "text-white/80 hover:text-white bg-black/10"} mr-3 flex-shrink-0 flex items-center text-sm font-medium px-2 py-1.5 rounded-lg transition-colors`}
+                      className={`${view === "admin_ticket_detail" ? "text-text-muted hover:text-text-base" : "text-white/85 hover:text-white active:bg-white/10"} -ml-1 p-2 rounded-md transition-colors shrink-0`}
+                      aria-label="Voltar"
                     >
-                      <Minimize2 className="w-4 h-4 mr-1" />
-                      Voltar
+                      <ArrowLeft className="w-5 h-5" />
                     </button>
-                    <div className="truncate">
-                      <h1 className={`text-sm font-semibold truncate ${view === "admin_ticket_detail" ? "text-text-base" : "text-white"}`}>{currentTicket.subject}</h1>
-                      <div className="flex items-center mt-0.5">
-                        <p className={`text-xs ${view === "admin_ticket_detail" ? "text-text-muted" : "text-white/70"}`}>
+                    <div className="min-w-0 flex-1">
+                      <h1 className={`text-[14px] font-bold truncate ${view === "admin_ticket_detail" ? "text-text-base" : "text-white"}`}>{currentTicket.subject}</h1>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <p className={`text-[11px] truncate ${view === "admin_ticket_detail" ? "text-text-muted" : "text-white/75"}`}>
                           {currentTicket.category}
                         </p>
                         {view === "admin_ticket_detail" && (
                           <>
-                            <span className="text-text-muted text-xs mx-1.5">•</span>
-                            <button 
+                            <span className="text-text-muted">·</span>
+                            <button
                               onClick={() => setShowAdminUserModal(true)}
-                              className="text-xs font-semibold text-primary-600 hover:text-primary-700 bg-primary-50 px-2 py-0.5 rounded-full transition-colors flex items-center pr-1.5 active:scale-95"
+                              className="text-[11px] font-bold text-primary-600 hover:text-primary-700 transition-colors flex items-center active:scale-95"
                             >
                               {currentTicket.username}
                               <ChevronRight className="w-3 h-3 ml-0.5 opacity-70" />
@@ -5641,23 +5552,23 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     {currentTicket.status !== "closed" && (
                       <button
                         onClick={() => {
-                          confirmAction("Encerrar Ticket", "Tem certeza que deseja encerrar este ticket?", () => {
+                          confirmAction("Encerrar ticket", "Tem certeza que deseja encerrar este ticket?", () => {
                             handleCloseTicket();
                           });
                         }}
-                        className="text-xs bg-red-500 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-lg transition-colors flex items-center font-medium shadow-sm"
+                        className={`text-[12px] font-bold px-3 py-1.5 rounded-md transition-colors active:scale-95 flex items-center gap-1 ${view === "admin_ticket_detail" ? "text-danger hover:bg-danger-soft" : "text-white/90 hover:bg-white/10"}`}
                       >
-                        <XCircle className="w-3.5 h-3.5 mr-1" />
+                        <XCircle className="w-3.5 h-3.5" />
                         Encerrar
                       </button>
                     )}
                     {view === "ticket_detail" && notifBell}
                   </div>
-                </div>
+                </header>
 
                 {view === "ticket_detail" && (
                   <SystemNoticeBanner notice={systemNotice} variant="compact" />
@@ -5673,16 +5584,16 @@ export default function App() {
                         const canAct = isMe && currentTicket.status !== "closed";
 
                         return (
-                          <div key={m.id} className={`group flex flex-col ${isMe ? "items-end" : "items-start"} ${isConsecutive ? "mt-1" : "mt-4"}`}>
-                            <div className={`max-w-[85%] sm:max-w-[75%] px-4 py-3 shadow-sm ${isMe
+                          <div key={m.id} className={`group flex flex-col ${isMe ? "items-end" : "items-start"} ${isConsecutive ? "mt-1" : "mt-3"}`}>
+                            <div className={`max-w-[85%] sm:max-w-[75%] px-3 py-2 ${isMe
                               ? (view === "admin_ticket_detail"
-                                  ? `bg-bg-surface border border-border-base text-text-base rounded-2xl ${!isConsecutive ? "rounded-tr-sm" : ""}`
-                                  : `bg-primary-600 text-white rounded-2xl ${!isConsecutive ? "rounded-tr-sm" : ""}`)
-                              : `bg-bg-surface border border-border-base text-text-base rounded-2xl ${!isConsecutive ? "rounded-tl-sm" : ""}`
+                                  ? `bg-bg-surface-hover text-text-base rounded-lg ${!isConsecutive ? "rounded-tr-sm" : ""}`
+                                  : `bg-primary-600 text-white rounded-lg ${!isConsecutive ? "rounded-tr-sm" : ""}`)
+                              : `bg-bg-surface border border-border-base text-text-base rounded-lg ${!isConsecutive ? "rounded-tl-sm" : ""}`
                               }`}>
 
                               {!isMe && !isConsecutive && (
-                                <p className="text-[10px] font-bold uppercase tracking-wider mb-1 text-primary-500">
+                                <p className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-1 ${view === "admin_ticket_detail" ? "text-text-muted" : "text-primary-600"}`}>
                                   {view === "admin_ticket_detail" ? "Cliente" : "Suporte"}
                                 </p>
                               )}
@@ -5692,7 +5603,7 @@ export default function App() {
                                   <textarea
                                     value={editingMsgText}
                                     onChange={e => setEditingMsgText(e.target.value)}
-                                    className="w-full text-sm bg-white/20 rounded-xl px-3 py-2 outline-none resize-none border border-white/30 focus:border-white/60 min-h-[60px]"
+                                    className="w-full text-sm bg-white/15 rounded-md px-2 py-1.5 outline-none resize-none border border-white/30 focus:border-white/60 min-h-[60px]"
                                     autoFocus
                                     onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
                                       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditMessage(m.id); }
@@ -5702,12 +5613,12 @@ export default function App() {
                                   <div className="flex gap-1.5 justify-end">
                                     <button
                                       onClick={() => { setEditingMsgId(null); setEditingMsgText(""); }}
-                                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors font-medium"
+                                      className="text-[11px] px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 transition-colors font-medium"
                                     >Cancelar</button>
                                     <button
                                       onClick={() => handleEditMessage(m.id)}
                                       disabled={!editingMsgText.trim()}
-                                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white/30 hover:bg-white/40 transition-colors font-bold disabled:opacity-40 flex items-center gap-1"
+                                      className="text-[11px] px-2 py-1 rounded-md bg-white/25 hover:bg-white/35 transition-colors font-bold disabled:opacity-40 flex items-center gap-1"
                                     ><Check className="w-3 h-3" />Salvar</button>
                                   </div>
                                 </div>
@@ -5716,22 +5627,22 @@ export default function App() {
                               )}
 
                               {!isEditing && (
-                                <p className={`text-[10px] mt-2 text-right ${isMe ? (view === "admin_ticket_detail" ? "text-text-muted" : "text-white/70") : "text-text-muted"}`}>
+                                <p className={`text-[10px] mt-1 text-right font-mono ${isMe ? (view === "admin_ticket_detail" ? "text-text-muted" : "text-white/70") : "text-text-muted"}`}>
                                   {formatTime(m.created_at)}
                                 </p>
                               )}
                             </div>
 
                             {canAct && !isEditing && (
-                              <div className="flex gap-1 mt-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                              <div className="flex gap-1 mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                 <button
                                   onClick={() => { setEditingMsgId(m.id); setEditingMsgText(m.message); }}
-                                  className="p-1 rounded-md text-text-muted hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                                  className="p-1.5 rounded-md text-text-muted hover:text-primary-600 hover:bg-bg-surface-hover transition-colors"
                                   title="Editar"
                                 ><Pencil className="w-3 h-3" /></button>
                                 <button
                                   onClick={() => handleDeleteMessage(m.id)}
-                                  className="p-1 rounded-md text-text-muted hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-soft transition-colors"
                                   title="Excluir"
                                 ><Trash2 className="w-3 h-3" /></button>
                               </div>
@@ -5742,17 +5653,17 @@ export default function App() {
                     </div>
 
                     {currentTicket.status !== "closed" ? (
-                      <div className={`p-4 bg-bg-surface border-t border-border-base flex-shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]${view === "ticket_detail" ? " pb-20 md:pb-4" : ""}`}>
+                      <div className={`p-3 bg-bg-surface border-t border-border-base flex-shrink-0 z-10${view === "ticket_detail" ? " pb-20 md:pb-3" : ""}`}>
                         <form
                           onSubmit={(e) => handleSendMessage(e, view === "admin_ticket_detail" ? "admin" : "user")}
-                          className="flex gap-3 items-end"
+                          className="flex gap-2 items-end"
                         >
                           <div className="flex-1 relative">
                             <textarea
                               value={newMessage}
                               onChange={e => setNewMessage(e.target.value)}
-                              placeholder="Digite sua mensagem..."
-                              className="w-full pl-4 pr-12 py-3 rounded-2xl border border-border-base bg-bg-surface-hover text-sm outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 resize-none max-h-32 min-h-[44px]"
+                              placeholder="Digite sua mensagem…"
+                              className="w-full px-3 py-2.5 rounded-md border border-border-base bg-bg-base text-sm outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 resize-none max-h-32 min-h-[44px]"
                               rows={1}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -5765,16 +5676,15 @@ export default function App() {
                           <button
                             type="submit"
                             disabled={!newMessage.trim()}
-                            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:scale-100 shadow-md transform active:scale-95 flex-shrink-0 ${view === "admin_ticket_detail" ? "bg-bg-surface-hover hover:bg-bg-base border border-border-base text-text-base" : "bg-primary-600 hover:bg-primary-700 text-white"
-                              }`}
+                            className="w-11 h-11 rounded-md bg-primary-600 hover:bg-primary-700 text-white flex items-center justify-center transition-colors disabled:opacity-50 active:scale-[0.96] flex-shrink-0"
+                            aria-label="Enviar mensagem"
                           >
-                            <Send className="w-5 h-5 ml-1" />
+                            <Send className="w-5 h-5" />
                           </button>
                         </form>
-                        <p className="text-[10px] text-text-muted text-center mt-2 hidden sm:block">Pressione Enter para enviar, Shift+Enter para quebrar linha</p>
                       </div>
                     ) : (
-                      <div className={`p-4 bg-bg-surface-hover border-t border-border-base flex justify-center items-center text-sm text-text-muted flex-shrink-0${view === "ticket_detail" ? " pb-20 md:pb-4" : ""}`}>
+                      <div className={`p-3 bg-bg-surface border-t border-border-base flex justify-center items-center text-sm text-text-muted flex-shrink-0${view === "ticket_detail" ? " pb-20 md:pb-3" : ""}`}>
                         <XCircle className="w-4 h-4 mr-2" /> Este ticket foi encerrado
                       </div>
                     )}
@@ -6092,17 +6002,17 @@ export default function App() {
             {confirmDialog.isOpen && (
               <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={{ opacity: 0, scale: 0.97 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-bg-surface rounded-2xl shadow-xl max-w-sm w-full p-6"
+                  exit={{ opacity: 0, scale: 0.97 }}
+                  className="bg-bg-surface border border-border-base rounded-xl max-w-sm w-full p-5"
                 >
-                  <h3 className="text-lg font-semibold text-text-base mb-2">{confirmDialog.title}</h3>
-                  <p className="text-sm text-text-muted mb-6">{confirmDialog.message}</p>
-                  <div className="flex gap-3">
+                  <h3 className="text-base font-bold text-text-base mb-1">{confirmDialog.title}</h3>
+                  <p className="text-sm text-text-muted mb-5 leading-snug">{confirmDialog.message}</p>
+                  <div className="flex gap-2">
                     <button
                       onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
-                      className="flex-1 px-4 py-2 rounded-xl text-sm font-medium text-text-base bg-bg-surface-hover hover:bg-bg-base transition-colors"
+                      className="flex-1 h-11 px-4 rounded-md text-sm font-bold text-text-base bg-bg-surface-hover hover:bg-border-base transition-colors active:scale-[0.98]"
                     >
                       Cancelar
                     </button>
@@ -6111,7 +6021,7 @@ export default function App() {
                         confirmDialog.onConfirm();
                         setConfirmDialog({ ...confirmDialog, isOpen: false });
                       }}
-                      className="flex-1 px-4 py-2 rounded-xl text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 transition-colors"
+                      className="flex-1 h-11 px-4 rounded-md text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 transition-colors active:scale-[0.98]"
                     >
                       Confirmar
                     </button>
@@ -6124,19 +6034,17 @@ export default function App() {
             {alertDialog.isOpen && (
               <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={{ opacity: 0, scale: 0.97 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-bg-surface rounded-2xl shadow-xl max-w-sm w-full p-6 flex flex-col items-center text-center"
+                  exit={{ opacity: 0, scale: 0.97 }}
+                  className="bg-bg-surface border border-border-base rounded-xl max-w-sm w-full p-5 flex flex-col items-center text-center"
                 >
-                  <div className="w-12 h-12 bg-primary-100/50 text-primary-600 rounded-full flex items-center justify-center mb-4 border border-primary-200">
-                    <AlertCircle className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-text-base mb-2">{alertDialog.title}</h3>
-                  <p className="text-sm text-text-muted mb-6 whitespace-pre-wrap">{alertDialog.message}</p>
+                  <AlertCircle className="w-6 h-6 text-primary-600 mb-3" />
+                  <h3 className="text-base font-bold text-text-base mb-1">{alertDialog.title}</h3>
+                  <p className="text-sm text-text-muted mb-5 whitespace-pre-wrap leading-snug">{alertDialog.message}</p>
                   <button
                     onClick={() => setAlertDialog({ ...alertDialog, isOpen: false })}
-                    className="w-full px-4 py-3 rounded-xl text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 transition-colors shadow-sm active:scale-95"
+                    className="w-full h-11 px-4 rounded-md text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 transition-colors active:scale-[0.98]"
                   >
                     Entendi
                   </button>
@@ -6148,72 +6056,60 @@ export default function App() {
 
         {/* Mobile bottom navigation — shown when logged in (not admin) */}
         {currentUser && !["login", "create_user", "admin", "show_credentials", "pix_flow", "reseller_info", "reseller_dashboard", "reseller_pix", "reseller_help", "reseller_tickets"].includes(view) && (
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
-            <button
-              onClick={() => setView("dashboard")}
-              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "dashboard" ? "text-primary-600" : "text-text-muted"}`}
-            >
-              <LayoutDashboard className="w-5 h-5" />
-              Painel
-            </button>
-            <button
-              onClick={() => { fetchUserTickets(); setView("tickets"); }}
-              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors relative ${["tickets", "ticket_detail"].includes(view) ? "text-primary-600" : "text-text-muted"}`}
-            >
-              <MessageSquare className="w-5 h-5" />
-              Suporte
-              {tickets.filter(t => t.status === "answered").length > 0 && (
-                <span className="absolute top-2 right-[calc(50%-10px)] bg-primary-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
-                  {tickets.filter(t => t.status === "answered").length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setView("help")}
-              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "help" ? "text-primary-600" : "text-text-muted"}`}
-            >
-              <HelpCircle className="w-5 h-5" />
-              Ajuda
-            </button>
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base flex items-center safe-area-bottom h-14">
+            {[
+              { id: "dashboard", icon: LayoutDashboard, label: "Painel", active: view === "dashboard", onClick: () => setView("dashboard") },
+              { id: "tickets", icon: MessageSquare, label: "Suporte", active: ["tickets", "ticket_detail"].includes(view), onClick: () => { fetchUserTickets(); setView("tickets"); }, badge: tickets.filter(t => t.status === "answered").length },
+              { id: "help", icon: HelpCircle, label: "Ajuda", active: view === "help", onClick: () => setView("help") },
+            ].map(item => (
+              <button
+                key={item.id}
+                onClick={item.onClick}
+                className={`flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold uppercase tracking-[0.08em] transition-colors relative ${item.active ? "text-primary-600" : "text-text-muted"}`}
+              >
+                {item.active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-b-full bg-primary-600" />}
+                <item.icon className="w-5 h-5" />
+                {item.label}
+                {item.badge && item.badge > 0 ? (
+                  <span className="absolute top-1.5 right-[calc(50%-14px)] bg-danger text-white text-[9px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </button>
+            ))}
           </nav>
         )}
 
         {/* Reseller Mobile bottom navigation */}
         {resellerData && (["reseller_dashboard", "reseller_help", "reseller_tickets"].includes(view) || (view === "ticket_detail" && ticketBackView === "reseller_tickets")) && (
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base/50 flex items-center safe-area-bottom shadow-lg">
-            <button
-              onClick={() => setView("reseller_dashboard")}
-              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "reseller_dashboard" ? "text-emerald-600" : "text-text-muted"}`}
-            >
-              <LayoutDashboard className="w-5 h-5" />
-              Home
-            </button>
-            <button
-              onClick={async () => {
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-surface border-t border-border-base flex items-center safe-area-bottom h-14">
+            {[
+              { id: "reseller_dashboard", icon: LayoutDashboard, label: "Home", active: view === "reseller_dashboard", onClick: () => setView("reseller_dashboard") },
+              { id: "reseller_tickets", icon: MessageSquare, label: "Suporte", active: (view === "reseller_tickets" || (view === "ticket_detail" && ticketBackView === "reseller_tickets")), badge: resellerTickets.filter((t: any) => t.status === "answered").length, onClick: async () => {
                 if (!resellerTicketsLoaded) {
                   const r = await fetch(`/api/tickets/${resellerData?.reseller?.login}`);
                   if (r.ok) setResellerTickets(await r.json());
                   setResellerTicketsLoaded(true);
                 }
                 setView("reseller_tickets");
-              }}
-              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors relative ${(view === "reseller_tickets" || (view === "ticket_detail" && ticketBackView === "reseller_tickets")) ? "text-emerald-600" : "text-text-muted"}`}
-            >
-              <MessageSquare className="w-5 h-5" />
-              Suporte
-              {resellerTickets.filter((t: any) => t.status === "answered").length > 0 && (
-                <span className="absolute top-2 right-[calc(50%-10px)] bg-emerald-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
-                  {resellerTickets.filter((t: any) => t.status === "answered").length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setView("reseller_help")}
-              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${view === "reseller_help" ? "text-emerald-600" : "text-text-muted"}`}
-            >
-              <HelpCircle className="w-5 h-5" />
-              Ajuda
-            </button>
+              } },
+              { id: "reseller_help", icon: HelpCircle, label: "Ajuda", active: view === "reseller_help", onClick: () => setView("reseller_help") },
+            ].map(item => (
+              <button
+                key={item.id}
+                onClick={item.onClick}
+                className={`flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold uppercase tracking-[0.08em] transition-colors relative ${item.active ? "text-emerald-600" : "text-text-muted"}`}
+              >
+                {item.active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-b-full bg-emerald-600" />}
+                <item.icon className="w-5 h-5" />
+                {item.label}
+                {item.badge && item.badge > 0 ? (
+                  <span className="absolute top-1.5 right-[calc(50%-14px)] bg-danger text-white text-[9px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </button>
+            ))}
           </nav>
         )}
       </div>

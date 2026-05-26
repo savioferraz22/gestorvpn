@@ -169,49 +169,48 @@ export function AdminShell({ onBack }: AdminShellProps) {
         exit={{ opacity: 0, y: -20 }}
         className="flex min-h-[100dvh] w-full flex-1 flex-col sm:min-h-0"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border-base/50 bg-gradient-to-r from-bg-surface to-bg-surface-hover p-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-600">
-              <Shield className="h-5 w-5 text-white" />
-            </div>
-            <h1 className="text-xl font-semibold text-text-base">
+        <header className="flex shrink-0 items-center justify-between border-b border-border-base bg-bg-surface h-14 px-4">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-primary-600" />
+            <h1 className="text-[15px] font-bold text-text-base">
               Administração
             </h1>
           </div>
           <button
             onClick={onBack}
-            className="p-1 text-text-muted transition-colors hover:text-text-base"
+            className="p-2 -mr-2 rounded-md text-text-muted transition-colors hover:text-text-base hover:bg-bg-surface-hover"
             title="Voltar"
+            aria-label="Voltar"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-        </div>
+        </header>
         <div className="flex flex-col items-center p-8">
           <form onSubmit={handleLogin} className="w-full max-w-xs space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-text-base">
-                Senha Administrativa
+              <label className="mb-1.5 block text-[11px] font-bold text-text-muted uppercase tracking-[0.08em]">
+                Senha administrativa
               </label>
               <input
                 type="password"
                 value={adminPass}
                 onChange={(e) => setAdminPass(e.target.value)}
-                className="w-full rounded-xl border border-border-base bg-bg-surface px-4 py-3 text-text-base outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full rounded-md border border-border-base bg-bg-surface px-3 h-11 text-text-base focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 outline-none transition-all font-semibold"
                 placeholder="Digite a senha"
                 autoFocus
               />
             </div>
             {loginError && (
-              <p className="text-sm font-medium text-[var(--danger)]">
+              <p className="text-sm font-medium text-danger">
                 {loginError}
               </p>
             )}
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full rounded-xl bg-primary-600 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-primary-700 active:scale-95 disabled:opacity-60"
+              className="w-full rounded-md bg-primary-600 h-11 font-bold text-white transition-colors hover:bg-primary-700 active:scale-[0.98] disabled:opacity-60"
             >
-              {loginLoading ? "Entrando..." : "Entrar"}
+              {loginLoading ? "Entrando…" : "Entrar"}
             </button>
           </form>
         </div>
