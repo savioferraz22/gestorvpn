@@ -1056,12 +1056,32 @@ export default function App() {
     return Boolean(pendingChange || pendingRefund);
   };
 
+  const hasActiveTicket = (): boolean =>
+    tickets.some((t) => t.status !== "closed");
+
+  const newTicketBlockReason = (): { reason: "pending" | "active" | null; message: string } => {
+    if (hasPendingRequest(currentUser)) {
+      return {
+        reason: "pending",
+        message: "Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket.",
+      };
+    }
+    if (hasActiveTicket()) {
+      return {
+        reason: "active",
+        message: "Você já possui um ticket em andamento. Encerre o ticket atual antes de abrir um novo.",
+      };
+    }
+    return { reason: null, message: "" };
+  };
+
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ticketForm.subject || !ticketForm.message || !currentUser) return;
-    if (hasPendingRequest(currentUser)) {
+    const block = newTicketBlockReason();
+    if (block.reason) {
       setShowNewTicketModal(false);
-      showAlertDialog("Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket.", "Solicitação pendente");
+      showAlertDialog(block.message, block.reason === "pending" ? "Solicitação pendente" : "Ticket em andamento");
       return;
     }
     setLoading(true);
@@ -1079,7 +1099,7 @@ export default function App() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setShowNewTicketModal(false);
-        showAlertDialog(data?.error || "Não foi possível abrir o ticket.", "Solicitação pendente");
+        showAlertDialog(data?.error || "Não foi possível abrir o ticket.", "Não foi possível abrir");
         return;
       }
       setTicketForm({ category: "Suporte Técnico", subject: "", message: "" });
@@ -5381,22 +5401,27 @@ export default function App() {
 
                   {/* New ticket — inline expand (no modal) */}
                   <div className="mb-4">
-                    {!showNewTicketModal ? (
-                      <button
-                        onClick={() => {
-                          if (hasPendingRequest(currentUser)) {
-                            showAlertDialog("Você possui uma solicitação pendente aguardando o administrador. Aguarde o atendimento dela antes de abrir um novo ticket.", "Solicitação pendente");
-                            return;
-                          }
-                          setShowNewTicketModal(true);
-                        }}
-                        disabled={hasPendingRequest(currentUser)}
-                        className={`w-full flex items-center justify-center gap-2 h-12 px-4 rounded-md font-bold transition-colors active:scale-[0.98] ${hasPendingRequest(currentUser) ? "bg-bg-surface-hover text-text-muted cursor-not-allowed" : "bg-primary-600 hover:bg-primary-700 text-white"}`}
-                      >
-                        <Plus className="w-5 h-5" />
-                        Abrir novo ticket
-                      </button>
-                    ) : (
+                    {!showNewTicketModal ? (() => {
+                      const block = newTicketBlockReason();
+                      const blocked = !!block.reason;
+                      return (
+                        <button
+                          onClick={() => {
+                            if (blocked) {
+                              showAlertDialog(block.message, block.reason === "pending" ? "Solicitação pendente" : "Ticket em andamento");
+                              return;
+                            }
+                            setShowNewTicketModal(true);
+                          }}
+                          disabled={blocked}
+                          title={blocked ? block.message : undefined}
+                          className={`w-full flex items-center justify-center gap-2 h-12 px-4 rounded-md font-bold transition-colors active:scale-[0.98] ${blocked ? "bg-bg-surface-hover text-text-muted cursor-not-allowed" : "bg-primary-600 hover:bg-primary-700 text-white"}`}
+                        >
+                          <Plus className="w-5 h-5" />
+                          Abrir novo ticket
+                        </button>
+                      );
+                    })() : (
                       <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}

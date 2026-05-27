@@ -2381,6 +2381,18 @@ app.post("/api/tickets", async (req, res) => {
       return res.status(400).json({ error: "Você possui uma solicitação de reembolso pendente. Aguarde o atendimento dela antes de abrir um novo ticket." });
     }
 
+    // Only one active ticket per customer at a time — anything not "closed" counts.
+    const { data: openTicket } = await getDb()
+      .from("tickets")
+      .select("id")
+      .eq("username", username)
+      .neq("status", "closed")
+      .limit(1)
+      .maybeSingle();
+    if (openTicket) {
+      return res.status(400).json({ error: "Você já possui um ticket em andamento. Encerre o ticket atual antes de abrir um novo." });
+    }
+
     const ticketId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
 
