@@ -28,7 +28,7 @@ export default defineConfig(({mode}) => {
         filename: 'sw.ts',
         registerType: 'prompt',
         injectManifest: {
-          globIgnores: ['**/version.json'],
+          globIgnores: ['**/version.json', '**/*.apk'],
         },
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
         manifest: {
