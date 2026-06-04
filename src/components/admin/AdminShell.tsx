@@ -237,15 +237,17 @@ export function AdminShell({ onBack }: AdminShellProps) {
   };
 
   return (
-    <ToastProvider>
-      <motion.div
-        key="admin-shell"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        data-admin-theme={themeMode}
-        className="admin-scope bg-bg-base text-text-base flex h-[100dvh] w-full overflow-hidden"
-      >
+    <motion.div
+      key="admin-shell"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      data-admin-theme={themeMode}
+      className="admin-scope bg-bg-base text-text-base flex h-[100dvh] w-full overflow-hidden"
+    >
+      {/* ToastProvider lives inside .admin-scope so the toast viewport
+          inherits the admin theme variables instead of the global html theme. */}
+      <ToastProvider>
         <div className="hidden md:flex h-[100dvh] shrink-0">
           <Sidebar
             tab={tab}
@@ -320,7 +322,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
           onConfirm={handleLogout}
           onCancel={() => setConfirmLogout(false)}
         />
-      </motion.div>
-    </ToastProvider>
+      </ToastProvider>
+    </motion.div>
   );
 }

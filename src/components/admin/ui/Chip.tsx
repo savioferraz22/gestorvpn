@@ -31,8 +31,7 @@ const TONE_MAP: Record<ChipTone, string> = {
   danger:
     "bg-[var(--danger-soft)] text-[var(--danger)] border-[var(--danger)]/20",
   info: "bg-[var(--info-soft)] text-[var(--info)] border-[var(--info)]/20",
-  purple:
-    "bg-purple-500/12 text-purple-500 border-purple-500/25 dark:text-purple-300",
+  purple: "bg-purple-500/15 text-purple-500 border-purple-500/30",
 };
 
 export function Chip({
@@ -65,7 +64,7 @@ export function Chip({
             e.stopPropagation();
             onRemove();
           }}
-          className="ml-0.5 -mr-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md hover:bg-black/10 dark:hover:bg-white/10"
+          className="ml-0.5 -mr-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md hover:bg-text-base/10"
           aria-label="Remover"
         >
           <X size={11} />
