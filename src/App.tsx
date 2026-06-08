@@ -2006,35 +2006,6 @@ export default function App() {
                 </header>
                 <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
                   <SystemNoticeBanner notice={systemNotice} variant="full" />
-
-                  {/* App Update Notice — new APK to fix x-ray / enable UUID */}
-                  <div className="rounded-xl border border-warning/30 bg-warning-soft overflow-hidden">
-                    <div className="px-4 py-3 flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-warning/15 flex items-center justify-center shrink-0">
-                        <AlertTriangle className="w-5 h-5 text-warning" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-bold text-text-base">Atualização do aplicativo disponível</p>
-                        <p className="text-[12px] text-text-muted leading-snug mt-0.5">
-                          Lançamos uma nova versão do app <span className="font-bold text-text-base">CLOUD BRASIL</span> que corrige o problema do x-ray.
-                          Quem usa as opções de <span className="font-bold text-text-base">UUID</span> precisa baixar e instalar esta versão atualizada.
-                        </p>
-                      </div>
-                    </div>
-                    <a
-                      href="/CLOUD_BRASIL.apk"
-                      download
-                      className="flex items-center gap-3 bg-warning hover:brightness-95 text-white px-4 py-3 transition active:scale-[0.99]"
-                    >
-                      <Download className="w-5 h-5 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold">Baixar app atualizado (.apk)</p>
-                        <p className="text-[11px] text-white/85 mt-0.5">Somente Android · após baixar, abra o arquivo para instalar</p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 flex-shrink-0" />
-                    </a>
-                  </div>
-
                   {/* Security Hint Banner for Unverified Users */}
                   {!showData && (
                     <motion.button
