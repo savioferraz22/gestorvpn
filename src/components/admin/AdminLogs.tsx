@@ -30,7 +30,7 @@ import { UserDetailDrawer } from "./UserDetailPanel";
 const CATEGORIES = [
   { value: "all", label: "Todas categorias", types: [] as string[] },
   { value: "pagamentos", label: "Pagamentos", types: ["pix_generated", "payment_approved", "payment_vpn_failed", "payment_recovered", "renewal_deficit_compensated"] },
-  { value: "testes", label: "Testes e acessos", types: ["trial_created", "device_trusted"] },
+  { value: "testes", label: "Testes e acessos", types: ["trial_created", "trial_blocked", "device_trusted"] },
   { value: "aparelhos", label: "Aparelhos e planos", types: ["device_created", "free_device_added", "device_linked", "device_removed", "plan_changed"] },
   { value: "solicitacoes", label: "Solicitações", types: ["change_request_created", "change_request_approved", "change_request_rejected"] },
   { value: "reembolsos", label: "Reembolsos", types: ["refund_requested", "refund_approved", "refund_rejected"] },
@@ -65,6 +65,7 @@ const EVENT_STYLES: Record<string, EventStyle> = {
   payment_recovered: { icon: RotateCcw, tone: "warning", label: "Recuperado" },
   renewal_deficit_compensated: { icon: BadgeCheck, tone: "warning", label: "Compensação" },
   trial_created: { icon: UserPlus, tone: "purple", label: "Teste grátis" },
+  trial_blocked: { icon: AlertTriangle, tone: "danger", label: "Teste bloqueado" },
   device_trusted: { icon: KeyRound, tone: "default", label: "Acesso liberado" },
   device_created: { icon: Smartphone, tone: "success", label: "Aparelho novo" },
   free_device_added: { icon: Smartphone, tone: "info", label: "Aparelho grátis" },

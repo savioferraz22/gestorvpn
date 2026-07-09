@@ -1473,10 +1473,78 @@ app.post("/api/verify-password", async (req, res) => {
   }
 });
 
+// ─── Anti-abuso do teste grátis ──────────────────────────────────────────────
+// O deviceId é gerado pelo navegador e é trivialmente resetável (limpar dados
+// do app). Defesas adicionais: limite por IP + CAPTCHA (Cloudflare Turnstile).
+
+function getClientIp(req: any): string {
+  const xf = String(req.headers["x-forwarded-for"] || "");
+  const first = xf.split(",")[0].trim();
+  return first || String(req.headers["x-real-ip"] || "") || String(req.socket?.remoteAddress || "");
+}
+
+// Verifica o token do Cloudflare Turnstile. Se TURNSTILE_SECRET_KEY não estiver
+// configurada, a verificação é pulada (feature desligada até configurar).
+async function verifyTurnstile(token: string | undefined, ip: string): Promise<{ ok: boolean; reason?: string }> {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return { ok: true, reason: "not-configured" };
+  if (!token) return { ok: false, reason: "missing-token" };
+  try {
+    const body = new URLSearchParams();
+    body.append("secret", secret);
+    body.append("response", token);
+    if (ip) body.append("remoteip", ip);
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    const data: any = await res.json();
+    return data.success ? { ok: true } : { ok: false, reason: (data["error-codes"] || []).join(",") };
+  } catch (e: any) {
+    // Falha de rede na Cloudflare não deve bloquear clientes legítimos.
+    console.warn("[turnstile] verify error:", e?.message);
+    return { ok: true, reason: "verify-unavailable" };
+  }
+}
+
+// Site key pública para o frontend renderizar o widget (vazio = desligado).
+app.get("/api/turnstile-config", (_req, res) => {
+  res.json({ siteKey: process.env.TURNSTILE_SITE_KEY || "" });
+});
+
+// Limites de teste grátis por IP (CGNAT compartilha IP entre clientes móveis,
+// então o limite não pode ser 1). Requer a coluna devices.ip — se ela ainda
+// não existir, o limite é pulado sem quebrar o fluxo.
+const TRIAL_IP_LIMIT_DAY = 2;
+const TRIAL_IP_LIMIT_WEEK = 4;
+
+async function checkTrialIpLimit(ip: string): Promise<{ blocked: boolean }> {
+  if (!ip) return { blocked: false };
+  try {
+    const daySince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const weekSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { count: dayCount, error: e1 } = await getDb().from("devices")
+      .select("device_id", { count: "exact", head: true })
+      .eq("ip", ip).gte("created_at", daySince);
+    if (e1) throw e1;
+    if ((dayCount || 0) >= TRIAL_IP_LIMIT_DAY) return { blocked: true };
+    const { count: weekCount, error: e2 } = await getDb().from("devices")
+      .select("device_id", { count: "exact", head: true })
+      .eq("ip", ip).gte("created_at", weekSince);
+    if (e2) throw e2;
+    if ((weekCount || 0) >= TRIAL_IP_LIMIT_WEEK) return { blocked: true };
+    return { blocked: false };
+  } catch (e: any) {
+    console.warn("[trial] IP limit check skipped (coluna devices.ip existe?):", e?.message);
+    return { blocked: false };
+  }
+}
+
 // 0.1 Create Free User
 app.post("/api/create-free", async (req, res) => {
   try {
-    const { username, deviceId, referrer } = req.body;
+    const { username, deviceId, referrer, turnstileToken } = req.body;
 
     if (!username || !deviceId) {
       return res.status(400).json({ error: "Dados incompletos" });
@@ -1487,10 +1555,32 @@ app.post("/api/create-free", async (req, res) => {
       return res.status(400).json({ error: "Usuário inválido. Use apenas letras e números, até 10 caracteres." });
     }
 
+    const clientIp = getClientIp(req);
+
+    // CAPTCHA (Turnstile) — bloqueia scripts automatizados
+    const captcha = await verifyTurnstile(turnstileToken, clientIp);
+    if (!captcha.ok) {
+      console.warn(`[trial] Turnstile rejected (${captcha.reason}) ip=${clientIp} username=${username}`);
+      return res.status(403).json({ error: "Verificação de segurança falhou. Recarregue a página e tente novamente." });
+    }
+
     // Check if device already created a user
     const { data: existingDevice } = await getDb().from("devices").select("*").eq("device_id", deviceId).maybeSingle();
     if (existingDevice) {
       return res.status(403).json({ error: "Este aparelho já gerou um teste gratuito.", existing_username: existingDevice.username });
+    }
+
+    // Limite por IP — corta a burla de limpar os dados do app e gerar de novo
+    const ipLimit = await checkTrialIpLimit(clientIp);
+    if (ipLimit.blocked) {
+      console.warn(`[trial] IP limit reached ip=${clientIp} username=${username}`);
+      logActivity("trial_blocked", {
+        username,
+        actor: "system",
+        description: `Teste grátis BLOQUEADO por limite de IP: ${username} — IP ${clientIp}`,
+        metadata: { ip: clientIp, deviceId },
+      });
+      return res.status(429).json({ error: "Limite de testes gratuitos atingido para sua rede. Tente novamente amanhã ou fale com o suporte." });
     }
 
     // Check if user exists (both regular users AND resellers)
@@ -1545,8 +1635,15 @@ app.post("/api/create-free", async (req, res) => {
       throw new Error("Erro de comunicação com o servidor VPN (Cloudflare/Rate Limit). Tente novamente em alguns instantes.");
     }
 
-    // Save device
-    await getDb().from("devices").upsert({ device_id: deviceId, username });
+    // Save device (with IP for the rate limit). Fallback without ip while the
+    // devices.ip column hasn't been created yet.
+    {
+      const { error: devErr } = await getDb().from("devices").upsert({ device_id: deviceId, username, ip: clientIp || null });
+      if (devErr) {
+        console.warn("[trial] devices upsert with ip failed, retrying without ip:", devErr.message);
+        await getDb().from("devices").upsert({ device_id: deviceId, username });
+      }
+    }
 
     // Trust device automatically
     await getDb().from("trusted_devices").upsert({ device_id: deviceId, username });
@@ -1566,8 +1663,8 @@ app.post("/api/create-free", async (req, res) => {
     logActivity("trial_created", {
       username,
       actor: "client",
-      description: `Teste grátis criado: ${username} (2 dias)${referrer ? ` — indicado por ${referrer}` : ""}`,
-      metadata: { deviceId, referrer: referrer || null },
+      description: `Teste grátis criado: ${username} (2 dias)${referrer ? ` — indicado por ${referrer}` : ""}${clientIp ? ` — IP ${clientIp}` : ""}`,
+      metadata: { deviceId, referrer: referrer || null, ip: clientIp || null },
     });
 
     res.json({

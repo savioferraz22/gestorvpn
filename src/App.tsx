@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2, Pencil, Check, Sun, Moon } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
@@ -453,6 +453,19 @@ export default function App() {
     if (visibleLen === 0 && text.length > 0) return "*".repeat(text.length);
     return text.substring(0, visibleLen) + "*".repeat(text.length - visibleLen);
   };
+
+  // Cloudflare Turnstile (CAPTCHA do teste grátis) — desligado se o servidor
+  // não tiver TURNSTILE_SITE_KEY configurada.
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileWidgetId = useRef<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/turnstile-config")
+      .then((r) => r.json())
+      .then((d) => setTurnstileSiteKey(d.siteKey || ""))
+      .catch(() => {});
+  }, []);
 
   // Device ID management
   const [deviceId, setDeviceId] = useState("");
@@ -1187,10 +1200,57 @@ export default function App() {
     }
   };
 
+  // Renderiza o widget do Turnstile quando a tela de teste grátis abre
+  useEffect(() => {
+    if (view !== "create_user" || !turnstileSiteKey) return;
+    let cancelled = false;
+
+    function renderWidget() {
+      const ts = (window as any).turnstile;
+      const el = document.getElementById("turnstile-box");
+      if (cancelled || !ts || !el) return;
+      if (turnstileWidgetId.current !== null) {
+        try { ts.remove(turnstileWidgetId.current); } catch { /* ok */ }
+        turnstileWidgetId.current = null;
+      }
+      setTurnstileToken("");
+      turnstileWidgetId.current = ts.render(el, {
+        sitekey: turnstileSiteKey,
+        callback: (token: string) => setTurnstileToken(token),
+        "expired-callback": () => setTurnstileToken(""),
+        "error-callback": () => setTurnstileToken(""),
+        theme: "auto",
+      });
+    }
+
+    if ((window as any).turnstile) {
+      renderWidget();
+    } else if (!document.getElementById("turnstile-script")) {
+      const script = document.createElement("script");
+      script.id = "turnstile-script";
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.onload = renderWidget;
+      document.head.appendChild(script);
+    } else {
+      const t = setInterval(() => {
+        if ((window as any).turnstile) { clearInterval(t); renderWidget(); }
+      }, 200);
+      setTimeout(() => clearInterval(t), 10000);
+    }
+
+    return () => { cancelled = true; };
+  }, [view, turnstileSiteKey]);
+
   const handleCreateFreeUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUsername.trim()) {
       setError("Por favor, digite um nome de usuário.");
+      return;
+    }
+
+    if (turnstileSiteKey && !turnstileToken) {
+      setError("Complete a verificação de segurança antes de continuar.");
       return;
     }
 
@@ -1208,7 +1268,7 @@ export default function App() {
       const res = await fetch("/api/create-free", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: newUsername.trim(), deviceId: currentDeviceId, referrer: referrerUsername.trim() }),
+        body: JSON.stringify({ username: newUsername.trim(), deviceId: currentDeviceId, referrer: referrerUsername.trim(), turnstileToken }),
       });
 
       const data = await res.json();
@@ -1216,6 +1276,11 @@ export default function App() {
       if (!res.ok) {
         if (res.status === 403 && data.existing_username) {
           setExistingTestUsername(data.existing_username);
+        }
+        // Token do Turnstile é de uso único — renova o widget após falha
+        if (turnstileSiteKey && turnstileWidgetId.current !== null) {
+          try { (window as any).turnstile?.reset(turnstileWidgetId.current); } catch { /* ok */ }
+          setTurnstileToken("");
         }
         throw new Error(data.error || "Erro ao criar usuário");
       }
@@ -3682,6 +3747,10 @@ export default function App() {
                           </p>
                         )}
                       </div>
+
+                      {turnstileSiteKey && (
+                        <div id="turnstile-box" className="flex justify-center min-h-[65px]" />
+                      )}
 
                       {error && (
                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-3">
