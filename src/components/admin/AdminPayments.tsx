@@ -3,23 +3,19 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
-  CreditCard,
   Download,
   RefreshCw,
   RotateCcw,
   RotateCw,
-  Smartphone,
-  User,
-  X,
 } from "lucide-react";
 import {
   fetchAdminPayments,
-  fetchAdminUserDetails,
   retryPaymentApplication,
   retryFailedPayments,
   getAdminToken,
 } from "../../services/api";
-import { Card, Chip, DataTable, SectionHeader, Stat, type Column } from "./ui";
+import { Chip, DataTable, SectionHeader, Stat, type Column } from "./ui";
+import { UserDetailDrawer } from "./UserDetailPanel";
 import {
   DateRangePicker,
   FilterBar,
@@ -136,8 +132,7 @@ export function AdminPayments({ payments, setPayments }: Props) {
   const [loading, setLoading] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessMsg, setReprocessMsg] = useState("");
-  const [viewUser, setViewUser] = useState<any>(null);
-  const [loadingUser, setLoadingUser] = useState("");
+  const [viewUser, setViewUser] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryMsg, setRetryMsg] = useState<{
     id: string;
@@ -208,16 +203,8 @@ export function AdminPayments({ payments, setPayments }: Props) {
     }
   }
 
-  async function handleViewUser(username: string) {
-    setLoadingUser(username);
-    try {
-      const data = await fetchAdminUserDetails(username);
-      setViewUser(data);
-    } catch (err) {
-      console.warn(err);
-    } finally {
-      setLoadingUser("");
-    }
+  function handleViewUser(username: string) {
+    setViewUser(username);
   }
 
   const filtered = useMemo(() => {
@@ -448,11 +435,9 @@ export function AdminPayments({ payments, setPayments }: Props) {
                 e.stopPropagation();
                 handleViewUser(p.username);
               }}
-              disabled={loadingUser === p.username}
-              className="inline-flex items-center gap-1 rounded-lg border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-semibold text-primary-600 hover:bg-primary-500/20 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[11px] font-semibold text-primary-600 hover:bg-primary-500/20"
             >
-              <User size={11} />
-              {loadingUser === p.username ? "..." : "Ver"}
+              Ver
             </button>
             {msg && (
               <span
@@ -468,9 +453,6 @@ export function AdminPayments({ payments, setPayments }: Props) {
       },
     },
   ];
-
-  const vu = viewUser?.user;
-  const vuDays = vu ? daysLeft(vu.expira) : null;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -606,115 +588,11 @@ export function AdminPayments({ payments, setPayments }: Props) {
         />
       </div>
 
-      {viewUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <Card className="flex max-h-[85vh] w-full max-w-sm flex-col gap-4 overflow-y-auto" padding="md">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-500/10 text-primary-600">
-                  <User size={18} />
-                </div>
-                <div>
-                  <p className="font-bold text-text-base">{vu?.login ?? "—"}</p>
-                  <p className="text-xs text-text-muted">
-                    {vuDays === null
-                      ? "—"
-                      : vuDays < 0
-                        ? "Expirado"
-                        : vuDays === 0
-                          ? "Vence hoje"
-                          : `${vuDays}d restantes`}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewUser(null)}
-                className="rounded-xl p-1.5 text-text-muted hover:bg-bg-surface-hover"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {vu && (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-md border border-border-base bg-bg-surface-hover p-3">
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-text-muted">
-                    Vencimento
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <Clock
-                      size={13}
-                      className={
-                        vuDays !== null && vuDays < 0
-                          ? "text-danger"
-                          : vuDays !== null && vuDays <= 3
-                            ? "text-warning"
-                            : "text-text-muted"
-                      }
-                    />
-                    <p className="text-sm font-bold text-text-base">
-                      {formatDate(vu.expira)}
-                    </p>
-                  </div>
-                </div>
-                <div className="rounded-md border border-border-base bg-bg-surface-hover p-3">
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-text-muted">
-                    Pagamentos
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <CreditCard size={13} className="text-text-muted" />
-                    <p className="text-sm font-bold text-text-base">
-                      {(viewUser.payments || []).filter(
-                        (p: any) => p.status === "approved",
-                      ).length}{" "}
-                      aprovados
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {viewUser.plan && (
-              <div className="rounded-md border border-border-base bg-bg-surface-hover p-3">
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-primary-600">
-                  Plano atual
-                </p>
-                <p className="text-sm font-bold text-primary-600">
-                  {viewUser.plan.plan_months}{" "}
-                  {viewUser.plan.plan_months === 1 ? "mês" : "meses"} ·{" "}
-                  {viewUser.plan.plan_devices}{" "}
-                  {viewUser.plan.plan_devices === 1 ? "aparelho" : "aparelhos"} · R${" "}
-                  {viewUser.plan.plan_price}
-                </p>
-              </div>
-            )}
-
-            {viewUser.groupMembers?.length > 0 && (
-              <div>
-                <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-text-muted">
-                  <Smartphone size={13} /> Outros aparelhos do plano
-                </p>
-                <div className="space-y-1.5">
-                  {viewUser.groupMembers.map((m: any) => (
-                    <div
-                      key={m.username}
-                      className="flex items-center justify-between rounded-md border border-border-base bg-bg-surface px-3 py-2"
-                    >
-                      <span className="text-sm font-bold text-text-base">
-                        {m.username}
-                      </span>
-                      <span className="text-xs text-text-muted">
-                        {m.expira ? formatDate(m.expira) : "—"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Card>
-        </div>
-      )}
+      {/* Ficha completa do cliente — sem sair da aba de pagamentos */}
+      <UserDetailDrawer
+        username={viewUser}
+        onClose={() => setViewUser(null)}
+      />
     </div>
   );
 }

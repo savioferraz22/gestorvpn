@@ -125,16 +125,61 @@ app.use("/api/admin", (req: any, res: any, next: any) => {
 const resellerTokens = new Map<string, { username: string; expiresAt: number }>();
 const RESELLER_TOKEN_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
+// Stateless HMAC reseller tokens: survive restarts and work across serverless
+// instances (the old in-memory Map logged resellers out on every cold start).
+// Format: rs.<b64url(username)>.<expiresMs>.<hmac(username.expires)>
+function createResellerToken(username: string): string {
+  const expires = (Date.now() + RESELLER_TOKEN_TTL).toString();
+  const secret = process.env.ADMIN_PASSWORD || "fallback-secret";
+  const user64 = Buffer.from(username, "utf8").toString("base64url");
+  const sig = crypto.createHmac("sha256", secret).update(`${username}.${expires}`).digest("hex");
+  return `rs.${user64}.${expires}.${sig}`;
+}
+
+function validateResellerToken(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length !== 4 || parts[0] !== "rs") return null;
+  const [, user64, expires, sig] = parts;
+  if (!/^\d+$/.test(expires) || Date.now() > parseInt(expires)) return null;
+  let username: string;
+  try { username = Buffer.from(user64, "base64url").toString("utf8"); } catch { return null; }
+  const secret = process.env.ADMIN_PASSWORD || "fallback-secret";
+  const expected = crypto.createHmac("sha256", secret).update(`${username}.${expires}`).digest("hex");
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"))) return null;
+  } catch { return null; }
+  return username;
+}
+
 function requireResellerAuth(req: any, res: any, next: any) {
   const auth = req.headers["authorization"] || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  // Legacy in-memory sessions still honored until they expire naturally.
   const session = resellerTokens.get(token);
-  if (!session || Date.now() > session.expiresAt) {
+  const username = session && Date.now() <= session.expiresAt ? session.username : validateResellerToken(token);
+  if (!username) {
     resellerTokens.delete(token);
     return res.status(401).json({ error: "Sessão inválida. Faça login novamente." });
   }
-  (req as any).resellerUsername = session.username;
+  (req as any).resellerUsername = username;
   next();
+}
+
+// Check the (deviceId, username) pair against trusted_devices. Used to guard
+// client endpoints that expose passwords or change billing state.
+async function isTrustedDevice(username: string, deviceId: string): Promise<boolean> {
+  if (!username || !deviceId) return false;
+  const { data } = await getDb().from("trusted_devices")
+    .select("device_id").eq("device_id", deviceId).eq("username", username).maybeSingle();
+  return !!data;
+}
+
+// Remove credential fields from a VPN panel user object before sending to
+// unauthenticated callers.
+function stripSenha(user: any): any {
+  if (!user || typeof user !== "object") return user;
+  const { senha, pass, password, ...safe } = user;
+  return safe;
 }
 
 app.get("/api/health", (req, res) => {
@@ -576,16 +621,17 @@ async function approvePayment(paymentRecord: any) {
     const { newUsername, remainingDays, groupId } = metadata;
 
     if (newUsername && remainingDays && groupId) {
-      const createDone = await countSuccessfulAttempts(paymentId, "createuser", newUsername);
+      // Panel module is "criaruser" (user/pass/validadeusuario/userlimite) — see restapi-painel-vpn.json.
+      const createDone = await countSuccessfulAttempts(paymentId, "criaruser", newUsername);
       if (createDone === 0) {
         const password = Math.floor(100000 + Math.random() * 900000).toString();
         const r = await applyVpnOperation({
           paymentId,
-          module: "createuser",
+          module: "criaruser",
           targetUsername: newUsername,
-          extraParams: { pass: password, limit: "1", days: String(remainingDays) },
+          extraParams: { pass: password, validadeusuario: String(remainingDays), userlimite: "1", whatsapp: "" },
         });
-        if (!r.success) recordFailure(`createuser ${newUsername} falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+        if (!r.success) recordFailure(`criaruser ${newUsername} falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
         else console.log(`VPN Create Response for ${newUsername}:`, r.response);
       }
 
@@ -631,41 +677,50 @@ async function approvePayment(paymentRecord: any) {
 
     // renewuser adds 30 days to the CURRENT expiry. If the user is expired,
     // those days start from the past date → fewer days than paid.
-    // We detect this, renew normally, then create an automatic date_correction
-    // request for the admin to fix the date in the VPN panel.
+    // Compensation: every full 30 days of deficit is covered automatically by
+    // an extra renewuser call. Only the remainder (<30d) needs a manual
+    // date_correction in the panel (the API has no "set date" module).
     const allVpnUsers = await fetchVpnUsers();
     let needsDateCorrection = false;
     let correctExpiryDate = "";
+    let extraRenewals = 0;
+    let remainderDays = 0;
 
     const mainVpnUser = allVpnUsers.find((u: any) => u.login === usersToRenew[0]);
     if (mainVpnUser?.expira) {
-      const expiry = new Date(mainVpnUser.expira.replace(' ', 'T'));
+      const expiry = parseVpnExpira(mainVpnUser.expira);
       const now = new Date();
-      if (expiry < now) {
-        needsDateCorrection = true;
-        const correctDate = new Date(now);
-        correctDate.setDate(correctDate.getDate() + (30 * monthsToRenew));
-        correctExpiryDate = correctDate.toISOString().split("T")[0];
+      if (expiry && expiry < now) {
         const deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
-        console.log(`[renew] ${usersToRenew[0]} expired ${deficitDays}d ago — will create date_correction to ${correctExpiryDate}`);
+        extraRenewals = Math.min(Math.floor(deficitDays / 30), 12); // safety cap
+        remainderDays = deficitDays - extraRenewals * 30;
+        if (remainderDays > 0) {
+          needsDateCorrection = true;
+          const correctDate = new Date(now);
+          correctDate.setDate(correctDate.getDate() + (30 * monthsToRenew));
+          correctExpiryDate = correctDate.toISOString().split("T")[0];
+        }
+        console.log(`[renew] ${usersToRenew[0]} expired ${deficitDays}d ago — auto-compensating ${extraRenewals} renewal(s), remainder ${remainderDays}d${needsDateCorrection ? ` → date_correction to ${correctExpiryDate}` : ""}`);
       }
     }
 
-    // Apply renewuser N times per user, with idempotency: already-successful
-    // attempts are counted and skipped so retries never double-renew.
+    // Apply renewuser N times per user (plan months + expiry-deficit compensation),
+    // with idempotency: already-successful attempts are counted and skipped so
+    // retries never double-renew.
+    const totalRenewals = monthsToRenew + extraRenewals;
     for (const user of usersToRenew) {
       const alreadyRenewed = await countSuccessfulAttempts(paymentId, "renewuser", user);
-      for (let i = alreadyRenewed; i < monthsToRenew; i++) {
+      for (let i = alreadyRenewed; i < totalRenewals; i++) {
         const r = await applyVpnOperation({ paymentId, module: "renewuser", targetUsername: user });
         if (!r.success) {
-          recordFailure(`renewuser ${user} (mês ${i + 1}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+          recordFailure(`renewuser ${user} (${i + 1}/${totalRenewals}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
           break;
         }
-        console.log(`VPN Renew Response for ${user} (Month ${i + 1}):`, r.response);
+        console.log(`VPN Renew Response for ${user} (${i + 1}/${totalRenewals}):`, r.response);
       }
     }
 
-    // Create automatic date correction request for each user if they were expired
+    // Create automatic date correction request for the remainder (<30d) if users were expired
     if (needsDateCorrection && correctExpiryDate && vpnFullyApplied) {
       for (const user of usersToRenew) {
         try {
@@ -682,7 +737,10 @@ async function approvePayment(paymentRecord: any) {
         }
       }
       sendPush("__admin__", "📅 Correção de vencimento pendente",
-        `${paymentRecord.username} renovou com acesso vencido. Data correta: ${correctExpiryDate.split("-").reverse().join("/")}`);
+        `${paymentRecord.username} renovou com acesso vencido. ${extraRenewals > 0 ? `${extraRenewals * 30} dias já compensados automaticamente. ` : ""}Faltam ${remainderDays} dia(s): ajuste a data no painel para ${correctExpiryDate.split("-").reverse().join("/")}. Veja em Solicitações.`);
+    } else if (extraRenewals > 0 && vpnFullyApplied) {
+      sendPush("__admin__", "✅ Vencimento compensado automaticamente",
+        `${paymentRecord.username} renovou com acesso vencido — ${extraRenewals * 30} dia(s) de déficit compensados no painel, sem ação manual.`);
     }
   }
 
@@ -837,12 +895,14 @@ setInterval(() => { runScheduledChecksTick().catch(() => {}); }, 30_000);
 // Also kick off once at boot to pick up anything missed while the process was down.
 setTimeout(() => { runScheduledChecksTick().catch(() => {}); }, 5_000);
 
-// Pricing formula:
-// Base: R$15/month for 1 device
-// Each additional month: +R$10 total
-// Each additional device: +R$10 total
+// Official pricing formula (confirmed by owner):
+// 1st device: R$15 base + R$10 per extra month
+// Each extra device: R$10 per month of the plan
+// Must match calcPlanPrice in src/App.tsx.
 function calculatePlanPrice(months: number, devices: number): number {
-  return 15 + (months - 1) * 10 + (devices - 1) * 10;
+  const m = Math.max(1, months);
+  const d = Math.max(1, devices);
+  return 15 + (m - 1) * 10 + (d - 1) * 10 * m;
 }
 
 // API Routes
@@ -888,9 +948,16 @@ app.get("/api/group/details/:groupId", async (req, res) => {
     const usernames = (groupUsers || []).map(u => u.username);
 
     const allUsers = await fetchVpnUsers();
-
     const details = allUsers.filter((u: any) => usernames.includes(u.login));
-    res.json(details);
+
+    // Passwords only go out when the caller proves a trusted device belonging
+    // to a member of this group (?username=&deviceId=). Otherwise strip them.
+    const username = String(req.query.username || "");
+    const deviceId = String(req.query.deviceId || "");
+    const isMember = usernames.includes(username);
+    const trusted = isMember && await isTrustedDevice(username, deviceId);
+
+    res.json(trusted ? details : details.map(stripSenha));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -950,7 +1017,14 @@ app.post("/api/group/add", async (req, res) => {
 
 app.post("/api/group/remove", async (req, res) => {
   try {
-    const { groupId, usernameToRemove } = req.body;
+    const { groupId, usernameToRemove, username, deviceId } = req.body;
+
+    // Only a trusted device of a group member may remove devices.
+    const { data: requesterMembership } = await getDb().from("user_groups")
+      .select("username").eq("group_id", groupId).eq("username", username || "").maybeSingle();
+    if (!requesterMembership || !(await isTrustedDevice(username, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado. Verifique sua senha no aparelho antes de remover aparelhos." });
+    }
 
     // Remove from group
     await getDb().from("user_groups").delete().eq("group_id", groupId).eq("username", usernameToRemove);
@@ -977,11 +1051,26 @@ app.post("/api/group/remove", async (req, res) => {
 
 app.post("/api/group/plan", async (req, res) => {
   try {
-    const { groupId, plan_type, plan_months, plan_devices, plan_price } = req.body;
+    const { groupId, plan_type, plan_months, plan_devices, username, deviceId } = req.body;
 
-    await getDb().from("group_plans").update({ plan_type, plan_months, plan_devices, plan_price }).eq("group_id", groupId);
+    // Only a trusted device of a group member may change the plan.
+    const { data: membership } = await getDb().from("user_groups")
+      .select("username").eq("group_id", groupId).eq("username", username || "").maybeSingle();
+    if (!membership || !(await isTrustedDevice(username, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado. Verifique sua senha no aparelho antes de alterar o plano." });
+    }
 
-    res.json({ success: true });
+    const months = parseInt(plan_months);
+    const devices = parseInt(plan_devices);
+    if (!Number.isInteger(months) || months < 1 || months > 12 || !Number.isInteger(devices) || devices < 1 || devices > 10) {
+      return res.status(400).json({ error: "Plano inválido." });
+    }
+
+    // Price is ALWAYS computed server-side — never trust the browser.
+    const price = calculatePlanPrice(months, devices);
+    await getDb().from("group_plans").update({ plan_type, plan_months: months, plan_devices: devices, plan_price: price }).eq("group_id", groupId);
+
+    res.json({ success: true, plan_price: price });
   } catch (error: any) {
     console.error("Error updating plan:", error);
     res.status(500).json({ error: error.message });
@@ -1095,7 +1184,9 @@ app.post("/api/user", async (req, res) => {
       .in("type", REGULAR_PAYMENT_TYPES);
     const hasGroupPaidOnce = (groupPaidCount || 0) > 0;
 
-    res.json({ ...user, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments, hasGroupPaidOnce });
+    // Only trusted devices (password verified at least once) receive the senha.
+    const userPayload = isTrusted ? user : stripSenha(user);
+    res.json({ ...userPayload, isTrusted, points, referrals, refundRequest, changeRequests, recentDateChangeRequest, lastPaymentDate, payments, hasGroupPaidOnce });
   } catch (error: any) {
     console.error("Error fetching user:", error);
     res.status(500).json({ error: error.message || "Erro interno do servidor" });
@@ -1261,24 +1352,20 @@ app.post("/api/pix/new-device", async (req, res) => {
     // Check if paid on time or in advance
     const paidOnTime = now <= expirationDate;
 
-    // Calculate price difference
+    // Calculate price difference using the official formula (calculatePlanPrice).
+    // The +R$10 of an extra device covers the WHOLE plan cycle (plan_months),
+    // so proration divides by the cycle length in days, not a fixed 30.
     const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
-    const currentDevices = (groupUsers || []).length;
+    const currentDevices = Math.max(1, (groupUsers || []).length);
+    const { data: groupPlan } = await getDb().from("group_plans").select("plan_months").eq("group_id", groupId).maybeSingle();
+    const planMonths = Math.max(1, parseInt(groupPlan?.plan_months) || 1);
 
-    const getPrice = (devices: number) => {
-      if (devices <= 1) return 20;
-      if (devices === 2) return 35;
-      if (devices === 3) return 50;
-      if (devices === 4) return 60;
-      if (devices === 5) return 70;
-      return 80;
-    };
+    const currentPrice = calculatePlanPrice(planMonths, currentDevices);
+    const newPrice = calculatePlanPrice(planMonths, currentDevices + 1);
+    const priceDiff = newPrice - currentPrice; // = R$10 × meses do plano (aparelho extra), pela fórmula oficial
 
-    const currentPrice = getPrice(currentDevices);
-    const newPrice = getPrice(currentDevices + 1);
-    const priceDiff = newPrice - currentPrice;
-
-    let proratedPrice = Number(((priceDiff / 30) * remainingDays).toFixed(2));
+    const cycleDays = 30 * planMonths;
+    let proratedPrice = Number(((priceDiff / cycleDays) * Math.min(remainingDays, cycleDays)).toFixed(2));
 
     if (proratedPrice < 0.01) {
       return res.json({ free: true, remainingDays });
@@ -1332,40 +1419,62 @@ app.post("/api/pix/new-device", async (req, res) => {
 
 app.post("/api/group/add-free-device", async (req, res) => {
   try {
-    const { groupId, mainUsername, newUsername, remainingDays } = req.body;
+    const { groupId, mainUsername, newUsername, deviceId } = req.body;
+    if (!groupId || !mainUsername || !newUsername) {
+      return res.status(400).json({ error: "Dados incompletos" });
+    }
+    if (!/^[a-zA-Z0-9]{1,10}$/.test(newUsername)) {
+      return res.status(400).json({ error: "Usuário inválido. Use apenas letras e números, até 10 caracteres." });
+    }
 
-    // Generate random password
-    const password = Math.random().toString(36).slice(-6);
+    // The main user must actually belong to this group AND the request must
+    // come from a trusted device — this endpoint creates real VPN access.
+    const { data: membership } = await getDb().from("user_groups")
+      .select("username").eq("group_id", groupId).eq("username", mainUsername).maybeSingle();
+    if (!membership || !(await isTrustedDevice(mainUsername, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado. Verifique sua senha no aparelho antes de adicionar aparelhos." });
+    }
 
-    // Create user in VPN
+    // Recompute remaining days server-side from the main user's expiry.
+    // Never trust the value sent by the browser.
+    const users = await fetchVpnUsers();
+    const mainUser = users.find((u: any) => u.login === mainUsername);
+    if (!mainUser) return res.status(404).json({ error: "Usuário principal não encontrado" });
+    if (users.find((u: any) => u.login === newUsername)) {
+      return res.status(409).json({ error: "Este usuário já existe. Escolha outro nome." });
+    }
+    const expirationDate = parseVpnExpira(mainUser.expira);
+    if (!expirationDate) return res.status(400).json({ error: "Data de expiração inválida no painel VPN" });
+    const remainingDays = Math.max(1, Math.ceil((expirationDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+
+    // Generate random password (digits only, same pattern as paid devices)
+    const password = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Create user in VPN — module "criaruser" (user/pass/validadeusuario/userlimite)
     const createParams = new URLSearchParams();
     createParams.append("passapi", VPN_API_KEY);
-    createParams.append("module", "useradd");
-    createParams.append("login", newUsername);
-    createParams.append("senha", password);
-    createParams.append("dias", remainingDays.toString());
-    createParams.append("limite", "1");
+    createParams.append("module", "criaruser");
+    createParams.append("user", newUsername);
+    createParams.append("pass", password);
+    createParams.append("validadeusuario", String(remainingDays));
+    createParams.append("userlimite", "1");
+    createParams.append("whatsapp", "");
 
-    await fetch(VPN_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: createParams.toString(),
-    });
+    // callVpnApi validates the response (HTML/Cloudflare and explicit API errors throw)
+    const createResponse = await callVpnApi(createParams);
+    console.log(`[add-free-device] criaruser ${newUsername} (${remainingDays}d):`, createResponse);
 
     // Add to group
     await getDb().from("user_groups").upsert({ group_id: groupId, username: newUsername });
 
-    // Update plan
+    // Update plan with the official price formula (keeps the plan's months)
     const { data: groupUsers } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
-    const numDevices = (groupUsers || []).length;
-    let newPrice = 20;
-    if (numDevices === 2) newPrice = 35;
-    else if (numDevices === 3) newPrice = 50;
-    else if (numDevices === 4) newPrice = 60;
-    else if (numDevices === 5) newPrice = 70;
-    else if (numDevices >= 6) newPrice = 80;
+    const numDevices = Math.max(1, (groupUsers || []).length);
+    const { data: planRow } = await getDb().from("group_plans").select("plan_months").eq("group_id", groupId).maybeSingle();
+    const months = Math.max(1, parseInt(planRow?.plan_months) || 1);
+    const newPrice = calculatePlanPrice(months, numDevices);
 
-    await getDb().from("group_plans").update({ plan_type: 'devices', plan_devices: numDevices, plan_price: newPrice }).eq("group_id", groupId);
+    await getDb().from("group_plans").update({ plan_type: 'custom', plan_devices: numDevices, plan_price: newPrice }).eq("group_id", groupId);
 
     res.json({ success: true, password });
   } catch (error: any) {
@@ -1700,12 +1809,12 @@ async function reapplyPaymentVpnOperations(paymentRecord: any) {
   } else if (paymentRecord.type === "new_device") {
     const { newUsername, remainingDays } = metadata;
     if (newUsername && remainingDays) {
-      const done = await countSuccessfulAttempts(paymentId, "createuser", newUsername);
+      const done = await countSuccessfulAttempts(paymentId, "criaruser", newUsername);
       if (done === 0) {
         const password = Math.floor(100000 + Math.random() * 900000).toString();
         await applyVpnOperation({
-          paymentId, module: "createuser", targetUsername: newUsername,
-          extraParams: { pass: password, limit: "1", days: String(remainingDays) },
+          paymentId, module: "criaruser", targetUsername: newUsername,
+          extraParams: { pass: password, validadeusuario: String(remainingDays), userlimite: "1", whatsapp: "" },
         });
       }
     }
@@ -2082,6 +2191,23 @@ app.post("/api/admin/change-requests/:id/reject", async (req, res) => {
   }
 });
 
+// List all VPN panel users (light projection) — powers the browsable client
+// list in the admin. senha is included: this route is admin-token protected.
+app.get("/api/admin/users", async (_req, res) => {
+  try {
+    const users = await fetchVpnUsers();
+    res.json(users.map((u: any) => ({
+      login: u.login,
+      senha: u.senha ?? null,
+      expira: u.expira ?? null,
+      status: u.status ?? null,
+      limite: u.limite ?? null,
+    })));
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/admin/users/:username/details", async (req, res) => {
   try {
     const { username } = req.params;
@@ -2109,7 +2235,7 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
       : ["date", "username", "uuid", "password", "date_correction"];
     const { data: changeRequests } = await getDb().from("change_requests").select("*").eq("username", username).in("type", changeRequestTypes).order("created_at", { ascending: false });
 
-    // Get plan info + all group members
+    // Get plan info + all group members (with full panel data: senha/expira/status)
     const { data: group } = await getDb().from("user_groups").select("*").eq("username", username).maybeSingle();
     let plan = null;
     let groupMembers: any[] = [];
@@ -2118,10 +2244,10 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
       plan = p;
       const { data: gm } = await getDb().from("user_groups").select("username").eq("group_id", group.group_id);
       if (gm && gm.length > 1) {
-        const allVpnUsers = await fetchVpnUsers();
+        // Reuse the userget response fetched above — no second panel call.
         groupMembers = (gm || [])
           .filter(m => m.username !== username)
-          .map(m => ({ username: m.username, ...allVpnUsers.find((u: any) => u.login === m.username) }));
+          .map(m => ({ username: m.username, ...users.find((u: any) => u.login === m.username) }));
       }
     }
 
@@ -2131,8 +2257,12 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
     // Get referrals
     const { data: referrals } = await getDb().from("referrals").select("*").eq("referrer_username", username).order("created_at", { ascending: false });
 
+    // Tickets do cliente — a ficha de suporte mostra o histórico completo
+    const { data: tickets } = await getDb().from("tickets").select("*").eq("username", username).order("created_at", { ascending: false }).limit(20);
+
     res.json({
       user,
+      groupId: group?.group_id || null,
       devices: devices || [],
       payments: payments || [],
       refunds: refunds || [],
@@ -2141,6 +2271,7 @@ app.get("/api/admin/users/:username/details", async (req, res) => {
       points,
       referrals: referrals || [],
       groupMembers,
+      tickets: tickets || [],
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2426,10 +2557,21 @@ app.get("/api/tickets/:id/messages", async (req, res) => {
   }
 });
 
+// Helper: does this request carry a valid admin token?
+function hasAdminToken(req: any): boolean {
+  const auth = req.headers["authorization"] || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  return !!token && validateAdminToken(token);
+}
+
 app.post("/api/tickets/:id/messages", async (req, res) => {
   try {
     const { id } = req.params;
     const { sender, message } = req.body;
+    // Only the real admin can speak as "admin".
+    if (sender === "admin" && !hasAdminToken(req)) {
+      return res.status(401).json({ error: "Não autorizado." });
+    }
     const messageId = crypto.randomUUID();
 
     await getDb().from("ticket_messages").insert({ id: messageId, ticket_id: id, sender, message });
@@ -2452,12 +2594,17 @@ app.post("/api/tickets/:id/messages", async (req, res) => {
   }
 });
 
-// Edit a ticket message (update text only)
+// Edit a ticket message (update text only). Admin messages require the admin token.
 app.patch("/api/tickets/messages/:messageId", async (req, res) => {
   try {
     const { messageId } = req.params;
     const { message } = req.body;
     if (!message?.trim()) return res.status(400).json({ error: "Mensagem inválida" });
+    const { data: existing } = await getDb().from("ticket_messages").select("sender").eq("id", messageId).maybeSingle();
+    if (!existing) return res.status(404).json({ error: "Mensagem não encontrada" });
+    if (existing.sender === "admin" && !hasAdminToken(req)) {
+      return res.status(401).json({ error: "Não autorizado." });
+    }
     const { error } = await getDb().from("ticket_messages").update({ message: message.trim() }).eq("id", messageId);
     if (error) throw error;
     res.json({ success: true });
@@ -2466,10 +2613,15 @@ app.patch("/api/tickets/messages/:messageId", async (req, res) => {
   }
 });
 
-// Hard-delete a ticket message (no trace)
+// Hard-delete a ticket message (no trace). Admin messages require the admin token.
 app.delete("/api/tickets/messages/:messageId", async (req, res) => {
   try {
     const { messageId } = req.params;
+    const { data: existing } = await getDb().from("ticket_messages").select("sender").eq("id", messageId).maybeSingle();
+    if (!existing) return res.status(404).json({ error: "Mensagem não encontrada" });
+    if (existing.sender === "admin" && !hasAdminToken(req)) {
+      return res.status(401).json({ error: "Não autorizado." });
+    }
     const { error } = await getDb().from("ticket_messages").delete().eq("id", messageId);
     if (error) throw error;
     res.json({ success: true });
@@ -2482,6 +2634,10 @@ app.patch("/api/tickets/:id/status", async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+    // Clients may only close their own ticket; any other status change is admin-only.
+    if (status !== "closed" && !hasAdminToken(req)) {
+      return res.status(401).json({ error: "Não autorizado." });
+    }
     await getDb().from("tickets").update({ status }).eq("id", id);
     res.json({ success: true });
   } catch (error: any) {
@@ -2523,7 +2679,8 @@ app.get("/api/admin/devices", async (req, res) => {
 
 app.delete("/api/admin/devices", async (req, res) => {
   try {
-    await getDb().from("devices").delete().neq("id", "0"); // Delete all effectively
+    // Column is device_id (there is no "id" column — the old filter silently failed)
+    await getDb().from("devices").delete().neq("device_id", "");
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2759,9 +2916,8 @@ app.post("/api/reseller/login", async (req, res) => {
     const reseller = resellers.find((r: any) => r.login?.toLowerCase() === username.toLowerCase());
     if (!reseller) return res.status(404).json({ error: "Revendedor não encontrado. Verifique o nome de usuário ou contrate uma revenda." });
 
-    // Issue session token
-    const token = crypto.randomBytes(32).toString("hex");
-    resellerTokens.set(token, { username: reseller.login, expiresAt: Date.now() + RESELLER_TOKEN_TTL });
+    // Issue stateless session token (survives restarts/serverless cold starts)
+    const token = createResellerToken(reseller.login);
 
     // Also fetch reseller's payments from Supabase
     const { data: payments } = await getDb()
@@ -3562,29 +3718,51 @@ app.post("/api/admin/resellers/:username/adjust", async (req, res) => {
   }
 });
 
-// ─── Cron: Expiry Notifications ──────────────────────────────────────────────
-// Runs every day at 9h BRT to warn users/resellers whose access expires in 3 or 1 day
-
-cron.schedule("0 9 * * *", async () => {
+// ─── Expiry Notifications ────────────────────────────────────────────────────
+// Warns users/resellers whose access expires in 3 or 1 day. Triggered daily at
+// 9h BRT via node-cron (persistent hosts) or /api/cron/daily (serverless).
+async function runExpiryNotifications(): Promise<{ clients: number; resellers: number; trials: number }> {
   const db = getDb();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const counts = { clients: 0, resellers: 0, trials: 0 };
 
-  // ── Regular clients ──
+  // Only usernames that can actually receive a push — avoids iterating the
+  // whole VPN panel for users who never subscribed.
+  const { data: subRows } = await db.from("push_subscriptions").select("username");
+  const subscribed = new Set((subRows || []).map((s: any) => s.username));
+  if (subscribed.size === 0) return counts;
+
+  // Trial devices (used both for the trial notices and to skip trial accounts
+  // in the regular-client loop while their 2-day window is active).
+  const { data: trialDevices } = await db.from("devices").select("username, created_at");
+  const activeTrialUsers = new Set(
+    (trialDevices || [])
+      .filter((d: any) => {
+        const exp = new Date(d.created_at);
+        exp.setDate(exp.getDate() + 2);
+        return exp.getTime() >= today.getTime();
+      })
+      .map((d: any) => d.username)
+  );
+
+  // ── Regular clients — expiry comes from the VPN panel (userget), which is
+  // the source of truth. (The old code read user_groups.expires_at, a column
+  // that never existed — client warnings silently never fired.)
   try {
-    const { data: groups } = await db
-      .from("user_groups")
-      .select("username, expires_at")
-      .not("expires_at", "is", null);
-
-    for (const g of groups || []) {
-      const exp = new Date(g.expires_at);
+    const vpnUsers = await fetchVpnUsers();
+    for (const u of vpnUsers) {
+      if (!u?.login || !subscribed.has(u.login) || activeTrialUsers.has(u.login)) continue;
+      const exp = parseVpnExpira(u.expira);
+      if (!exp) continue;
       exp.setHours(0, 0, 0, 0);
       const daysLeft = Math.round((exp.getTime() - today.getTime()) / 86400000);
       if (daysLeft === 3) {
-        sendPush(g.username, "Seu acesso vence em 3 dias", "Renove agora para não perder o acesso.");
+        counts.clients++;
+        await sendPush(u.login, "Seu acesso vence em 3 dias", "Renove agora para não perder o acesso.");
       } else if (daysLeft === 1) {
-        sendPush(g.username, "Seu acesso vence amanhã! ⚠️", "Renove hoje para manter seu acesso ativo.");
+        counts.clients++;
+        await sendPush(u.login, "Seu acesso vence amanhã! ⚠️", "Renove hoje para manter seu acesso ativo.");
       }
     }
   } catch (e) { console.error("[cron] client expiry check failed:", e); }
@@ -3597,13 +3775,16 @@ cron.schedule("0 9 * * *", async () => {
       .in("type", ["reseller_hire", "reseller_renewal", "reseller_adjustment"])
       .eq("status", "approved");
 
-    const uniqueResellers = [...new Set((resellers || []).map((r: any) => r.username))];
+    const uniqueResellers = [...new Set((resellers || []).map((r: any) => r.username))]
+      .filter(u => subscribed.has(u));
 
     for (const username of uniqueResellers) {
+      // Filter by reseller payment types — mixing in regular payments skewed the date.
       const { data: payments } = await db
         .from("payments")
         .select("*")
         .eq("username", username)
+        .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
         .eq("status", "approved");
 
       const info = calcResellerInfo(payments || []);
@@ -3613,32 +3794,41 @@ cron.schedule("0 9 * * *", async () => {
       exp.setHours(0, 0, 0, 0);
       const daysLeft = Math.round((exp.getTime() - today.getTime()) / 86400000);
       if (daysLeft === 3) {
-        sendPush(username, "Sua revenda vence em 3 dias", "Renove sua revenda para não perder o acesso.");
+        counts.resellers++;
+        await sendPush(username, "Sua revenda vence em 3 dias", "Renove sua revenda para não perder o acesso.");
       } else if (daysLeft === 1) {
-        sendPush(username, "Sua revenda vence amanhã! ⚠️", "Renove hoje para manter sua revenda ativa.");
+        counts.resellers++;
+        await sendPush(username, "Sua revenda vence amanhã! ⚠️", "Renove hoje para manter sua revenda ativa.");
       }
     }
   } catch (e) { console.error("[cron] reseller expiry check failed:", e); }
 
   // ── Trial users (2-day trial) ──
   try {
-    const { data: trialDevices } = await db.from("devices").select("username, created_at");
     for (const d of trialDevices || []) {
+      if (!subscribed.has(d.username)) continue;
       const exp = new Date(d.created_at);
       exp.setDate(exp.getDate() + 2);
       exp.setHours(0, 0, 0, 0);
       const daysLeft = Math.round((exp.getTime() - today.getTime()) / 86400000);
       if (daysLeft === 1) {
-        sendPush(d.username, "Seu teste gratuito vence amanhã! ⏰", "Gostou? Assine agora para não perder o acesso.");
+        counts.trials++;
+        await sendPush(d.username, "Seu teste gratuito vence amanhã! ⏰", "Gostou? Assine agora para não perder o acesso.");
       } else if (daysLeft === 0) {
-        sendPush(d.username, "Seu teste gratuito venceu hoje", "Assine agora e continue usando sem interrupções.");
+        counts.trials++;
+        await sendPush(d.username, "Seu teste gratuito venceu hoje", "Assine agora e continue usando sem interrupções.");
       }
     }
   } catch (e) { console.error("[cron] trial expiry check failed:", e); }
-}, { timezone: "America/Sao_Paulo" });
 
-// ─── Background: sync pending/cancelled payments every 10 minutes ────────────
-setInterval(async () => {
+  return counts;
+}
+
+cron.schedule("0 9 * * *", () => { runExpiryNotifications().catch(e => console.error("[cron] daily error:", e)); }, { timezone: "America/Sao_Paulo" });
+
+// ─── Sync pending/cancelled payments against Mercado Pago ────────────────────
+async function syncPendingPayments(): Promise<number> {
+  let recovered = 0;
   try {
     const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(); // last 48h
     const { data: stale } = await getDb()
@@ -3647,7 +3837,7 @@ setInterval(async () => {
       .in("status", ["pending", "cancelled"])
       .gte("created_at", since);
 
-    if (!stale || stale.length === 0) return;
+    if (!stale || stale.length === 0) return 0;
 
     const paymentApi = new Payment(getMpClient());
     for (const p of stale) {
@@ -3655,6 +3845,7 @@ setInterval(async () => {
         const mpRes = await paymentApi.get({ id: p.id });
         if (mpRes.status === "approved") {
           await approvePayment(p);
+          recovered++;
           console.log(`[bg-sync] Recovered payment ${p.id} for ${p.username}`);
         }
       } catch (e) {
@@ -3664,7 +3855,54 @@ setInterval(async () => {
   } catch (e) {
     console.warn("[bg-sync] payment sync error:", e);
   }
-}, 10 * 60 * 1000); // every 10 minutes
+  return recovered;
+}
+
+// Persistent hosts: run every 10 minutes. (On serverless this interval rarely
+// fires — /api/cron/tick below is the reliable trigger there.)
+setInterval(() => { syncPendingPayments().catch(() => {}); }, 10 * 60 * 1000);
+
+// ─── Cron endpoints (serverless-safe workers) ────────────────────────────────
+// setInterval/node-cron do NOT run reliably on Vercel/serverless: the process
+// only lives during a request. These endpoints let an external scheduler
+// (Vercel Cron, cron-job.org, UptimeRobot…) drive the background work.
+// Auth: Vercel Cron sends "Authorization: Bearer <CRON_SECRET>" automatically
+// when the CRON_SECRET env var is set. A valid admin token also works.
+function requireCronAuth(req: any, res: any, next: any) {
+  const secret = process.env.CRON_SECRET;
+  const auth = String(req.headers["authorization"] || "");
+  const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (secret && bearer === secret) return next();
+  if (hasAdminToken(req)) return next();
+  if (!secret && process.env.NODE_ENV !== "production") return next(); // dev convenience
+  return res.status(401).json({ error: "Não autorizado." });
+}
+
+// Every-few-minutes tick: scheduled 1min/5min checks, MP sync, VPN retry, stale cleanup.
+app.get("/api/cron/tick", requireCronAuth, async (_req, res) => {
+  const startedAt = Date.now();
+  try {
+    await runScheduledChecksTick();
+    const recovered = await syncPendingPayments();
+    const retry = await retryFailedApplications();
+    await cancelStalePendingPayments();
+    res.json({ ok: true, recovered, retry, ms: Date.now() - startedAt });
+  } catch (e: any) {
+    console.error("[cron/tick] error:", e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Daily tick: expiry notifications (9h BRT ≈ 12:00 UTC).
+app.get("/api/cron/daily", requireCronAuth, async (_req, res) => {
+  try {
+    const counts = await runExpiryNotifications();
+    res.json({ ok: true, ...counts });
+  } catch (e: any) {
+    console.error("[cron/daily] error:", e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 

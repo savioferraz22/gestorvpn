@@ -4,7 +4,6 @@ import {
   deleteTicketMessage,
   editTicketMessage,
   fetchAdminTickets,
-  fetchAdminUserDetails,
   fetchTicketMessages,
   sendTicketMessage,
   updateTicketStatus,
@@ -12,6 +11,7 @@ import {
 import type { AdminTab, TicketMessage } from "../../types";
 import { Card, Chip, Empty, SectionHeader, Stat, useToast } from "./ui";
 import { FilterBar, FilterSelect, SearchInput, useUrlState } from "./filters";
+import { UserDetailDrawer } from "./UserDetailPanel";
 
 interface Props {
   allTickets: any[];
@@ -70,8 +70,7 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
   const [sending, setSending] = useState(false);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editingMsgText, setEditingMsgText] = useState("");
-  const [userDetails, setUserDetails] = useState<any>(null);
-  const [showUserModal, setShowUserModal] = useState(false);
+  const [viewUsername, setViewUsername] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const filtered = useMemo(() => {
@@ -201,16 +200,6 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
     }
   }
 
-  async function loadUserDetails(username: string) {
-    try {
-      const data = await fetchAdminUserDetails(username);
-      setUserDetails(data);
-      setShowUserModal(true);
-    } catch (err) {
-      console.warn(err);
-    }
-  }
-
   const chips = [
     state.status !== "open" && {
       id: "status",
@@ -323,7 +312,7 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
                 onEdit={handleEditMsg}
                 onDelete={handleDeleteMsg}
                 onClose={handleClose}
-                onViewUser={() => loadUserDetails(selected.username)}
+                onViewUser={() => setViewUsername(selected.username)}
                 messagesEndRef={messagesEndRef}
               />
             ) : (
@@ -359,44 +348,18 @@ export function AdminTickets({ allTickets, setAllTickets }: Props) {
             onEdit={handleEditMsg}
             onDelete={handleDeleteMsg}
             onClose={handleClose}
-            onViewUser={() => loadUserDetails(selected.username)}
+            onViewUser={() => setViewUsername(selected.username)}
             onBack={() => setSelectedId(null)}
             messagesEndRef={messagesEndRef}
           />
         </div>
       )}
 
-      {showUserModal && userDetails && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
-          onClick={() => setShowUserModal(false)}
-        >
-          <div
-            className="w-full max-w-sm space-y-3 rounded-xl bg-bg-surface border border-border-base p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <p className="font-bold text-text-base">
-                {userDetails.user?.login || selected?.username}
-              </p>
-              <button onClick={() => setShowUserModal(false)}>
-                <X className="h-4 w-4 text-text-muted" />
-              </button>
-            </div>
-            <p className="text-sm text-text-muted">
-              Status: {userDetails.user?.status || "N/A"}
-            </p>
-            <p className="text-sm text-text-muted">
-              Expira: {userDetails.user?.expira || "N/A"}
-            </p>
-            <p className="text-sm text-text-muted">
-              Pagamentos aprovados:{" "}
-              {(userDetails.payments || []).filter((p: any) => p.status === "approved").length}
-            </p>
-            <p className="text-sm text-text-muted">Pontos: {userDetails.points || 0}</p>
-          </div>
-        </div>
-      )}
+      {/* Ficha completa do cliente — sem sair da aba de suporte */}
+      <UserDetailDrawer
+        username={viewUsername}
+        onClose={() => setViewUsername(null)}
+      />
     </div>
   );
 }

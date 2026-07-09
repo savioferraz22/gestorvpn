@@ -8,6 +8,7 @@ import {
 } from "../../services/api";
 import { Card, Chip, Empty, SectionHeader, Stat, useToast } from "./ui";
 import { FilterBar, FilterSelect, SearchInput, useUrlState } from "./filters";
+import { UserDetailDrawer } from "./UserDetailPanel";
 
 interface Props {
   changeRequests: any[];
@@ -100,6 +101,7 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
   const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
   const [showPass, setShowPass] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [viewUsername, setViewUsername] = useState<string | null>(null);
 
   function copyValue(key: string, value: string) {
     if (!value) return;
@@ -304,6 +306,17 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
                           ) : (
                             <Copy size={12} />
                           )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewUsername(r.username);
+                          }}
+                          className="inline-flex h-6 items-center rounded-md border border-primary-500/30 bg-primary-500/10 px-1.5 text-[10px] font-bold text-primary-600 hover:bg-primary-500/20"
+                          title="Abrir ficha completa do cliente"
+                        >
+                          Ficha
                         </button>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -551,6 +564,12 @@ export function AdminChangeReqs({ changeRequests, setChangeRequests }: Props) {
           </Card>
         </div>
       )}
+
+      {/* Ficha completa do cliente — sem sair da aba de solicitações */}
+      <UserDetailDrawer
+        username={viewUsername}
+        onClose={() => setViewUsername(null)}
+      />
     </div>
   );
 }

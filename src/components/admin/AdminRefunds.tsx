@@ -4,6 +4,7 @@ import { approveRefund, fetchAdminRefunds, rejectRefund } from "../../services/a
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { Card, Chip, Empty, SectionHeader, Stat, useToast } from "./ui";
 import { FilterBar, FilterSelect, SearchInput, useUrlState } from "./filters";
+import { UserDetailDrawer } from "./UserDetailPanel";
 
 interface Props {
   refunds: any[];
@@ -61,6 +62,7 @@ export function AdminRefunds({ refunds, setRefunds }: Props) {
   const [refundDateTime, setRefundDateTime] = useState("");
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [viewUsername, setViewUsername] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -200,7 +202,17 @@ export function AdminRefunds({ refunds, setRefunds }: Props) {
                 <Card key={r.id} padding="md" className="flex flex-col gap-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-text-base font-mono">{r.username}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-bold text-text-base font-mono">{r.username}</p>
+                        <button
+                          type="button"
+                          onClick={() => setViewUsername(r.username)}
+                          className="inline-flex h-6 items-center rounded-md border border-primary-500/30 bg-primary-500/10 px-1.5 text-[10px] font-bold text-primary-600 hover:bg-primary-500/20"
+                          title="Abrir ficha completa do cliente"
+                        >
+                          Ficha
+                        </button>
+                      </div>
                       <p className="mt-0.5 text-[11px] text-text-muted font-mono">
                         {formatDate(r.created_at)}
                       </p>
@@ -316,6 +328,12 @@ export function AdminRefunds({ refunds, setRefunds }: Props) {
           if (confirmReject) handleReject(confirmReject);
         }}
         onCancel={() => setConfirmReject(null)}
+      />
+
+      {/* Ficha completa do cliente — sem sair da aba de reembolsos */}
+      <UserDetailDrawer
+        username={viewUsername}
+        onClose={() => setViewUsername(null)}
       />
     </div>
   );

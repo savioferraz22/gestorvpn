@@ -117,7 +117,7 @@ export async function createTicket(username: string, category: string, subject: 
 export async function sendTicketMessage(ticketId: string, sender: "user" | "admin", message: string) {
   return apiFetch<any>(`/api/tickets/${ticketId}/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders(),
     body: JSON.stringify({ sender, message }),
   });
 }
@@ -125,7 +125,7 @@ export async function sendTicketMessage(ticketId: string, sender: "user" | "admi
 export async function editTicketMessage(messageId: string, message: string) {
   return apiFetch<any>(`/api/tickets/messages/${messageId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders(),
     body: JSON.stringify({ message }),
   });
 }
@@ -133,13 +133,14 @@ export async function editTicketMessage(messageId: string, message: string) {
 export async function deleteTicketMessage(messageId: string) {
   return apiFetch<any>(`/api/tickets/messages/${messageId}`, {
     method: "DELETE",
+    headers: adminHeaders(),
   });
 }
 
 export async function updateTicketStatus(ticketId: string, status: string) {
   return apiFetch<any>(`/api/tickets/${ticketId}/status`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders(),
     body: JSON.stringify({ status }),
   });
 }
@@ -207,6 +208,10 @@ export async function rejectChangeRequest(id: string, reason?: string) {
 
 export async function fetchAdminReports(period: number) {
   return apiFetch<any>(`/api/admin/reports?period=${period}`, { headers: adminHeaders() });
+}
+
+export async function fetchAdminUsersList() {
+  return apiFetch<any[]>("/api/admin/users", { headers: adminHeaders() });
 }
 
 export async function fetchAdminUserDetails(username: string) {

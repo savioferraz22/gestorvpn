@@ -224,9 +224,10 @@ export default function App() {
 
   const calcResellerPrice = (months: number, logins: number) => (30 + logins) * months;
 
-  // Calculate plan price
+  // Calculate plan price — official formula, must match calculatePlanPrice in server.ts:
+  // 1º aparelho: R$15 base + R$10 por mês extra; cada aparelho extra: R$10 × meses
   const calcPlanPrice = (months: number, devices: number) =>
-    5 + devices * months * 10;
+    15 + (months - 1) * 10 + (devices - 1) * 10 * months;
 
   // Calculate loyalty points from APPROVED payment history only
   const calcLoyaltyPoints = (payments: any[]): number => {
@@ -612,7 +613,7 @@ export default function App() {
         const groupData = await groupRes.json();
         setGroupData(groupData);
 
-        const detailsRes = await fetch(`/api/group/details/${groupData.groupId}`);
+        const detailsRes = await fetch(`/api/group/details/${groupData.groupId}?username=${encodeURIComponent(loginUsername.trim())}&deviceId=${encodeURIComponent(currentDeviceId || "")}`);
         if (detailsRes.ok) {
           const detailsData = await detailsRes.json();
           setGroupUsersDetails(detailsData);
@@ -692,7 +693,8 @@ export default function App() {
         const data = await res.json();
         setGroupData(data);
 
-        const detailsRes = await fetch(`/api/group/details/${data.groupId}`);
+        const did = deviceId || localStorage.getItem("vpn_device_id") || "";
+        const detailsRes = await fetch(`/api/group/details/${data.groupId}?username=${encodeURIComponent(currentUser.login)}&deviceId=${encodeURIComponent(did)}`);
         if (detailsRes.ok) {
           const detailsData = await detailsRes.json();
           setGroupUsersDetails(detailsData);
@@ -734,7 +736,11 @@ export default function App() {
         const res = await fetch("/api/group/remove", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ groupId: groupData.groupId, usernameToRemove })
+          body: JSON.stringify({
+            groupId: groupData.groupId, usernameToRemove,
+            username: currentUser?.login,
+            deviceId: deviceId || localStorage.getItem("vpn_device_id") || "",
+          })
         });
         if (res.ok) {
           fetchGroupData();
@@ -762,7 +768,11 @@ export default function App() {
       const res = await fetch("/api/group/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId: groupData.groupId, plan_type, plan_months, plan_devices, plan_price })
+        body: JSON.stringify({
+          groupId: groupData.groupId, plan_type, plan_months, plan_devices, plan_price,
+          username: currentUser?.login,
+          deviceId: deviceId || localStorage.getItem("vpn_device_id") || "",
+        })
       });
       if (res.ok) {
         fetchGroupData();
@@ -796,6 +806,8 @@ export default function App() {
       setShowData(true);
       setShowVerifyModal(false);
       setVerifyPassword("");
+      // Device is now trusted — refetch so the server includes the passwords.
+      fetchGroupData();
       showAlertDialog("Senha confirmada! Acesso liberado.");
     } catch (err: any) {
       setVerifyError(err.message);
@@ -1300,11 +1312,14 @@ export default function App() {
             groupId: groupData?.groupId,
             mainUsername: currentUser?.login,
             newUsername: upgradeUsername,
-            remainingDays: data.remainingDays
+            deviceId: deviceId || localStorage.getItem("vpn_device_id") || "",
           })
         });
         if (freeRes.ok) {
-          showAlertDialog("Aparelho adicionado com sucesso!");
+          const freeData = await freeRes.json().catch(() => ({} as any));
+          showAlertDialog(freeData.password
+            ? `Aparelho adicionado com sucesso! Usuário: ${upgradeUsername} — Senha: ${freeData.password}. Você também pode ver a senha em "Meus Aparelhos".`
+            : "Aparelho adicionado com sucesso!");
           setPlanUpgradeStep('select');
           setShowPlanModal(false);
           fetchGroupData();
@@ -1320,7 +1335,7 @@ export default function App() {
 
       const interval = setInterval(async () => {
         try {
-          const checkRes = await fetch(`/api/pix/status/${data.transactionId}`);
+          const checkRes = await fetch(`/api/status/${data.transactionId}`);
           const checkData = await checkRes.json();
           if (checkData.status === 'approved') {
             clearInterval(interval);
