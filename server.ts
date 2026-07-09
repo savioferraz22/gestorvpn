@@ -448,6 +448,40 @@ async function calculateLoyaltyPoints(username: string): Promise<number> {
   return Math.min(points, 3); // Never exceed 3
 }
 
+// Loyalty points for RESELLERS — counts reseller payments (hire/renewal).
+// Before this existed, the renewal endpoint offered the 3-point discount but
+// points only ever counted regular-client payments, so no reseller could
+// ever reach it (dead feature). Same rules: paidOnTime earns 1, using the
+// discount resets, approved refunds deduct, capped at 3.
+async function calculateResellerLoyaltyPoints(username: string): Promise<number> {
+  const { data: payments } = await getDb()
+    .from("payments")
+    .select("metadata, paid_at")
+    .eq("username", username)
+    .eq("status", "approved")
+    .in("type", ["reseller_hire", "reseller_renewal"])
+    .order("paid_at", { ascending: true, nullsFirst: false });
+
+  let points = 0;
+  for (const p of payments || []) {
+    const meta = parseMetadata(p.metadata);
+    if (meta.discountApplied === true) {
+      points = 0;
+    } else if (meta.paidOnTime === true) {
+      points++;
+    }
+  }
+
+  const { data: refunds } = await getDb()
+    .from("refund_requests")
+    .select("id")
+    .eq("username", username)
+    .eq("status", "aprovado");
+  points = Math.max(0, points - (refunds?.length || 0));
+
+  return Math.min(points, 3);
+}
+
 // Parse VPN expira date robustly (handles "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DD")
 function parseVpnExpira(expira: any): Date | null {
   if (!expira) return null;
@@ -659,18 +693,82 @@ async function approvePayment(paymentRecord: any) {
   } else if (paymentRecord.type === "reseller_renewal") {
     // Renew existing reseller N months, skipping any already-successful attempts.
     // CRITICAL: this is what fixes the "paid 1 month, got 2" bug — renewrev is
-    // never called more than metadata.resellerMonths times per payment, even
-    // across retries, webhook duplicates, or admin-triggered reprocessing.
+    // never called more than the computed total per payment, even across
+    // retries, webhook duplicates, or admin-triggered reprocessing.
     const resellerUser = metadata.resellerUsername || paymentRecord.username;
     const months = Math.max(1, Math.min(12, Number(metadata.resellerMonths) || 1));
+
+    // Deficit compensation (same policy as client renewals): if the reseller
+    // was already expired, each full 30 days of deficit is covered by an extra
+    // renewrev. The remainder (<30d) is corrected in OUR expiry accounting via
+    // an automatic reseller_adjustment (the panel has no set-date module, so
+    // the panel keeps a <30d lag — admin is notified to align it manually).
+    let extraRenewals = 0;
+    let remainderDays = 0;
+    let deficitDays = 0;
+    try {
+      const { data: priorPayments } = await db.from("payments").select("*")
+        .eq("username", resellerUser)
+        .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
+        .eq("status", "approved")
+        .neq("id", paymentId) // exclude THIS payment — its renewals haven't applied yet
+        .order("created_at", { ascending: true })
+        .limit(200);
+      const prior = await calcResellerInfoWithAttempts(priorPayments || []);
+      if (prior.expiresAt) {
+        const exp = new Date(prior.expiresAt);
+        if (exp.getTime() < Date.now()) {
+          deficitDays = Math.ceil((Date.now() - exp.getTime()) / 86400000);
+          extraRenewals = Math.min(Math.floor(deficitDays / 30), 12); // safety cap
+          remainderDays = deficitDays - extraRenewals * 30;
+          console.log(`[reseller] ${resellerUser} expired ${deficitDays}d ago — compensating ${extraRenewals} renewrev(s), remainder ${remainderDays}d`);
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[reseller] deficit check failed for ${resellerUser}:`, e?.message);
+    }
+
+    const totalRenewals = months + extraRenewals;
     const alreadyRenewed = await countSuccessfulAttempts(paymentId, "renewrev", resellerUser);
-    for (let i = alreadyRenewed; i < months; i++) {
+    for (let i = alreadyRenewed; i < totalRenewals; i++) {
       const r = await applyVpnOperation({ paymentId, module: "renewrev", targetUsername: resellerUser });
       if (!r.success) {
-        recordFailure(`renewrev ${resellerUser} (mês ${i + 1}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
+        recordFailure(`renewrev ${resellerUser} (${i + 1}/${totalRenewals}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
         break;
       }
-      console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, r.response);
+      console.log(`[reseller] renewrev ${resellerUser} ${i + 1}/${totalRenewals}:`, r.response);
+    }
+
+    // Remainder correction: pin OUR expiry to exactly now + 30*months via an
+    // automatic adjustment, and remind the admin to align the panel date.
+    if (vpnFullyApplied && deficitDays > 0) {
+      if (remainderDays > 0) {
+        const correctDate = new Date();
+        correctDate.setDate(correctDate.getDate() + 30 * months);
+        try {
+          await db.from("payments").insert({
+            id: `adj_${resellerUser}_${Date.now()}`,
+            username: resellerUser,
+            status: "approved",
+            type: "reseller_adjustment",
+            paid_at: new Date().toISOString(),
+            metadata: { resellerExpiresAt: correctDate.toISOString(), isAutoCorrection: true, sourcePaymentId: paymentId },
+          });
+        } catch (e: any) {
+          console.warn(`[reseller] auto-adjustment insert failed for ${resellerUser}:`, e?.message);
+        }
+        sendPush("__admin__", "📅 Revenda: painel precisa de ajuste",
+          `${resellerUser} renovou vencido há ${deficitDays} dia(s). ${extraRenewals * 30} dias compensados automaticamente; a data no app já está correta, mas o painel VPN ficou ${remainderDays} dia(s) atrás — ajuste manualmente se necessário.`);
+      } else {
+        sendPush("__admin__", "✅ Revenda: vencimento compensado",
+          `${resellerUser} renovou vencido há ${deficitDays} dia(s) — ${extraRenewals * 30} dias compensados automaticamente no painel, sem ação manual.`);
+      }
+      logActivity("renewal_deficit_compensated", {
+        username: resellerUser,
+        actor: "system",
+        description: `Renovação de revenda com ${deficitDays} dia(s) de atraso: ${extraRenewals * 30} dias compensados${remainderDays > 0 ? `, data do app corrigida (painel ${remainderDays} dia(s) atrás)` : ""}`,
+        metadata: { paymentId, deficitDays, extraRenewals, remainderDays },
+      });
     }
     if (vpnFullyApplied) {
       sendPush(paymentRecord.username, "Revenda renovada! 🎉", "Sua revenda foi renovada com sucesso.");
@@ -3251,19 +3349,21 @@ app.post("/api/reseller/login", async (req, res) => {
     // Issue stateless session token (survives restarts/serverless cold starts)
     const token = createResellerToken(reseller.login);
 
-    // Also fetch reseller's payments from Supabase
+    // Also fetch reseller's payments from Supabase.
+    // Includes reseller_adjustment — admin manual adjustments must affect the
+    // expiry shown here, otherwise this screen diverges from /me/details.
     const { data: payments } = await getDb()
       .from("payments")
       .select("*")
       .eq("username", reseller.login)
-      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup"])
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
       .order("created_at", { ascending: true })
-      .limit(50);
+      .limit(100);
 
     // Source of truth: successful payment_attempts. Payments that didn't
     // actually apply to the VPN panel don't contribute days to the expiry.
     const info = await calcResellerInfoWithAttempts(payments || []);
-    const points = await calculateLoyaltyPoints(reseller.login);
+    const points = await calculateResellerLoyaltyPoints(reseller.login);
     // Never expose senha in login response — client must call /verify-password
     // Only expose a hint: first 2 chars + dots
     const passwordHint = reseller.senha
@@ -3289,12 +3389,12 @@ app.get("/api/reseller/me", requireResellerAuth, async (req: any, res) => {
       .from("payments")
       .select("*")
       .eq("username", username)
-      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup"])
+      .in("type", ["reseller_hire", "reseller_renewal", "reseller_setup", "reseller_adjustment"])
       .order("created_at", { ascending: true })
-      .limit(50);
+      .limit(100);
 
     const info = await calcResellerInfoWithAttempts(payments || []);
-    const points = await calculateLoyaltyPoints(username);
+    const points = await calculateResellerLoyaltyPoints(username);
     const passwordHint2 = reseller.senha
       ? reseller.senha.slice(0, 2) + "•".repeat(Math.max(2, reseller.senha.length - 2))
       : null;
@@ -3517,7 +3617,7 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
       username,
       status: "pending",
       type: "reseller_hire",
-      metadata: { resellerUsername: username, resellerPassword: password, resellerWhatsapp: whatsapp || "", resellerLogins: loginsNum, resellerMonths: monthsNum, amount },
+      metadata: { resellerUsername: username, resellerPassword: password, resellerWhatsapp: whatsapp || "", resellerLogins: loginsNum, resellerMonths: monthsNum, amount, paidOnTime: true },
     });
     schedulePaymentCheck(mpRes.id.toString());
 
@@ -3571,13 +3671,18 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
       return res.status(400).json({ error: "Quantidade de logins inválida. Mínimo 10, máximo 1000." });
     }
 
-    const points = await calculateLoyaltyPoints(username);
+    const points = await calculateResellerLoyaltyPoints(username);
     let amount = calcResellerPrice(monthsNum, logins);
     let discountApplied = false;
     if (points >= 3) {
       amount = Math.round(amount * 0.8);
       discountApplied = true;
     }
+
+    // paidOnTime real: só ganha ponto se renovar antes do vencimento
+    const paidOnTime = currentInfo.expiresAt
+      ? new Date(currentInfo.expiresAt).getTime() >= Date.now()
+      : true;
 
     const client = getMpClient();
     const payment = new Payment(client);
@@ -3600,7 +3705,7 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
       username,
       status: "pending",
       type: "reseller_renewal",
-      metadata: { resellerUsername: username, resellerLogins: logins, resellerMonths: monthsNum, amount, discountApplied, paidOnTime: true },
+      metadata: { resellerUsername: username, resellerLogins: logins, resellerMonths: monthsNum, amount, discountApplied, paidOnTime },
     });
     schedulePaymentCheck(mpRes.id.toString());
 
@@ -3942,7 +4047,9 @@ app.post("/api/admin/reseller-requests/:id/confirm", async (req, res) => {
       description: `Aumento de logins confirmado: ${request.username} → ${newLogins} logins`,
       metadata: { type: request.type, requestId: id, newLogins },
     });
-    res.json({ success: true });
+    // A API do painel não tem módulo para alterar o limite de um revendedor —
+    // o admin precisa fazer isso manualmente no painel VPN.
+    res.json({ success: true, message: `Confirmado. IMPORTANTE: altere o limite de ${request.username} para ${newLogins} logins manualmente no painel VPN.` });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
