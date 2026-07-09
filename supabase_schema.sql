@@ -15,8 +15,12 @@ CREATE TABLE IF NOT EXISTS public.payments (
 CREATE TABLE IF NOT EXISTS public.devices (
     device_id TEXT PRIMARY KEY,
     username TEXT NOT NULL,
+    ip TEXT, -- IP de origem do teste grátis (limite anti-abuso por IP)
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+-- Migração para bancos existentes:
+-- ALTER TABLE public.devices ADD COLUMN IF NOT EXISTS ip TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_devices_ip ON public.devices(ip, created_at);
 
 CREATE TABLE IF NOT EXISTS public.trusted_devices (
     device_id TEXT NOT NULL,
