@@ -11,6 +11,7 @@ import {
   Store,
   Bell,
   Settings,
+  ScrollText,
 } from "lucide-react";
 
 const MAP: Record<string, React.ComponentType<{ className?: string; size?: number }>> = {
@@ -25,6 +26,7 @@ const MAP: Record<string, React.ComponentType<{ className?: string; size?: numbe
   Store,
   Bell,
   Settings,
+  ScrollText,
 };
 
 export function NavIcon({

@@ -65,6 +65,51 @@ async function sendPush(username: string, title: string, body: string, url = "/"
   } catch (e) { console.error("[push] Unexpected error:", e); }
 }
 
+// ─── Activity Log ────────────────────────────────────────────────────────────
+// Registro de toda movimentação do app para a guia "Logs" do admin.
+// Fire-and-forget: nunca bloqueia nem quebra a operação principal.
+type LogActor = "client" | "admin" | "system" | "reseller";
+
+function logActivity(eventType: string, opts: {
+  username?: string | null;
+  actor?: LogActor;
+  description: string;
+  metadata?: Record<string, any>;
+}): void {
+  try {
+    getDb().from("activity_logs").insert({
+      id: crypto.randomUUID(),
+      event_type: eventType,
+      username: opts.username || null,
+      actor: opts.actor || "system",
+      description: opts.description,
+      metadata: opts.metadata || null,
+    }).then(({ error }) => {
+      if (error) console.warn(`[logs] insert failed (${eventType}):`, error.message);
+    });
+  } catch (e: any) {
+    console.warn(`[logs] logActivity error (${eventType}):`, e?.message);
+  }
+}
+
+function logPaymentTypeLabel(type?: string): string {
+  switch (type) {
+    case "new_device": return "Novo Aparelho";
+    case "renewal": return "Renovação";
+    case "reseller_hire": return "Contratação Revenda";
+    case "reseller_renewal": return "Renovação Revenda";
+    case "reseller_setup": return "Setup Revenda";
+    case "reseller_adjustment": return "Ajuste Revenda";
+    case "reseller_logins_increase": return "Aumento de Logins";
+    default: return type || "Pagamento";
+  }
+}
+
+function fmtBRL(v: any): string {
+  const n = Number(v);
+  return Number.isFinite(n) ? `R$ ${n.toFixed(2).replace(".", ",")}` : "—";
+}
+
 // ─── Admin Auth ────────────────────────────────────────────────────────────
 // Tokens are stored in memory with a TTL of 24h. Never exposed in client JS.
 const ADMIN_TOKEN_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -233,6 +278,13 @@ app.post("/api/admin/system-notice", async (req, res) => {
       updated_at: new Date().toISOString(),
     });
     if (error) throw error;
+
+    logActivity("admin_notice_updated", {
+      actor: "admin",
+      description: `Aviso global ${active ? "ativado" : "desativado"}${active && title ? `: "${title}"` : ""}`,
+      metadata: { active, title, severity: sev },
+    });
+
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -547,12 +599,25 @@ async function approvePayment(paymentRecord: any) {
   // over- or under-apply renewals.
   const metadata = normalizeMetadata(paymentRecord.metadata);
 
+  logActivity("payment_approved", {
+    username: paymentRecord.username,
+    actor: "client",
+    description: `Pagamento aprovado: ${logPaymentTypeLabel(paymentRecord.type)} — ${fmtBRL(metadata.amount)}`,
+    metadata: { paymentId, type: paymentRecord.type, amount: metadata.amount ?? null, discountApplied: !!metadata.discountApplied },
+  });
+
   // Track whether every VPN panel operation triggered by this payment succeeded.
   // A partial failure flips this false and the admin gets a retry button in the UI.
   let vpnFullyApplied = true;
   const recordFailure = (msg: string) => {
     vpnFullyApplied = false;
     sendPush("__admin__", "⚠️ Falha ao aplicar renovação", msg);
+    logActivity("payment_vpn_failed", {
+      username: paymentRecord.username,
+      actor: "system",
+      description: `Falha ao aplicar no painel VPN: ${msg}`,
+      metadata: { paymentId, type: paymentRecord.type },
+    });
   };
 
   if (paymentRecord.type === "reseller_hire") {
@@ -580,7 +645,15 @@ async function approvePayment(paymentRecord: any) {
         }
         console.log(`[reseller] renewrev ${newRev} month ${i + 1}:`, r.response);
       }
-      if (vpnFullyApplied) sendPush(paymentRecord.username, "Revenda ativada! 🎉", "Sua conta de revenda está ativa e pronta para uso.");
+      if (vpnFullyApplied) {
+        sendPush(paymentRecord.username, "Revenda ativada! 🎉", "Sua conta de revenda está ativa e pronta para uso.");
+        logActivity("reseller_hired", {
+          username: newRev,
+          actor: "reseller",
+          description: `Revenda contratada: ${newRev} — ${resellerLogins || 10} logins por ${Math.max(1, Math.min(12, Number(resellerMonths) || 1))} mês(es), ${fmtBRL(metadata.amount)}`,
+          metadata: { paymentId, logins: resellerLogins || 10, months: resellerMonths || 1, amount: metadata.amount ?? null },
+        });
+      }
     }
 
   } else if (paymentRecord.type === "reseller_renewal") {
@@ -599,7 +672,15 @@ async function approvePayment(paymentRecord: any) {
       }
       console.log(`[reseller] renewrev ${resellerUser} month ${i + 1}:`, r.response);
     }
-    if (vpnFullyApplied) sendPush(paymentRecord.username, "Revenda renovada! 🎉", "Sua revenda foi renovada com sucesso.");
+    if (vpnFullyApplied) {
+      sendPush(paymentRecord.username, "Revenda renovada! 🎉", "Sua revenda foi renovada com sucesso.");
+      logActivity("reseller_renewed", {
+        username: resellerUser,
+        actor: "reseller",
+        description: `Revenda renovada: ${resellerUser} — ${months} mês(es), ${fmtBRL(metadata.amount)}`,
+        metadata: { paymentId, months, amount: metadata.amount ?? null },
+      });
+    }
 
   } else if (paymentRecord.type === "reseller_logins_increase") {
     // After paid login upgrade: create change_request for admin to confirm manually
@@ -613,6 +694,12 @@ async function approvePayment(paymentRecord: any) {
         status: "aguardando_confirmacao",
       });
       console.log(`[reseller_logins_increase] change_request created for ${paymentRecord.username}: ${newLogins} logins`);
+      logActivity("change_request_created", {
+        username: paymentRecord.username,
+        actor: "system",
+        description: `Aumento de logins pago (${newLogins} logins) — aguardando confirmação do admin`,
+        metadata: { type: "reseller_logins_increase", newLogins, paymentId },
+      });
     }
     sendPush(paymentRecord.username, "Pagamento recebido!", "Aguardando confirmação do administrador para adicionar os logins.");
     sendPush("__admin__", "Aumento de logins pago", `${paymentRecord.username} pagou pelo aumento de logins. Confirme no painel.`);
@@ -632,7 +719,15 @@ async function approvePayment(paymentRecord: any) {
           extraParams: { pass: password, validadeusuario: String(remainingDays), userlimite: "1", whatsapp: "" },
         });
         if (!r.success) recordFailure(`criaruser ${newUsername} falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
-        else console.log(`VPN Create Response for ${newUsername}:`, r.response);
+        else {
+          console.log(`VPN Create Response for ${newUsername}:`, r.response);
+          logActivity("device_created", {
+            username: paymentRecord.username,
+            actor: "client",
+            description: `Aparelho novo criado no painel: ${newUsername} (${remainingDays} dias, ${fmtBRL(metadata.amount)})`,
+            metadata: { paymentId, newUsername, remainingDays, amount: metadata.amount ?? null },
+          });
+        }
       }
 
       // Add to group (ignore duplicate key — safe on retry)
@@ -701,6 +796,14 @@ async function approvePayment(paymentRecord: any) {
           correctExpiryDate = correctDate.toISOString().split("T")[0];
         }
         console.log(`[renew] ${usersToRenew[0]} expired ${deficitDays}d ago — auto-compensating ${extraRenewals} renewal(s), remainder ${remainderDays}d${needsDateCorrection ? ` → date_correction to ${correctExpiryDate}` : ""}`);
+        if (extraRenewals > 0) {
+          logActivity("renewal_deficit_compensated", {
+            username: paymentRecord.username,
+            actor: "system",
+            description: `Renovação com acesso vencido há ${deficitDays} dia(s): ${extraRenewals * 30} dias compensados automaticamente${remainderDays > 0 ? `, restam ${remainderDays} dia(s) para correção manual` : ""}`,
+            metadata: { paymentId, deficitDays, extraRenewals, remainderDays },
+          });
+        }
       }
     }
 
@@ -732,6 +835,12 @@ async function approvePayment(paymentRecord: any) {
             status: "aguardando",
           });
           console.log(`[date_correction] Created for ${user} → ${correctExpiryDate}`);
+          logActivity("change_request_created", {
+            username: user,
+            actor: "system",
+            description: `Correção de vencimento criada automaticamente → ${correctExpiryDate.split("-").reverse().join("/")}`,
+            metadata: { type: "date_correction", requestedValue: correctExpiryDate, paymentId },
+          });
         } catch (e: any) {
           console.warn(`[date_correction] Failed to create for ${user}:`, e.message);
         }
@@ -808,6 +917,12 @@ async function approvePayment(paymentRecord: any) {
       });
       if (r.success) {
         await db.from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
+        logActivity("referral_bonus", {
+          username: referral.referrer_username,
+          actor: "system",
+          description: `Bônus de indicação: ${referral.referrer_username} ganhou +30 dias por indicar ${paymentRecord.username}`,
+          metadata: { referredUsername: paymentRecord.username, paymentId },
+        });
       } else {
         console.error(`Failed to award referral bonus to ${referral.referrer_username}:`, r.error);
       }
@@ -1008,6 +1123,13 @@ app.post("/api/group/add", async (req, res) => {
       await getDb().from("group_plans").update({ plan_type: 'custom', plan_devices: numDevices, plan_price: newPrice }).eq("group_id", groupId);
     }
 
+    logActivity("device_linked", {
+      username: newUsername,
+      actor: "client",
+      description: `Aparelho existente vinculado ao plano: ${newUsername} (grupo com ${numDevices} aparelho${numDevices === 1 ? "" : "s"})`,
+      metadata: { groupId, newUsername, numDevices },
+    });
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("Error adding to group:", error);
@@ -1042,6 +1164,13 @@ app.post("/api/group/remove", async (req, res) => {
     await getDb().from("user_groups").insert({ group_id: newGroupId, username: usernameToRemove });
     await getDb().from("group_plans").insert({ group_id: newGroupId, plan_type: 'custom', plan_months: 1, plan_devices: 1, plan_price: 15 });
 
+    logActivity("device_removed", {
+      username: usernameToRemove,
+      actor: "client",
+      description: `Aparelho removido do plano: ${usernameToRemove} (removido por ${username})`,
+      metadata: { groupId, removedBy: username },
+    });
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("Error removing from group:", error);
@@ -1070,6 +1199,13 @@ app.post("/api/group/plan", async (req, res) => {
     const price = calculatePlanPrice(months, devices);
     await getDb().from("group_plans").update({ plan_type, plan_months: months, plan_devices: devices, plan_price: price }).eq("group_id", groupId);
 
+    logActivity("plan_changed", {
+      username,
+      actor: "client",
+      description: `Plano alterado: ${months} mês(es) / ${devices} aparelho(s) — ${fmtBRL(price)}`,
+      metadata: { groupId, months, devices, price },
+    });
+
     res.json({ success: true, plan_price: price });
   } catch (error: any) {
     console.error("Error updating plan:", error);
@@ -1096,6 +1232,13 @@ app.post("/api/auth/verify", async (req, res) => {
 
     // Add to trusted devices
     await getDb().from("trusted_devices").upsert({ device_id: deviceId, username });
+
+    logActivity("device_trusted", {
+      username,
+      actor: "client",
+      description: `Senha confirmada — aparelho liberado para ${username}`,
+      metadata: { deviceId },
+    });
 
     res.json({ success: true, isTrusted: true });
   } catch (error: any) {
@@ -1218,6 +1361,13 @@ app.post("/api/verify-password", async (req, res) => {
     // Trust device
     await getDb().from("trusted_devices").upsert({ device_id: deviceId, username });
 
+    logActivity("device_trusted", {
+      username,
+      actor: "client",
+      description: `Senha confirmada — aparelho liberado para ${username}`,
+      metadata: { deviceId },
+    });
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("Error verifying password:", error);
@@ -1307,7 +1457,20 @@ app.post("/api/create-free", async (req, res) => {
     if (referrer) {
       const referralId = crypto.randomUUID();
       await getDb().from("referrals").insert({ id: referralId, referrer_username: referrer, referred_username: username });
+      logActivity("referral_created", {
+        username: referrer,
+        actor: "client",
+        description: `Indicação registrada: ${referrer} indicou ${username}`,
+        metadata: { referredUsername: username },
+      });
     }
+
+    logActivity("trial_created", {
+      username,
+      actor: "client",
+      description: `Teste grátis criado: ${username} (2 dias)${referrer ? ` — indicado por ${referrer}` : ""}`,
+      metadata: { deviceId, referrer: referrer || null },
+    });
 
     res.json({
       username,
@@ -1403,6 +1566,13 @@ app.post("/api/pix/new-device", async (req, res) => {
     });
     schedulePaymentCheck(mpRes.id.toString());
 
+    logActivity("pix_generated", {
+      username: mainUsername,
+      actor: "client",
+      description: `PIX gerado: Novo Aparelho "${newUsername}" — ${fmtBRL(proratedPrice)} (${remainingDays} dias restantes)`,
+      metadata: { paymentId: mpRes.id.toString(), type: "new_device", amount: proratedPrice, newUsername, remainingDays },
+    });
+
     res.json({
       transactionId: mpRes.id.toString(),
       qrCodeBase64: mpRes.point_of_interaction.transaction_data.qr_code_base64,
@@ -1475,6 +1645,13 @@ app.post("/api/group/add-free-device", async (req, res) => {
     const newPrice = calculatePlanPrice(months, numDevices);
 
     await getDb().from("group_plans").update({ plan_type: 'custom', plan_devices: numDevices, plan_price: newPrice }).eq("group_id", groupId);
+
+    logActivity("free_device_added", {
+      username: mainUsername,
+      actor: "client",
+      description: `Aparelho grátis adicionado: ${newUsername} (${remainingDays} dias, sem custo)`,
+      metadata: { newUsername, remainingDays, groupId },
+    });
 
     res.json({ success: true, password });
   } catch (error: any) {
@@ -1560,6 +1737,13 @@ app.post("/api/pix", async (req, res) => {
       metadata: mdata
     });
     schedulePaymentCheck(mpRes.id.toString());
+
+    logActivity("pix_generated", {
+      username,
+      actor: "client",
+      description: `PIX gerado: Renovação — ${fmtBRL(transactionAmount)}${discountApplied ? " (desconto fidelidade)" : ""}`,
+      metadata: { paymentId: mpRes.id.toString(), type: "renewal", amount: transactionAmount, discountApplied },
+    });
 
     res.json({
       paymentId: mpRes.id.toString(),
@@ -1708,6 +1892,12 @@ app.post("/api/admin/payments/reprocess-cancelled", requireAdminAuth, async (_re
           await approvePayment(p);
           recovered++;
           console.log(`[reprocess] Recovered payment ${p.id} for ${p.username} (was: ${p.status})`);
+          logActivity("payment_recovered", {
+            username: p.username,
+            actor: "admin",
+            description: `Pagamento recuperado manualmente pelo admin: ${logPaymentTypeLabel(p.type)} (estava "${p.status}")`,
+            metadata: { paymentId: p.id, previousStatus: p.status },
+          });
         }
       } catch (e) {
         console.warn(`[reprocess] Failed to check payment ${p.id}:`, e);
@@ -1922,6 +2112,14 @@ app.post("/api/refund", async (req, res) => {
     }
 
     await getDb().from("refund_requests").insert({ id, username, pix_type: pixType, pix_key: pixKey });
+
+    logActivity("refund_requested", {
+      username,
+      actor: "client",
+      description: `Reembolso solicitado (PIX ${pixType})`,
+      metadata: { refundId: id, pixType },
+    });
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1999,6 +2197,14 @@ app.post("/api/user/update-access", async (req, res) => {
 
     const id = crypto.randomUUID();
     await getDb().from("change_requests").insert({ id, username, type: action, requested_value: newValue, status: 'aguardando' });
+
+    const actionLabels: Record<string, string> = { username: "alteração de usuário", password: "alteração de senha", date: "alteração de vencimento", uuid: "solicitação de UUID", uuid_correction: "correção de UUID" };
+    logActivity("change_request_created", {
+      username,
+      actor: "client",
+      description: `Solicitação criada: ${actionLabels[action] || action}${newValue ? ` → ${newValue}` : ""}`,
+      metadata: { type: action, requestedValue: newValue || null, requestId: id },
+    });
 
     if (action === 'uuid_correction') {
       sendPush("__admin__", "🔧 Correção de UUID solicitada", `${username} reportou que o UUID atual não está funcionando. Gere um novo UUID no painel da VPN.`);
@@ -2107,7 +2313,15 @@ app.post("/api/admin/refunds/:id/approve", async (req, res) => {
       refunded_at: refundedAt || new Date().toISOString()
     }).eq("id", id);
 
-    if (refund) sendPush(refund.username, "Reembolso aprovado! ✅", "Seu reembolso foi processado com sucesso.");
+    if (refund) {
+      sendPush(refund.username, "Reembolso aprovado! ✅", "Seu reembolso foi processado com sucesso.");
+      logActivity("refund_approved", {
+        username: refund.username,
+        actor: "admin",
+        description: `Reembolso realizado para ${refund.username}`,
+        metadata: { refundId: id },
+      });
+    }
 
     res.json({ success: true });
   } catch (error: any) {
@@ -2120,7 +2334,15 @@ app.post("/api/admin/refunds/:id/reject", async (req, res) => {
     const { id } = req.params;
     const { data: refund } = await getDb().from("refund_requests").select("username").eq("id", id).maybeSingle();
     await getDb().from("refund_requests").update({ status: 'rejeitado' }).eq("id", id);
-    if (refund) sendPush(refund.username, "Reembolso recusado", "Sua solicitação de reembolso foi negada.");
+    if (refund) {
+      sendPush(refund.username, "Reembolso recusado", "Sua solicitação de reembolso foi negada.");
+      logActivity("refund_rejected", {
+        username: refund.username,
+        actor: "admin",
+        description: `Reembolso rejeitado para ${refund.username}`,
+        metadata: { refundId: id },
+      });
+    }
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2172,6 +2394,12 @@ app.post("/api/admin/change-requests/:id/approve", async (req, res) => {
 
     await getDb().from("change_requests").update({ status: 'aprovado', approved_value: finalValue }).eq("id", id);
     sendPush(request.username, "Solicitação aprovada! ✅", "Sua solicitação foi aprovada com sucesso.");
+    logActivity("change_request_approved", {
+      username: request.type === 'username' ? finalValue : request.username,
+      actor: "admin",
+      description: `Solicitação aprovada (${request.type}): ${request.username}${finalValue ? ` → ${finalValue}` : ""}`,
+      metadata: { type: request.type, requestId: id, approvedValue: finalValue || null },
+    });
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2182,9 +2410,17 @@ app.post("/api/admin/change-requests/:id/reject", async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    const { data: request } = await getDb().from("change_requests").select("username").eq("id", id).maybeSingle();
+    const { data: request } = await getDb().from("change_requests").select("username, type").eq("id", id).maybeSingle();
     await getDb().from("change_requests").update({ status: 'rejeitado', approved_value: reason || null }).eq("id", id);
-    if (request) sendPush(request.username, "Solicitação recusada", reason ? `Motivo: ${reason}` : "Sua solicitação foi recusada.");
+    if (request) {
+      sendPush(request.username, "Solicitação recusada", reason ? `Motivo: ${reason}` : "Sua solicitação foi recusada.");
+      logActivity("change_request_rejected", {
+        username: request.username,
+        actor: "admin",
+        description: `Solicitação rejeitada (${request.type})${reason ? ` — motivo: ${reason}` : ""}`,
+        metadata: { type: request.type, requestId: id, reason: reason || null },
+      });
+    }
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2207,6 +2443,59 @@ app.get("/api/admin/users", async (_req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ─── Activity Logs (guia "Logs" do admin) ────────────────────────────────────
+// Filtros: types (lista separada por vírgula), username (busca parcial),
+// actor, from/to (YYYY-MM-DD, horário de Brasília), limit/offset (paginação).
+app.get("/api/admin/logs", async (req, res) => {
+  try {
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit)) || 50));
+    const offset = Math.max(0, parseInt(String(req.query.offset)) || 0);
+
+    let q = getDb()
+      .from("activity_logs")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const types = String(req.query.types || "").split(",").map(s => s.trim()).filter(Boolean);
+    if (types.length) q = q.in("event_type", types);
+
+    const username = String(req.query.username || "").trim();
+    if (username) q = q.ilike("username", `%${username}%`);
+
+    const actor = String(req.query.actor || "").trim();
+    if (actor) q = q.eq("actor", actor);
+
+    const from = String(req.query.from || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(from)) q = q.gte("created_at", `${from}T00:00:00-03:00`);
+
+    const to = String(req.query.to || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(to)) q = q.lte("created_at", `${to}T23:59:59-03:00`);
+
+    const { data, count, error } = await q;
+    if (error) {
+      // Tabela ainda não criada → resposta amigável em vez de 500
+      if (String(error.message || "").includes("activity_logs")) {
+        return res.json({ items: [], total: 0, tableMissing: true });
+      }
+      throw error;
+    }
+    res.json({ items: data || [], total: count ?? 0 });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Retenção: apaga logs com mais de 12 meses (roda no cron diário).
+async function cleanupOldLogs(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+    await getDb().from("activity_logs").delete().lt("created_at", cutoff);
+  } catch (e: any) {
+    console.warn("[logs] cleanup error:", e?.message);
+  }
+}
 
 app.get("/api/admin/users/:username/details", async (req, res) => {
   try {
@@ -2533,6 +2822,13 @@ app.post("/api/tickets", async (req, res) => {
     // Notify admin of new ticket
     sendPush("__admin__", "Novo chamado aberto", `${username}: ${subject}`, "/");
 
+    logActivity("ticket_created", {
+      username,
+      actor: "client",
+      description: `Ticket aberto: "${subject}" (${category})`,
+      metadata: { ticketId, category, subject },
+    });
+
     res.json({ success: true, ticketId });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2582,7 +2878,15 @@ app.post("/api/tickets/:id/messages", async (req, res) => {
     // Notify user when admin replies, notify admin when user replies
     if (sender === "admin") {
       const { data: ticket } = await getDb().from("tickets").select("username, subject").eq("id", id).single();
-      if (ticket) sendPush(ticket.username, "Nova resposta no suporte", `Seu chamado "${ticket.subject}" foi respondido.`, "/");
+      if (ticket) {
+        sendPush(ticket.username, "Nova resposta no suporte", `Seu chamado "${ticket.subject}" foi respondido.`, "/");
+        logActivity("ticket_answered", {
+          username: ticket.username,
+          actor: "admin",
+          description: `Ticket respondido pelo admin: "${ticket.subject}"`,
+          metadata: { ticketId: id },
+        });
+      }
     } else {
       const { data: ticket } = await getDb().from("tickets").select("username, subject").eq("id", id).single();
       if (ticket) sendPush("__admin__", "Resposta em chamado", `${ticket.username}: ${ticket.subject}`, "/");
@@ -2639,6 +2943,20 @@ app.patch("/api/tickets/:id/status", async (req, res) => {
       return res.status(401).json({ error: "Não autorizado." });
     }
     await getDb().from("tickets").update({ status }).eq("id", id);
+
+    if (status === "closed") {
+      const { data: ticket } = await getDb().from("tickets").select("username, subject").eq("id", id).maybeSingle();
+      if (ticket) {
+        const byAdmin = hasAdminToken(req);
+        logActivity("ticket_closed", {
+          username: ticket.username,
+          actor: byAdmin ? "admin" : "client",
+          description: `Ticket fechado${byAdmin ? " pelo admin" : " pelo cliente"}: "${ticket.subject}"`,
+          metadata: { ticketId: id },
+        });
+      }
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2722,6 +3040,14 @@ app.delete("/api/admin/users/:username", requireAdminAuth, async (req, res) => {
     await db.from("change_requests").delete().eq("username", username);
     // refunds table if exists
     try { await db.from("refunds").delete().eq("username", username); } catch { /* ignore if table doesn't exist */ }
+
+    logActivity("admin_delete_user", {
+      username,
+      actor: "admin",
+      description: `Admin excluiu o cliente ${username} do sistema (dados removidos; painel VPN é manual)`,
+      metadata: { groupIds },
+    });
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2739,6 +3065,12 @@ app.post("/api/admin/users/:username/renew", requireAdminAuth, async (req, res) 
     params.append("user", username);
     const text = await callVpnApi(params);
     console.log(`[admin] renewuser ${username}:`, text);
+    logActivity("admin_renew_user", {
+      username,
+      actor: "admin",
+      description: `Admin renovou +30 dias manualmente: ${username}`,
+      metadata: { vpnResponse: String(text).slice(0, 200) },
+    });
     res.json({ success: true, message: `Acesso de ${username} renovado com sucesso.`, vpnResponse: text });
   } catch (e: any) {
     console.error(`[admin] renewuser ${username} failed:`, e.message);
@@ -3103,6 +3435,13 @@ app.post("/api/reseller/setup", requireResellerAuth, async (req: any, res) => {
       metadata: { resellerLogins: loginsNum, resellerExpiresAt: expiryDate.toISOString(), isManualSetup: true },
     });
 
+    logActivity("reseller_setup", {
+      username,
+      actor: "reseller",
+      description: `Setup de revenda existente: ${username} — ${loginsNum} logins, vence ${expiryDate.toLocaleDateString("pt-BR")}`,
+      metadata: { logins: loginsNum, expiresAt: expiryDate.toISOString() },
+    });
+
     res.json({ success: true, logins: loginsNum, expiresAt: expiryDate.toISOString() });
   } catch (e: any) {
     console.error("[reseller/setup] error:", e);
@@ -3182,6 +3521,13 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
     });
     schedulePaymentCheck(mpRes.id.toString());
 
+    logActivity("pix_generated", {
+      username,
+      actor: "reseller",
+      description: `PIX gerado: Contratação Revenda — ${loginsNum} logins por ${monthsNum} mês(es), ${fmtBRL(amount)}`,
+      metadata: { paymentId: mpRes.id.toString(), type: "reseller_hire", amount, logins: loginsNum, months: monthsNum },
+    });
+
     res.json({
       paymentId: mpRes.id.toString(),
       qrCodeBase64: mpRes.point_of_interaction.transaction_data.qr_code_base64,
@@ -3258,6 +3604,13 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
     });
     schedulePaymentCheck(mpRes.id.toString());
 
+    logActivity("pix_generated", {
+      username,
+      actor: "reseller",
+      description: `PIX gerado: Renovação Revenda — ${logins} logins por ${monthsNum} mês(es), ${fmtBRL(amount)}${discountApplied ? " (desconto fidelidade)" : ""}`,
+      metadata: { paymentId: mpRes.id.toString(), type: "reseller_renewal", amount, logins, months: monthsNum, discountApplied },
+    });
+
     res.json({
       paymentId: mpRes.id.toString(),
       qrCodeBase64: mpRes.point_of_interaction.transaction_data.qr_code_base64,
@@ -3308,6 +3661,14 @@ app.post("/api/reseller/change-password", requireResellerAuth, async (req: any, 
       requested_value: newPassword,
       status: "aguardando",
     });
+
+    logActivity("change_request_created", {
+      username,
+      actor: "reseller",
+      description: `Solicitação de alteração de senha da revenda: ${username}`,
+      metadata: { type: "reseller_password" },
+    });
+
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -3397,6 +3758,14 @@ app.post("/api/reseller/request/logins-decrease", requireResellerAuth, async (re
       requested_value: String(loginsNum),
       status: "aguardando",
     });
+
+    logActivity("change_request_created", {
+      username,
+      actor: "reseller",
+      description: `Solicitação de redução de logins: ${info.logins} → ${loginsNum}`,
+      metadata: { type: "reseller_logins_decrease", requestedValue: loginsNum },
+    });
+
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -3448,6 +3817,13 @@ app.post("/api/reseller/pix/logins-upgrade", requireResellerAuth, async (req: an
       metadata: { newLogins: loginsNum, currentLogins: info.logins, loginDiff, daysLeft, amount },
     });
     schedulePaymentCheck(mpRes.id.toString());
+
+    logActivity("pix_generated", {
+      username,
+      actor: "reseller",
+      description: `PIX gerado: Aumento de Logins — +${loginDiff} logins (${info.logins} → ${loginsNum}), ${fmtBRL(amount)}`,
+      metadata: { paymentId: mpRes.id.toString(), type: "reseller_logins_increase", amount, newLogins: loginsNum, loginDiff },
+    });
 
     res.json({
       paymentId: mpRes.id.toString(),
@@ -3503,6 +3879,12 @@ app.post("/api/admin/reseller-requests/:id/approve", async (req, res) => {
       .eq("id", id);
 
     sendPush(request.username, "Solicitação aprovada! ✅", `Sua alteração para ${newLogins} logins foi aprovada.`);
+    logActivity("change_request_approved", {
+      username: request.username,
+      actor: "admin",
+      description: `Redução de logins aprovada: ${request.username} → ${newLogins} logins`,
+      metadata: { type: request.type, requestId: id, newLogins },
+    });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -3514,11 +3896,19 @@ app.post("/api/admin/reseller-requests/:id/reject", async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    const { data: request } = await getDb().from("change_requests").select("username").eq("id", id).maybeSingle();
+    const { data: request } = await getDb().from("change_requests").select("username, type").eq("id", id).maybeSingle();
     await getDb().from("change_requests")
       .update({ status: "rejeitado", approved_value: reason || "Recusado pelo administrador." })
       .eq("id", id);
-    if (request) sendPush(request.username, "Solicitação recusada", reason ? `Motivo: ${reason}` : "Sua solicitação foi recusada.");
+    if (request) {
+      sendPush(request.username, "Solicitação recusada", reason ? `Motivo: ${reason}` : "Sua solicitação foi recusada.");
+      logActivity("change_request_rejected", {
+        username: request.username,
+        actor: "admin",
+        description: `Solicitação de revenda rejeitada (${request.type})${reason ? ` — motivo: ${reason}` : ""}`,
+        metadata: { type: request.type, requestId: id, reason: reason || null },
+      });
+    }
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -3546,6 +3936,12 @@ app.post("/api/admin/reseller-requests/:id/confirm", async (req, res) => {
 
     await getDb().from("change_requests").update({ status: "confirmado" }).eq("id", id);
     sendPush(request.username, "Logins adicionados! 🎉", `${newLogins} logins foram adicionados à sua revenda.`);
+    logActivity("change_request_approved", {
+      username: request.username,
+      actor: "admin",
+      description: `Aumento de logins confirmado: ${request.username} → ${newLogins} logins`,
+      metadata: { type: request.type, requestId: id, newLogins },
+    });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -3712,6 +4108,13 @@ app.post("/api/admin/resellers/:username/adjust", async (req, res) => {
       metadata: meta,
     });
 
+    logActivity("admin_reseller_adjust", {
+      username,
+      actor: "admin",
+      description: `Admin ajustou revenda ${username}:${meta.resellerExpiresAt ? ` vencimento → ${new Date(meta.resellerExpiresAt).toLocaleDateString("pt-BR")}` : ""}${meta.resellerLogins !== undefined ? ` logins → ${meta.resellerLogins}` : ""}`,
+      metadata: { adjustmentId: id, ...meta },
+    });
+
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -3824,7 +4227,10 @@ async function runExpiryNotifications(): Promise<{ clients: number; resellers: n
   return counts;
 }
 
-cron.schedule("0 9 * * *", () => { runExpiryNotifications().catch(e => console.error("[cron] daily error:", e)); }, { timezone: "America/Sao_Paulo" });
+cron.schedule("0 9 * * *", () => {
+  runExpiryNotifications().catch(e => console.error("[cron] daily error:", e));
+  cleanupOldLogs().catch(() => {});
+}, { timezone: "America/Sao_Paulo" });
 
 // ─── Sync pending/cancelled payments against Mercado Pago ────────────────────
 async function syncPendingPayments(): Promise<number> {
@@ -3847,6 +4253,12 @@ async function syncPendingPayments(): Promise<number> {
           await approvePayment(p);
           recovered++;
           console.log(`[bg-sync] Recovered payment ${p.id} for ${p.username}`);
+          logActivity("payment_recovered", {
+            username: p.username,
+            actor: "system",
+            description: `Pagamento recuperado pela varredura automática: ${logPaymentTypeLabel(p.type)} (estava "${p.status}")`,
+            metadata: { paymentId: p.id, previousStatus: p.status },
+          });
         }
       } catch (e) {
         // Silently skip individual failures
@@ -3893,10 +4305,11 @@ app.get("/api/cron/tick", requireCronAuth, async (_req, res) => {
   }
 });
 
-// Daily tick: expiry notifications (9h BRT ≈ 12:00 UTC).
+// Daily tick: expiry notifications (9h BRT ≈ 12:00 UTC) + log retention cleanup.
 app.get("/api/cron/daily", requireCronAuth, async (_req, res) => {
   try {
     const counts = await runExpiryNotifications();
+    await cleanupOldLogs();
     res.json({ ok: true, ...counts });
   } catch (e: any) {
     console.error("[cron/daily] error:", e);

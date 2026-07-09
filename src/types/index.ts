@@ -22,7 +22,8 @@ export type AdminTab =
   | "reports"
   | "resellers"
   | "notifications"
-  | "settings";
+  | "settings"
+  | "logs";
 
 export interface Referral {
   id: string;

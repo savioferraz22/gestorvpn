@@ -25,6 +25,7 @@ import { AdminReports } from "./AdminReports";
 import { AdminResellers } from "./AdminResellers";
 import { AdminNotifications } from "./AdminNotifications";
 import { AdminSettings } from "./AdminSettings";
+import { AdminLogs } from "./AdminLogs";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { ToastProvider, PageTransition } from "./ui";
 import { Sidebar } from "./shell/Sidebar";
@@ -299,6 +300,7 @@ export function AdminShell({ onBack }: AdminShellProps) {
                 {tab === "refunds" && <AdminRefunds {...sharedProps} />}
                 {tab === "change_requests" && <AdminChangeReqs {...sharedProps} />}
                 {tab === "reports" && <AdminReports {...sharedProps} />}
+                {tab === "logs" && <AdminLogs />}
                 {tab === "settings" && <AdminSettings />}
               </PageTransition>
             </AnimatePresence>

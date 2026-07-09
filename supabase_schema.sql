@@ -153,6 +153,21 @@ CREATE TABLE IF NOT EXISTS public.system_notice (
     CONSTRAINT system_notice_severity CHECK (severity IN ('warning', 'error', 'info'))
 );
 
+-- Activity log: registro de toda movimentação do app (guia "Logs" do admin).
+-- Populada pelo servidor via logActivity() — fire-and-forget.
+CREATE TABLE IF NOT EXISTS public.activity_logs (
+    id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    username TEXT,
+    actor TEXT NOT NULL DEFAULT 'system',
+    description TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON public.activity_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_type ON public.activity_logs(event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_username ON public.activity_logs(username);
+
 INSERT INTO public.system_notice (id, active, title, message, severity)
 VALUES (
     'global',

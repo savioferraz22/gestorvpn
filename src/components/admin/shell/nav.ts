@@ -33,6 +33,12 @@ export const NAV_GROUPS: NavGroup[] = [
         description: "Análises e séries temporais",
         iconName: "BarChart2",
       },
+      {
+        id: "logs",
+        label: "Logs",
+        description: "Registro de todas as atividades",
+        iconName: "ScrollText",
+      },
     ],
   },
   {

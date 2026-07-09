@@ -210,6 +210,39 @@ export async function fetchAdminReports(period: number) {
   return apiFetch<any>(`/api/admin/reports?period=${period}`, { headers: adminHeaders() });
 }
 
+export interface ActivityLog {
+  id: string;
+  event_type: string;
+  username: string | null;
+  actor: "client" | "admin" | "system" | "reseller";
+  description: string;
+  metadata: Record<string, any> | null;
+  created_at: string;
+}
+
+export async function fetchAdminLogs(params: {
+  types?: string[];
+  username?: string;
+  actor?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params.types?.length) qs.set("types", params.types.join(","));
+  if (params.username) qs.set("username", params.username);
+  if (params.actor) qs.set("actor", params.actor);
+  if (params.from) qs.set("from", params.from);
+  if (params.to) qs.set("to", params.to);
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
+  return apiFetch<{ items: ActivityLog[]; total: number; tableMissing?: boolean }>(
+    `/api/admin/logs?${qs.toString()}`,
+    { headers: adminHeaders() },
+  );
+}
+
 export async function fetchAdminUsersList() {
   return apiFetch<any[]>("/api/admin/users", { headers: adminHeaders() });
 }
