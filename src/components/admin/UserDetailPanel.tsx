@@ -180,6 +180,7 @@ export interface UserDetailContentProps {
 export function UserDetailContent({ data, navigateTo, onDeleted }: UserDetailContentProps) {
   const toast = useToast();
   const [updatingAccess, setUpdatingAccess] = useState(false);
+  const [confirmRenew, setConfirmRenew] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -196,6 +197,26 @@ export function UserDetailContent({ data, navigateTo, onDeleted }: UserDetailCon
   const allDevices = u
     ? [{ username: u.login, ...u }, ...groupMembers]
     : groupMembers;
+
+  // Dados para a confirmação inteligente do "Renovar +30 dias":
+  // o painel soma 30 dias sobre o vencimento ATUAL (mesmo vencido) e
+  // renova apenas este username — não o plano inteiro.
+  const renewPreview = (() => {
+    const datePart = String(u?.expira || "").slice(0, 10);
+    const expiry = datePart ? new Date(`${datePart}T23:59:59`) : null;
+    if (!expiry || isNaN(expiry.getTime())) return null;
+    const daysLeft = Math.ceil((expiry.getTime() - Date.now()) / 86400000);
+    const newExpiry = new Date(expiry);
+    newExpiry.setDate(newExpiry.getDate() + 30);
+    const fmt = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    return {
+      current: fmt(expiry),
+      next: fmt(newExpiry),
+      daysLeft,
+      expiredDays: daysLeft < 0 ? -daysLeft : 0,
+      effectiveDays: daysLeft < 0 ? 30 + daysLeft : 30,
+    };
+  })();
 
   async function handleUpdateAccess() {
     if (!u) return;
@@ -318,12 +339,12 @@ export function UserDetailContent({ data, navigateTo, onDeleted }: UserDetailCon
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={handleUpdateAccess}
+            onClick={() => setConfirmRenew(true)}
             disabled={updatingAccess}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary-600 px-3 h-9 text-sm font-bold text-white transition-colors hover:bg-primary-700 active:scale-[0.98] disabled:opacity-60"
           >
             <RefreshCw size={14} className={updatingAccess ? "animate-spin" : ""} />
-            Atualizar acesso
+            Renovar +30 dias
           </button>
           {navigateTo && (
             <button
@@ -464,6 +485,44 @@ export function UserDetailContent({ data, navigateTo, onDeleted }: UserDetailCon
           </div>
         ))}
       </CollapsibleCard>
+
+      <ConfirmDialog
+        isOpen={confirmRenew}
+        title="Renovar +30 dias"
+        message={
+          <div className="flex flex-col gap-2 text-left">
+            <p>
+              Adicionar <strong className="text-text-base">30 dias</strong> no painel para{" "}
+              <strong className="font-mono text-text-base">{u.login}</strong>?
+            </p>
+            {renewPreview ? (
+              <p>
+                Vencimento: <span className="font-mono font-bold text-text-base">{renewPreview.current}</span>
+                {" → "}
+                <span className="font-mono font-bold text-[var(--success)]">{renewPreview.next}</span>
+              </p>
+            ) : (
+              <p>Não foi possível ler o vencimento atual no painel.</p>
+            )}
+            {renewPreview && renewPreview.expiredDays > 0 && (
+              <p className="rounded-md border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-xs font-medium text-[var(--warning)]">
+                ⚠️ Vencido há {renewPreview.expiredDays} dia(s): o painel soma a partir da data vencida, então o cliente ganhará{" "}
+                {renewPreview.effectiveDays > 0
+                  ? `apenas ${renewPreview.effectiveDays} dia(s) reais de acesso.`
+                  : "0 dias — o acesso continuará vencido mesmo após esta renovação."}
+              </p>
+            )}
+            {groupMembers.length > 0 && (
+              <p className="rounded-md border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-xs font-medium text-[var(--warning)]">
+                ⚠️ Este plano tem mais {groupMembers.length} aparelho(s) que <strong>não</strong> serão renovados por este botão — renove cada um pela ficha, se necessário.
+              </p>
+            )}
+            <p className="text-xs">Nenhum pagamento será registrado — ação manual de cortesia/suporte.</p>
+          </div>
+        }
+        onConfirm={handleUpdateAccess}
+        onCancel={() => setConfirmRenew(false)}
+      />
 
       <ConfirmDialog
         isOpen={confirmDelete}

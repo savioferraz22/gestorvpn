@@ -5,7 +5,7 @@ import { AlertTriangle } from "lucide-react";
 interface ConfirmDialogProps {
   isOpen: boolean;
   title: string;
-  message: string;
+  message: React.ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -25,7 +25,7 @@ export function ConfirmDialog({ isOpen, title, message, onConfirm, onCancel }: C
             <AlertTriangle className="w-6 h-6" />
           </div>
           <h3 className="text-lg font-semibold text-text-base mb-2">{title}</h3>
-          <p className="text-sm text-text-muted mb-6">{message}</p>
+          <div className="text-sm text-text-muted mb-6">{message}</div>
           <div className="flex gap-3 w-full">
             <button
               onClick={onCancel}
