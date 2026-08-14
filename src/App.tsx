@@ -8,9 +8,10 @@ import { motion, AnimatePresence } from "motion/react";
 import { CheckCircle2, Copy, Loader2, QrCode, LogIn, UserPlus, ArrowLeft, Shield, Clock, Trash2, Key, Lock, Eye, EyeOff, MessageSquare, Plus, Send, User, Bell, BellOff, BellRing, Search, Filter, XCircle, Minimize2, Download, HelpCircle, ChevronDown, ChevronUp, ChevronRight, BookOpen, Smartphone, Plane, Settings2, RefreshCw, AlertTriangle, ExternalLink, Star, Users, Calendar, CalendarDays, X, AlertCircle, History, CreditCard, LayoutDashboard, LogOut, Menu, DollarSign, TrendingUp, Store, BadgePercent, Package, Zap, BarChart2, Pencil, Check, Sun, Moon } from "lucide-react";
 import { AdminShell } from "./components/admin/AdminShell";
 import { SystemNoticeBanner } from "./components/shared/SystemNoticeBanner";
+import { UserNoticeCard } from "./components/shared/UserNoticeCard";
 import { AppUpdateBanner } from "./components/shared/AppUpdateBanner";
 import { useAppUpdate } from "./hooks/useAppUpdate";
-import { fetchSystemNotice, type SystemNotice } from "./services/api";
+import { deleteUserNotification, fetchSystemNotice, fetchUserNotifications, type SystemNotice, type UserNotification } from "./services/api";
 
 type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_login" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
 
@@ -114,6 +115,30 @@ export default function App() {
     window.addEventListener("focus", load);
     return () => { cancelled = true; window.removeEventListener("focus", load); };
   }, []);
+
+  // Notificações direcionadas (admin → este cliente): persistem até o cliente excluir
+  const [userNotifications, setUserNotifications] = useState<UserNotification[]>([]);
+  const userNotifLogin = currentUser?.login || null;
+  useEffect(() => {
+    if (!userNotifLogin) { setUserNotifications([]); return; }
+    let cancelled = false;
+    const load = () => {
+      fetchUserNotifications(userNotifLogin)
+        .then((list) => { if (!cancelled) setUserNotifications(Array.isArray(list) ? list : []); })
+        .catch(() => { /* silent fail keeps client usable */ });
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => { cancelled = true; window.removeEventListener("focus", load); };
+  }, [userNotifLogin]);
+
+  async function handleDeleteUserNotification(id: string) {
+    if (!userNotifLogin) return;
+    try {
+      await deleteUserNotification(id, userNotifLogin);
+      setUserNotifications((prev) => prev.filter((n) => n.id !== id));
+    } catch { /* mantém o card se a exclusão falhar */ }
+  }
   const [showHistory, setShowHistory] = useState(false);
   const [verifyPassword, setVerifyPassword] = useState("");
   const [verifyError, setVerifyError] = useState("");
@@ -1671,6 +1696,9 @@ export default function App() {
         allNotifications.push({ id: `req_${req.id}`, title: req.status === "aprovado" ? "Solicitação aprovada ✓" : "Solicitação recusada", body: `Alteração de ${typeMap[req.type] || req.type}`, created_at: req.updated_at || req.created_at, onPress: () => { setView("dashboard"); setNotifPanelOpen(false); } });
       }
     }
+    for (const n of userNotifications) {
+      allNotifications.push({ id: `unotif_${n.id}`, title: n.title || "Mensagem do suporte", body: n.message, created_at: n.created_at, onPress: () => { setView("dashboard"); setNotifPanelOpen(false); } });
+    }
     allNotifications.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
   const unreadCount = allNotifications.filter(n => !seenNotifIds.has(n.id)).length;
@@ -2214,6 +2242,13 @@ export default function App() {
                 </header>
                 <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
                   <SystemNoticeBanner notice={systemNotice} variant="full" />
+
+                  {/* Notificações enviadas pelo admin só para este cliente */}
+                  <AnimatePresence initial={false}>
+                    {userNotifications.map((n) => (
+                      <UserNoticeCard key={n.id} notification={n} onDelete={handleDeleteUserNotification} />
+                    ))}
+                  </AnimatePresence>
 
                   {/* Aviso: versão da Play Store desatualizada — baixar APK */}
                   <div className="bg-warning-soft border-2 border-warning rounded-xl overflow-hidden">
