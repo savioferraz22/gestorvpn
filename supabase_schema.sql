@@ -181,3 +181,16 @@ VALUES (
     'warning'
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- Notificações direcionadas: mensagem do admin para UM cliente específico.
+-- Fica visível na área do cliente até ele clicar em "Excluir" (delete real da linha).
+CREATE TABLE IF NOT EXISTS public.user_notifications (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'info',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_notifications_severity CHECK (severity IN ('warning', 'error', 'info'))
+);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_username ON public.user_notifications(username, created_at DESC);

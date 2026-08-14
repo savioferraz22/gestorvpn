@@ -291,6 +291,100 @@ app.post("/api/admin/system-notice", async (req, res) => {
   }
 });
 
+// ─── Notificações direcionadas (admin → cliente específico) ─────────────────
+// Ficam na área do cliente até ele clicar em "Excluir" (delete real).
+
+// Admin envia uma notificação para um único username
+app.post("/api/admin/user-notifications", async (req, res) => {
+  try {
+    const { username, title, message, severity } = req.body || {};
+    if (typeof username !== "string" || !username.trim() || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "Informe o usuário e a mensagem." });
+    }
+    const sev = ["warning", "error", "info"].includes(severity) ? severity : "info";
+    const notification = {
+      id: crypto.randomUUID(),
+      username: username.trim(),
+      title: typeof title === "string" ? title.trim() : "",
+      message: message.trim(),
+      severity: sev,
+      created_at: new Date().toISOString(),
+    };
+    const { error } = await getDb().from("user_notifications").insert(notification);
+    if (error) throw error;
+
+    // Push é melhor-esforço: a notificação in-app já está persistida
+    sendPush(notification.username, notification.title || "Aviso do suporte", notification.message).catch(() => {});
+
+    logActivity("admin_user_notification_sent", {
+      username: notification.username,
+      actor: "admin",
+      description: `Notificação enviada para "${notification.username}"${notification.title ? `: "${notification.title}"` : ""}`,
+      metadata: { title: notification.title, severity: sev },
+    });
+
+    res.json({ success: true, notification });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Admin lista as notificações já enviadas para um username
+app.get("/api/admin/user-notifications/:username", async (req, res) => {
+  try {
+    const { data, error } = await getDb().from("user_notifications")
+      .select("*")
+      .eq("username", req.params.username)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Admin remove uma notificação enviada (ex.: enviada por engano)
+app.delete("/api/admin/user-notifications/:id", async (req, res) => {
+  try {
+    const { error } = await getDb().from("user_notifications").delete().eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Cliente lista as próprias notificações
+app.get("/api/user-notifications/:username", async (req, res) => {
+  try {
+    const { data, error } = await getDb().from("user_notifications")
+      .select("id,username,title,message,severity,created_at")
+      .eq("username", req.params.username)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Cliente exclui uma notificação (só some quando ELE clica em excluir).
+// O filtro por username impede apagar notificação de outro cliente.
+app.delete("/api/user-notifications/:id", async (req, res) => {
+  try {
+    const username = String(req.query.username || "");
+    if (!username) return res.status(400).json({ error: "Usuário não informado." });
+    const { error } = await getDb().from("user_notifications")
+      .delete()
+      .eq("id", req.params.id)
+      .eq("username", username);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const VPN_API_URL = process.env.VPN_API_URL || "https://pweb.cloudbrasil.shop/core/apiatlas.php";
 const VPN_API_KEY = process.env.VPN_API_KEY || "LTm2H0TnZwKY560Vqj7gfbxeIL";
 

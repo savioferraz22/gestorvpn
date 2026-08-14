@@ -18,6 +18,13 @@ type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "p
 // Quando a Play Store for atualizada, voltar os links para APP_STORE_URL.
 const APK_DOWNLOAD_URL = "/cloudbrdt-atualizado.apk";
 
+// DESATIVAÇÃO TEMPORÁRIA DO UUID — o app CloudBR DT não usa mais a conexão
+// x-ray por UUID (agora a conexão HTTP usa apenas usuário/senha).
+// Esta flag esconde da área do cliente: exibição do código, botão "Solicitar UUID",
+// botão "Correção de UUID", categoria de ticket "Solicitar UUID" e a menção
+// "(ou UUID)" no passo a passo. Para reativar tudo, basta mudar para `true`.
+const UUID_FEATURE_ENABLED: boolean = false;
+
 interface Referral {
   id: string;
   referrer_username: string;
@@ -2315,7 +2322,7 @@ export default function App() {
                         </div>
 
                         {/* Password Section */}
-                        <div className="px-4 py-3 border-b border-border-base">
+                        <div className={`px-4 py-3 ${UUID_FEATURE_ENABLED ? "border-b border-border-base" : ""}`}>
                           <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted font-bold mb-1">Senha</p>
                           {showData ? (
                             <div className="flex items-center justify-between gap-3">
@@ -2337,7 +2344,8 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* UUID Section */}
+                        {/* UUID Section — oculta enquanto UUID_FEATURE_ENABLED for false */}
+                        {UUID_FEATURE_ENABLED && (
                         <div className="px-4 py-3">
                           <p className="text-[11px] uppercase tracking-[0.08em] text-text-muted font-bold mb-1" title="UUID opcional usado no app CloudBR DT para conexão sem usuário/senha">UUID do Aparelho</p>
                           {device.uuid && device.uuid !== "NULL" && device.uuid !== "" ? (
@@ -2401,6 +2409,7 @@ export default function App() {
                             </div>
                           )}
                         </div>
+                        )}
                       </div>
                     ))}
 
@@ -3730,7 +3739,7 @@ export default function App() {
                     </h2>
                     <ol className="space-y-2 text-sm text-text-muted">
                       <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">01</span><span>Baixe a nova versão do app CloudBR DT pelo arquivo APK disponível no seu painel (a versão da Play Store está desatualizada).</span></li>
-                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">02</span><span>Faça login usando seu usuário e senha (ou UUID).</span></li>
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">02</span><span>Faça login usando seu usuário e senha{UUID_FEATURE_ENABLED ? " (ou UUID)" : ""}.</span></li>
                       <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">03</span><span>Selecione a opção compatível com sua operadora (TIM/Vivo).</span></li>
                       <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">04</span><span>Desligue o Wi-Fi e ligue os dados móveis (chip sem crédito).</span></li>
                       <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">05</span><span>Clique em conectar e aguarde.</span></li>
@@ -5691,7 +5700,7 @@ export default function App() {
                             >
                               <option>Suporte Técnico</option>
                               <option>Financeiro</option>
-                              <option>Solicitar UUID</option>
+                              {UUID_FEATURE_ENABLED && <option>Solicitar UUID</option>}
                               <option>Outros</option>
                             </select>
                           </div>

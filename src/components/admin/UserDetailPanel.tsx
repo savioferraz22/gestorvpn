@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
+  Bell,
   Check,
   ChevronDown,
   ChevronUp,
@@ -10,6 +11,7 @@ import {
   ExternalLink,
   LifeBuoy,
   RefreshCw,
+  Send,
   Smartphone,
   Star,
   Trash2,
@@ -18,8 +20,13 @@ import {
 } from "lucide-react";
 import {
   deleteAdminUser,
+  deleteAdminUserNotification,
   fetchAdminUserDetails,
+  fetchAdminUserNotifications,
   renewAdminUser,
+  sendAdminUserNotification,
+  type SystemNoticeSeverity,
+  type UserNotification,
 } from "../../services/api";
 import type { AdminTab } from "../../types";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -164,6 +171,172 @@ function CollapsibleCard({
         )}
       </button>
       {open && <div className="divide-y divide-border-base border-t border-border-base">{children}</div>}
+    </Card>
+  );
+}
+
+// ─── notificações direcionadas (admin → este cliente) ───────────────────────
+
+const NOTIF_SEVERITIES: Array<{ value: SystemNoticeSeverity; label: string }> = [
+  { value: "info", label: "Informação" },
+  { value: "warning", label: "Aviso" },
+  { value: "error", label: "Urgente" },
+];
+
+function severityTone(s?: string): "info" | "warning" | "danger" {
+  if (s === "error") return "danger";
+  if (s === "warning") return "warning";
+  return "info";
+}
+
+function UserNotificationsCard({ username }: { username: string }) {
+  const toast = useToast();
+  const [items, setItems] = useState<UserNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [severity, setSeverity] = useState<SystemNoticeSeverity>("info");
+  const [sending, setSending] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchAdminUserNotifications(username)
+      .then((list) => { if (!cancelled) setItems(Array.isArray(list) ? list : []); })
+      .catch(() => { /* card continua utilizável para envio */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [username]);
+
+  async function handleSend() {
+    if (!message.trim()) {
+      toast.error("Escreva a mensagem antes de enviar.");
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await sendAdminUserNotification({ username, title: title.trim(), message: message.trim(), severity });
+      setItems((prev) => [res.notification, ...prev]);
+      setTitle("");
+      setMessage("");
+      setSeverity("info");
+      toast.success("Notificação enviada", `Ficará visível para ${username} até ele excluir.`);
+    } catch (err: any) {
+      toast.error("Falha ao enviar", err.message);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setDeletingId(id);
+    try {
+      await deleteAdminUserNotification(id);
+      setItems((prev) => prev.filter((n) => n.id !== id));
+      toast.success("Notificação removida");
+    } catch (err: any) {
+      toast.error("Falha ao remover", err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <Card padding="none" className="overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between p-4 transition-colors hover:bg-bg-surface-hover"
+      >
+        <span className="flex items-center gap-1.5 text-sm font-bold text-text-base">
+          <Bell size={14} className="text-primary-600" />
+          Enviar notificação {items.length > 0 ? `(${items.length} ativa${items.length === 1 ? "" : "s"})` : ""}
+        </span>
+        {open ? (
+          <ChevronUp size={14} className="text-text-muted" />
+        ) : (
+          <ChevronDown size={14} className="text-text-muted" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-border-base p-4 flex flex-col gap-3">
+          <p className="text-xs text-text-muted leading-relaxed">
+            A mensagem aparece na área do cliente <strong className="font-mono">{username}</strong> (somente
+            para ele) e fica lá até ele clicar em excluir.
+          </p>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Título (opcional)"
+            className="w-full rounded-md border border-border-base bg-bg-base px-3 h-10 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-600/40"
+          />
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Mensagem para o cliente…"
+            rows={3}
+            className="w-full rounded-md border border-border-base bg-bg-base px-3 py-2 text-sm text-text-base placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary-600/40 resize-y"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {NOTIF_SEVERITIES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                onClick={() => setSeverity(s.value)}
+                className={`rounded-md px-2.5 h-8 text-xs font-bold border transition-colors ${
+                  severity === s.value
+                    ? "border-primary-600 bg-primary-600 text-white"
+                    : "border-border-base bg-bg-surface text-text-muted hover:bg-bg-surface-hover"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={sending || !message.trim()}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary-600 px-3 h-9 text-sm font-bold text-white transition-colors hover:bg-primary-700 active:scale-[0.98] disabled:opacity-50"
+            >
+              <Send size={14} className={sending ? "animate-pulse" : ""} />
+              {sending ? "Enviando…" : "Enviar"}
+            </button>
+          </div>
+
+          {loading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : items.length > 0 ? (
+            <div className="divide-y divide-border-base rounded-md border border-border-base">
+              {items.map((n) => (
+                <div key={n.id} className="flex items-start justify-between gap-2 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-sm font-bold text-text-base truncate">{n.title || "Sem título"}</p>
+                      <Chip tone={severityTone(n.severity)} size="sm" uppercase>
+                        {NOTIF_SEVERITIES.find((s) => s.value === n.severity)?.label || n.severity}
+                      </Chip>
+                    </div>
+                    <p className="text-xs text-text-muted mt-0.5 whitespace-pre-line">{n.message}</p>
+                    <p className="text-[10px] text-text-muted/70 mt-0.5">{formatDate(n.created_at)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(n.id)}
+                    disabled={deletingId === n.id}
+                    className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-soft transition-colors shrink-0 disabled:opacity-50"
+                    aria-label="Remover notificação"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
     </Card>
   );
 }
@@ -367,6 +540,9 @@ export function UserDetailContent({ data, navigateTo, onDeleted }: UserDetailCon
           </button>
         </div>
       </Card>
+
+      {/* Notificação direcionada só para este cliente */}
+      <UserNotificationsCard username={u.login} />
 
       {/* Aparelhos do plano — usuário, senha e vencimento de cada um */}
       {allDevices.length > 0 && (

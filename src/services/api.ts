@@ -402,3 +402,51 @@ export async function updateSystemNotice(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+// ─── Notificações direcionadas (admin → cliente específico) ────────────────
+
+export interface UserNotification {
+  id: string;
+  username: string;
+  title: string;
+  message: string;
+  severity: SystemNoticeSeverity;
+  created_at: string;
+}
+
+export async function fetchUserNotifications(username: string) {
+  return apiFetch<UserNotification[]>(`/api/user-notifications/${encodeURIComponent(username)}`);
+}
+
+export async function deleteUserNotification(id: string, username: string) {
+  return apiFetch<{ success: boolean }>(
+    `/api/user-notifications/${encodeURIComponent(id)}?username=${encodeURIComponent(username)}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function sendAdminUserNotification(payload: {
+  username: string;
+  title: string;
+  message: string;
+  severity: SystemNoticeSeverity;
+}) {
+  return apiFetch<{ success: boolean; notification: UserNotification }>("/api/admin/user-notifications", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminUserNotifications(username: string) {
+  return apiFetch<UserNotification[]>(`/api/admin/user-notifications/${encodeURIComponent(username)}`, {
+    headers: adminHeaders(),
+  });
+}
+
+export async function deleteAdminUserNotification(id: string) {
+  return apiFetch<{ success: boolean }>(`/api/admin/user-notifications/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: adminHeaders(),
+  });
+}
