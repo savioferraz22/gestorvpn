@@ -12,7 +12,7 @@ import { AppUpdateBanner } from "./components/shared/AppUpdateBanner";
 import { useAppUpdate } from "./hooks/useAppUpdate";
 import { fetchSystemNotice, type SystemNotice } from "./services/api";
 
-type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
+type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_login" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
 
 // Download temporário via APK enquanto a versão da Play Store está desatualizada.
 // Quando a Play Store for atualizada, voltar os links para APP_STORE_URL.
@@ -1977,6 +1977,22 @@ export default function App() {
                       Criar teste grátis (2 dias)
                     </button>
 
+                    {/* O que dá pra fazer na área do cliente */}
+                    <div className="bg-bg-surface border border-border-base rounded-xl px-4 py-3.5 space-y-2.5">
+                      <p className="text-[11px] uppercase tracking-[0.08em] font-bold text-text-muted">Na área do cliente você pode</p>
+                      {[
+                        { icon: <CreditCard className="w-4 h-4 text-primary-600" />, text: "Contratar e renovar seu plano via Pix" },
+                        { icon: <Download className="w-4 h-4 text-primary-600" />, text: "Baixar a versão mais recente do app" },
+                        { icon: <MessageSquare className="w-4 h-4 text-primary-600" />, text: "Abrir tickets e falar com o suporte" },
+                        { icon: <HelpCircle className="w-4 h-4 text-primary-600" />, text: "Ver guias de conexão e tirar dúvidas" },
+                      ].map((f, i) => (
+                        <div key={i} className="flex items-center gap-2.5">
+                          <span className="shrink-0">{f.icon}</span>
+                          <span className="text-[12.5px] text-text-muted font-medium">{f.text}</span>
+                        </div>
+                      ))}
+                    </div>
+
                     {/* ── Trabalhe Conosco divider ── */}
                     <div className="relative py-1">
                       <div className="absolute inset-0 flex items-center">
@@ -1990,42 +2006,15 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Reseller login field + buttons */}
-                    <div className="space-y-2">
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
-                          <Store className="h-4 w-4 text-text-muted" />
-                        </div>
-                        <input
-                          type="text"
-                          value={resellerUsername}
-                          onChange={e => setResellerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
-                          onKeyDown={e => e.key === "Enter" && handleResellerLogin()}
-                          className="w-full pl-10 pr-4 h-11 rounded-md bg-bg-surface border border-border-base focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted text-sm"
-                          placeholder="Usuário revendedor (opcional)"
-                        />
-                      </div>
-                      {resellerError && (
-                        <p className="text-xs text-danger font-medium px-1">{resellerError}</p>
-                      )}
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={handleResellerLogin}
-                          disabled={resellerLoading || !resellerUsername.trim()}
-                          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold h-11 px-2 rounded-md transition-colors flex items-center justify-center active:scale-[0.98] text-[12px] gap-1.5"
-                        >
-                          {resellerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Store className="w-4 h-4 shrink-0" />}
-                          Acessar revendedor
-                        </button>
-                        <button
-                          onClick={() => { setResellerError(""); setView("reseller_info"); }}
-                          className="bg-bg-surface hover:bg-bg-surface-hover text-emerald-600 dark:text-emerald-400 font-bold h-11 px-2 rounded-md transition-colors flex items-center justify-center border border-emerald-500/40 active:scale-[0.98] text-[12px] gap-1.5"
-                        >
-                          <TrendingUp className="w-4 h-4 shrink-0" />
-                          Contratar / Conhecer
-                        </button>
-                      </div>
-                    </div>
+                    {/* Botão único → área exclusiva de revenda */}
+                    <button
+                      onClick={() => { setResellerError(""); setView("reseller_login"); }}
+                      className="w-full bg-bg-surface hover:bg-bg-surface-hover text-emerald-600 dark:text-emerald-400 font-bold h-12 px-4 rounded-md transition-colors flex items-center justify-center border border-emerald-500/40 active:scale-[0.98] gap-2"
+                    >
+                      <Store className="w-4 h-4 shrink-0" />
+                      Área do revendedor
+                      <ChevronRight className="w-4 h-4 shrink-0" />
+                    </button>
 
                     <div className="pt-2 flex items-center justify-center gap-3">
                       <button
@@ -2042,6 +2031,134 @@ export default function App() {
                         aria-label={theme === "dark" ? "Tema claro" : "Tema escuro"}
                       >
                         {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── Área exclusiva de revenda (login + benefícios + painel) ── */}
+            {view === "reseller_login" && (
+              <motion.div
+                key="reseller_login"
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                className="w-full flex-1 bg-bg-base overflow-hidden flex flex-col"
+              >
+                <header className="bg-emerald-600 dark:bg-emerald-700 h-14 px-3 flex items-center gap-2 shrink-0">
+                  <button onClick={() => { setResellerError(""); setView("login"); }} className="-ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Voltar">
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <div className="min-w-0">
+                    <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Área do revendedor</h1>
+                    <p className="text-[11px] text-white/75 truncate">Trabalhe conosco</p>
+                  </div>
+                </header>
+
+                <div className="flex-1 overflow-y-auto flex justify-center p-6">
+                  <div className="w-full max-w-sm">
+                    <div className="pt-4 pb-6 flex flex-col items-center gap-4">
+                      <div className="w-14 h-14 rounded-2xl bg-emerald-600 flex items-center justify-center shadow-sm">
+                        <Store className="w-7 h-7 text-white" />
+                      </div>
+                      <div className="text-center">
+                        <h2 className="text-2xl font-bold text-text-base tracking-tight">Bem-vindo(a), revendedor(a)</h2>
+                        <p className="text-text-muted mt-1 text-sm">Acesse seu painel para gerenciar clientes, renovações e sua cota de logins</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-5">
+                      {/* Login do revendedor */}
+                      <form onSubmit={(e) => { e.preventDefault(); handleResellerLogin(); }} className="space-y-4">
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
+                            <Store className="h-4 w-4 text-text-muted" />
+                          </div>
+                          <input
+                            type="text"
+                            value={resellerUsername}
+                            onChange={e => setResellerUsername(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
+                            className="w-full pl-10 pr-4 h-12 rounded-md bg-bg-surface border border-border-base focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 outline-none transition-all font-semibold text-text-base placeholder-text-muted"
+                            placeholder="Seu usuário revendedor"
+                            disabled={resellerLoading}
+                          />
+                        </div>
+
+                        {resellerError && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="flex items-start gap-2 p-3 bg-danger-soft text-danger rounded-md border border-danger/20">
+                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                            <span className="text-sm font-medium">{resellerError}</span>
+                          </motion.div>
+                        )}
+
+                        <button
+                          type="submit"
+                          disabled={resellerLoading || !resellerUsername.trim()}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-12 px-4 rounded-md transition-colors flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.98]"
+                        >
+                          {resellerLoading ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <>
+                              Acessar painel de revenda
+                              <ArrowLeft className="w-4 h-4 transform rotate-180" />
+                            </>
+                          )}
+                        </button>
+                      </form>
+
+                      {/* Painel VPN externo — gerenciamento de acessos dos clientes */}
+                      <a
+                        href="https://pweb.cloudbrasil.shop/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3.5 px-4 rounded-xl transition-colors shadow-sm active:scale-[0.98]"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
+                            <LayoutDashboard className="w-5 h-5" />
+                          </div>
+                          <div className="text-left min-w-0">
+                            <p className="text-sm font-bold">Painel VPN Cloud Brasil</p>
+                            <p className="text-xs text-emerald-100 truncate">Gerencie acessos e testes dos seus clientes</p>
+                          </div>
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-white/70 shrink-0" />
+                      </a>
+
+                      <div className="relative py-1">
+                        <div className="absolute inset-0 flex items-center">
+                          <div className="w-full border-t border-border-base"></div>
+                        </div>
+                        <div className="relative flex justify-center">
+                          <span className="px-3 bg-bg-base text-text-muted text-[11px] uppercase tracking-[0.12em] font-bold">Ainda não é revendedor?</span>
+                        </div>
+                      </div>
+
+                      {/* Benefícios resumidos */}
+                      <div className="bg-bg-surface border border-border-base rounded-xl px-4 py-3.5 space-y-2.5">
+                        <p className="text-[11px] uppercase tracking-[0.08em] font-bold text-emerald-600 dark:text-emerald-400">Vantagens de revender VS+</p>
+                        {[
+                          { icon: <DollarSign className="w-4 h-4 text-emerald-500" />, text: "Lucro real: você define o preço de venda" },
+                          { icon: <Users className="w-4 h-4 text-emerald-500" />, text: "Painel próprio para criar e renovar clientes" },
+                          { icon: <BadgePercent className="w-4 h-4 text-emerald-500" />, text: "Desconto fidelidade de 20% a cada 3 renovações" },
+                          { icon: <Zap className="w-4 h-4 text-emerald-500" />, text: "Suporte dedicado para revendedores" },
+                        ].map((f, i) => (
+                          <div key={i} className="flex items-center gap-2.5">
+                            <span className="shrink-0">{f.icon}</span>
+                            <span className="text-[12.5px] text-text-muted font-medium">{f.text}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => { setResellerError(""); setView("reseller_info"); }}
+                        className="w-full bg-bg-surface hover:bg-bg-surface-hover text-emerald-600 dark:text-emerald-400 font-bold h-12 px-4 rounded-md transition-colors flex items-center justify-center border border-emerald-500/40 active:scale-[0.98] gap-2"
+                      >
+                        <TrendingUp className="w-4 h-4 shrink-0" />
+                        Conhecer benefícios e contratar
                       </button>
                     </div>
                   </div>
@@ -4158,7 +4275,7 @@ export default function App() {
               >
                 {/* Header */}
                 <header className="bg-emerald-600 dark:bg-emerald-700 h-14 px-3 flex items-center gap-2 shrink-0">
-                  <button onClick={() => setView("login")} className="-ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Voltar">
+                  <button onClick={() => setView("reseller_login")} className="-ml-1 p-2 rounded-md text-white/85 hover:text-white active:bg-white/10 transition-colors" aria-label="Voltar">
                     <ArrowLeft className="w-5 h-5" />
                   </button>
                   <div className="min-w-0">
