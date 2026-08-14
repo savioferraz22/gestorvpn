@@ -14,6 +14,10 @@ import { fetchSystemNotice, type SystemNotice } from "./services/api";
 
 type ViewState = "login" | "dashboard" | "create_user" | "show_credentials" | "pix_flow" | "admin" | "tickets" | "ticket_detail" | "admin_tickets" | "admin_ticket_detail" | "help" | "reseller_info" | "reseller_dashboard" | "reseller_pix" | "reseller_help" | "reseller_tickets";
 
+// Download temporário via APK enquanto a versão da Play Store está desatualizada.
+// Quando a Play Store for atualizada, voltar os links para APP_STORE_URL.
+const APK_DOWNLOAD_URL = "/cloudbrdt-atualizado.apk";
+
 interface Referral {
   id: string;
   referrer_username: string;
@@ -375,7 +379,7 @@ export default function App() {
     },
     {
       title: "5. App Desatualizado ou Bugado",
-      content: "Se as conexões sumiram ou não atualizam, desinstale o app e instale novamente pela Play Store. Abra-o com o Wi-Fi ligado para atualizar as configurações, ou clique na seta girando no app."
+      content: "Se as conexões sumiram ou não atualizam, desinstale o app e instale a nova versão via APK (link disponível no seu painel — a versão da Play Store está desatualizada). Abra-o com o Wi-Fi ligado para atualizar as configurações, ou clique na seta girando no app."
     },
     {
       title: "6. Erro de Usuário/Senha ou Autenticação",
@@ -2086,6 +2090,31 @@ export default function App() {
                 </header>
                 <div className="p-6 space-y-6 flex-1 bg-bg-base relative z-0 pb-24 md:pb-6">
                   <SystemNoticeBanner notice={systemNotice} variant="full" />
+
+                  {/* Aviso: versão da Play Store desatualizada — baixar APK */}
+                  <div className="bg-warning-soft border-2 border-warning rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 flex items-start gap-3">
+                      <AlertTriangle className="w-6 h-6 text-warning shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-text-base">Nova versão do app disponível (APK)</p>
+                        <p className="text-[12px] text-text-muted leading-snug mt-1">
+                          A versão da Play Store está <strong>desatualizada</strong>. Para usar o serviço atualizado, baixe a nova versão pelo arquivo APK abaixo.
+                          Se preferir, você pode aguardar: nos próximos dias a Play Store será atualizada e avisaremos por aqui.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="px-4 pb-3">
+                      <a
+                        href={APK_DOWNLOAD_URL}
+                        download
+                        className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold h-11 px-4 rounded-md transition-colors active:scale-[0.98] flex items-center justify-center gap-2 text-sm"
+                      >
+                        <Download className="w-4 h-4" />
+                        Baixar nova versão (APK)
+                      </a>
+                    </div>
+                  </div>
+
                   {/* Security Hint Banner for Unverified Users */}
                   {!showData && (
                     <motion.button
@@ -2261,19 +2290,22 @@ export default function App() {
                     {/* Download App CTA */}
                     <div className="rounded-xl overflow-hidden border border-border-base">
                       <a
-                        href="https://play.google.com/store/apps/details?id=google.android.a48"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        href={APK_DOWNLOAD_URL}
+                        download
                         className="flex items-center gap-3 bg-bg-surface hover:bg-bg-surface-hover px-4 py-3 transition-colors active:scale-[0.98]"
                       >
                         <Download className="w-5 h-5 text-primary-600 flex-shrink-0" />
                         <div className="flex-1">
-                          <p className="text-sm font-bold text-text-base">Baixar App CloudBR DT</p>
+                          <p className="text-sm font-bold text-text-base">Baixar App CloudBR DT (nova versão APK)</p>
                           <p className="text-[11px] text-text-muted mt-0.5">Use seu usuário e senha para conectar</p>
                         </div>
                         <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0" />
                       </a>
                       <div className="bg-warning-soft border-t border-border-base px-4 py-2 flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-warning">
+                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                          <p className="text-[11px] font-bold">Versão da Play Store desatualizada — baixe por aqui via APK</p>
+                        </div>
                         <div className="flex items-center gap-2 text-warning">
                           <Smartphone className="w-3.5 h-3.5 flex-shrink-0" />
                           <p className="text-[11px] font-bold">Somente Android — não compatível com iPhone</p>
@@ -3580,7 +3612,7 @@ export default function App() {
                       Como conectar (passo a passo)
                     </h2>
                     <ol className="space-y-2 text-sm text-text-muted">
-                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">01</span><span>Baixe o app CloudBR DT na Play Store.</span></li>
+                      <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">01</span><span>Baixe a nova versão do app CloudBR DT pelo arquivo APK disponível no seu painel (a versão da Play Store está desatualizada).</span></li>
                       <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">02</span><span>Faça login usando seu usuário e senha (ou UUID).</span></li>
                       <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">03</span><span>Selecione a opção compatível com sua operadora (TIM/Vivo).</span></li>
                       <li className="flex items-start gap-2.5"><span className="font-bold font-mono text-primary-600 text-xs pt-0.5">04</span><span>Desligue o Wi-Fi e ligue os dados móveis (chip sem crédito).</span></li>
@@ -3866,19 +3898,22 @@ export default function App() {
                       <p className="text-[11px] font-bold text-white/85 uppercase tracking-[0.08em]">Passo 1 — Baixe o app</p>
                     </div>
                     <a
-                      href="https://play.google.com/store/apps/details?id=google.android.a48"
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      href={APK_DOWNLOAD_URL}
+                      download
                       className="flex items-center gap-3 bg-bg-surface hover:bg-bg-surface-hover px-4 py-3 transition-colors active:scale-[0.99]"
                     >
                       <Download className="w-5 h-5 text-primary-600 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-text-base">Baixar CloudBR DT</p>
-                        <p className="text-[11px] text-text-muted mt-0.5">Disponível na Google Play Store</p>
+                        <p className="font-bold text-text-base">Baixar CloudBR DT (nova versão APK)</p>
+                        <p className="text-[11px] text-text-muted mt-0.5">Download direto — versão da Play Store está desatualizada</p>
                       </div>
                       <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
                     </a>
                     <div className="bg-warning-soft border-t border-border-base px-4 py-2 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 text-warning">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <p className="text-[11px] font-bold">O Android pode alertar sobre o arquivo — toque em "Permitir" e instale normalmente</p>
+                      </div>
                       <div className="flex items-center gap-2 text-warning">
                         <Smartphone className="w-3.5 h-3.5 shrink-0" />
                         <p className="text-[11px] font-bold">Somente Android — não funciona em iPhone</p>
@@ -3897,7 +3932,7 @@ export default function App() {
                     </div>
                     <div className="divide-y divide-border-base">
                       {[
-                        { n: "01", title: "Instale o CloudBR DT", desc: "Baixe e instale pela Play Store. Abra com Wi-Fi ligado na primeira vez para carregar configurações." },
+                        { n: "01", title: "Instale o CloudBR DT", desc: "Baixe o arquivo APK acima e instale. Se o Android alertar, toque em 'Permitir desta fonte'. Abra com Wi-Fi ligado na primeira vez para carregar configurações." },
                         { n: "02", title: "Faça login no app", desc: `Na tela inicial, toque no ícone de usuário e insira seu usuário (${credentials.username}) e senha.` },
                         { n: "03", title: "Escolha o servidor", desc: "Selecione qualquer servidor DT disponível. Prefira os com sinal mais forte." },
                         { n: "04", title: "Conecte e aproveite", desc: "Toque em conectar. Aguarde até aparecer 'Conectado'." },
@@ -3947,13 +3982,12 @@ export default function App() {
                       Acessar minha conta
                     </button>
                     <a
-                      href="https://play.google.com/store/apps/details?id=google.android.a48"
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      href={APK_DOWNLOAD_URL}
+                      download
                       className="w-full bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-bold h-11 px-4 rounded-md transition-colors flex items-center justify-center gap-2 text-sm active:scale-[0.98]"
                     >
                       <Download className="w-4 h-4 text-primary-600" />
-                      Baixar CloudBR DT
+                      Baixar CloudBR DT (APK)
                     </a>
                   </div>
 
@@ -4477,9 +4511,8 @@ export default function App() {
                       </div>
                     </a>
                     <a
-                      href="https://play.google.com/store/apps/details?id=google.android.a48"
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      href={APK_DOWNLOAD_URL}
+                      download
                       className="flex items-center gap-3 bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-3.5 px-4 rounded-2xl transition-colors shadow-sm active:scale-[0.98]"
                     >
                       <div className="w-8 h-8 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
@@ -4487,7 +4520,7 @@ export default function App() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold leading-tight text-text-base">App CloudBRDT</p>
-                        <p className="text-[10px] text-text-muted truncate">Play Store</p>
+                        <p className="text-[10px] text-text-muted truncate">Nova versão (APK)</p>
                       </div>
                     </a>
                   </div>
@@ -5036,9 +5069,8 @@ export default function App() {
                       <ExternalLink className="w-4 h-4 text-white/70" />
                     </a>
                     <a
-                      href="https://play.google.com/store/apps/details?id=google.android.a48"
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      href={APK_DOWNLOAD_URL}
+                      download
                       className="flex items-center justify-between w-full bg-bg-surface hover:bg-bg-surface-hover border border-border-base text-text-base font-semibold py-4 px-5 rounded-2xl transition-colors shadow-sm active:scale-[0.98]"
                     >
                       <div className="flex items-center gap-3">
@@ -5046,11 +5078,11 @@ export default function App() {
                           <Download className="w-5 h-5 text-emerald-600" />
                         </div>
                         <div className="text-left">
-                          <p className="text-sm font-bold text-text-base">Baixar App CloudBRDT</p>
-                          <p className="text-xs text-text-muted">Para compartilhar com seus clientes</p>
+                          <p className="text-sm font-bold text-text-base">Baixar App CloudBRDT (nova versão APK)</p>
+                          <p className="text-xs text-text-muted">Para compartilhar com seus clientes — Play Store desatualizada</p>
                         </div>
                       </div>
-                      <ExternalLink className="w-4 h-4 text-text-muted" />
+                      <Download className="w-4 h-4 text-text-muted" />
                     </a>
                   </div>
 
@@ -5075,7 +5107,7 @@ export default function App() {
                       Como Dar Suporte ao Seu Cliente
                     </h2>
                     <ol className="space-y-3 text-sm text-text-muted pl-1">
-                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">1.</span><span>Peça ao cliente que <strong>baixe o app CloudBRDT</strong> pela Play Store (somente Android).</span></li>
+                      <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">1.</span><span>Peça ao cliente que <strong>baixe a nova versão do app CloudBRDT via APK</strong> (link no topo desta página) — a versão da Play Store está desatualizada. Somente Android.</span></li>
                       <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">2.</span><span>Forneça o <strong>usuário e senha</strong> criados por você no Painel VPN Cloud Brasil.</span></li>
                       <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">3.</span><span>Oriente a usar <strong>chip TIM ou VIVO sem crédito</strong>, com dados móveis ligados e Wi-Fi desligado.</span></li>
                       <li className="flex items-start"><span className="font-bold text-emerald-600 mr-2 mt-0.5">4.</span><span>Se não conectar, peça para testar <strong>diferentes modos</strong> no app (Gcloud, Front, Flare, etc.).</span></li>
@@ -5093,7 +5125,7 @@ export default function App() {
                     <div className="space-y-2">
                       {[
                         { title: "Cliente não consegue conectar", content: "Verifique: 1) Chip é TIM ou VIVO? 2) Wi-Fi está desligado? 3) Dados móveis ligados? 4) Trocou o modo de conexão no app? Se sim a tudo, peça para ligar o Modo Avião por 10s e tentar outro modo no app." },
-                        { title: "App sumiu as opções de conexão", content: "O app pode estar desatualizado. Peça ao cliente para desinstalar e reinstalar pela Play Store, abrir com Wi-Fi ligado para atualizar, ou clicar na seta de atualizar dentro do app." },
+                        { title: "App sumiu as opções de conexão", content: "O app pode estar desatualizado. Peça ao cliente para desinstalar e instalar a nova versão via APK (link no topo desta página), abrir com Wi-Fi ligado para atualizar, ou clicar na seta de atualizar dentro do app." },
                         { title: "Chip com crédito gastando saldo", content: "Se o chip tiver saldo, a operadora consome ele primeiro. Oriente o cliente a usar um chip pré-pago SEM crédito para não gastar." },
                         { title: "Erro de usuário ou senha", content: "Verifique no Painel VPN se o usuário está ativo e a senha está correta. Se tiver acabado a validade, renove no painel antes de tentar de novo." },
                         { title: "App não funciona com iPhone", content: "O CloudBRDT é exclusivo para Android. Não funciona em iPhone (iOS) e não há previsão de suporte." },
@@ -5159,7 +5191,7 @@ export default function App() {
                       Passo a Passo do App (Para Repassar ao Cliente)
                     </h2>
                     <ol className="space-y-3 text-sm text-text-muted pl-1">
-                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">1.</span><span>Baixar o app <strong>CloudBRDT</strong> na Play Store (Android).</span></li>
+                      <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">1.</span><span>Baixar a <strong>nova versão do app CloudBRDT via APK</strong> (link no topo desta página) — a Play Store está desatualizada. Somente Android.</span></li>
                       <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">2.</span><span>Fazer login com o <strong>usuário e senha</strong> fornecidos pelo revendedor.</span></li>
                       <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">3.</span><span>Selecionar a opção compatível com a operadora (<strong>TIM ou VIVO</strong>).</span></li>
                       <li className="flex items-start"><span className="font-bold text-blue-600 mr-2 mt-0.5">4.</span><span>Desligar o <strong>Wi-Fi</strong> e ligar os <strong>Dados Móveis</strong> (chip sem crédito).</span></li>
@@ -5482,6 +5514,19 @@ export default function App() {
                       <SystemNoticeBanner notice={systemNotice} variant="full" />
                     </div>
                   )}
+
+                  {/* Aviso: baixar nova versão APK antes de abrir ticket */}
+                  <div className="mb-4 bg-warning-soft border border-warning rounded-xl px-4 py-3 flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-bold text-text-base">App não funciona? Atualize primeiro</p>
+                      <p className="text-[12px] text-text-muted leading-snug mt-0.5">
+                        A versão da Play Store está desatualizada. Para o app funcionar corretamente, baixe a{" "}
+                        <a href={APK_DOWNLOAD_URL} download className="font-bold text-primary-600 hover:underline">nova versão via APK</a>{" "}
+                        antes de abrir um ticket.
+                      </p>
+                    </div>
+                  </div>
 
                   {/* New ticket — inline expand (no modal) */}
                   <div className="mb-4">
