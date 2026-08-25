@@ -413,6 +413,18 @@ async function callVpnApi(params: URLSearchParams, retries = 3, delayMs = 2000):
         // Not JSON — plain text response is usually OK (e.g. "sucesso")
         if (typeof parseErr === "object" && (parseErr as any)?.message?.startsWith("VPN API")) throw parseErr;
       }
+      // Protocolo texto do painel ("Sucess: <servidores> ; Error: <erros>"),
+      // usado por criaruser/criarteste/renewuser. Sem esta checagem, um erro em
+      // texto era contado como SUCESSO e a idempotência bloqueava o retry para
+      // sempre. renewrev/createrev respondem frases sem esse padrão e passam
+      // direto, como antes.
+      const proto = text.match(/Sucess:\s*([^;]*);\s*Error:\s*(.*)/i);
+      if (proto) {
+        const okPart = proto[1].replace(/["',\s]/g, "");
+        const errPart = proto[2].replace(/["'\s]/g, "").replace(/^,+|,+$/g, "");
+        if (errPart) throw new Error(`VPN API error: ${proto[2].trim().replace(/"+$/, "")}`);
+        if (!okPart) throw new Error(`VPN API: resposta sem confirmação de sucesso: ${text.slice(0, 120)}`);
+      }
       return text;
     } catch (e: any) {
       console.error(`[VPN] callVpnApi attempt ${attempt}/${retries} failed:`, e.message);
@@ -477,6 +489,20 @@ function parseMetadata(raw: any): any {
     try { return JSON.parse(raw); } catch { return {}; }
   }
   return raw;
+}
+
+// Insere o pagamento no banco e GARANTE que o insert funcionou. supabase-js
+// não lança exceção em erro (retorna { error }) — sem esta checagem, um insert
+// falho deixava o cliente receber e pagar um QR que não existia para o
+// sistema: dinheiro recebido sem rastro e sem alerta.
+async function insertPaymentOrThrow(row: Record<string, any>): Promise<void> {
+  const { error } = await getDb().from("payments").insert(row);
+  if (error) {
+    console.error(`[payments] CRÍTICO: insert do pagamento ${row.id} falhou:`, error.message);
+    sendPush("__admin__", "🚨 Falha ao registrar pagamento",
+      `PIX ${row.id} de ${row.username} foi criado no Mercado Pago mas NÃO entrou no banco (${error.message}). Se o cliente pagar este QR, aprove manualmente pelo MP.`);
+    throw new Error("Erro ao registrar o pagamento. Tente gerar o PIX novamente.");
+  }
 }
 
 // Normalize and validate payment metadata. This runs when we read metadata
@@ -966,20 +992,25 @@ async function approvePayment(paymentRecord: any) {
     let usersToRenew = [paymentRecord.username];
     let monthsToRenew = 1;
 
-    if (groupId) {
+    // Preferir o snapshot CONGELADO na geração do PIX (meses e membros pagos).
+    // Reler o plano/grupo atuais permitia aplicar um plano alterado depois de
+    // gerar o PIX (upgrade não pago). Fallback para pagamentos antigos.
+    const frozenMonths = parseInt(metadata.monthsToRenew);
+    if (Number.isFinite(frozenMonths) && frozenMonths >= 1) {
+      monthsToRenew = Math.min(12, frozenMonths);
+    } else if (groupId) {
       const { data: plan } = await db.from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
-      if (plan) {
-        monthsToRenew = (plan as any).plan_months;
-      }
-      const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
-      if (groupUsers && groupUsers.length > 0) {
-        // Pagante primeiro: se a execução for derrubada no meio do loop (timeout
-        // serverless), pelo menos quem pagou já foi renovado.
-        usersToRenew = groupUsers
-          .map(u => u.username)
-          .sort((a, b) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
-      }
+      if (plan) monthsToRenew = (plan as any).plan_months;
     }
+    if (Array.isArray(metadata.groupMembers) && metadata.groupMembers.length > 0) {
+      usersToRenew = metadata.groupMembers.map((u: any) => String(u));
+    } else if (groupId) {
+      const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
+      if (groupUsers && groupUsers.length > 0) usersToRenew = groupUsers.map(u => u.username);
+    }
+    // Pagante primeiro: se a execução for derrubada no meio do loop (timeout
+    // serverless), pelo menos quem pagou já foi renovado.
+    usersToRenew.sort((a, b) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
 
     // renewuser adds 30 days to the CURRENT expiry. If the user is expired,
     // those days start from the past date → fewer days than paid.
@@ -1153,7 +1184,10 @@ async function schedulePaymentCheck(paymentId: string) {
       run_at: new Date(Date.now() + d).toISOString(),
       status: "pending",
     }));
-    await getDb().from("scheduled_checks").insert(rows);
+    // supabase-js não lança em erro — sem este throw, o fallback abaixo era
+    // código morto e uma falha aqui apagava os checks de 1/5 min em silêncio.
+    const { error } = await getDb().from("scheduled_checks").insert(rows);
+    if (error) throw error;
   } catch (e) {
     // If the insert fails (e.g. table missing in dev), fall back to in-memory setTimeout
     // so the current process at least behaves like before.
@@ -1864,7 +1898,7 @@ app.post("/api/pix/new-device", async (req, res) => {
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
 
-    await getDb().from("payments").insert({
+    await insertPaymentOrThrow({
       id: mpRes.id.toString(),
       username: mainUsername,
       status: "pending",
@@ -2035,8 +2069,19 @@ app.post("/api/pix", async (req, res) => {
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
 
-    const mdata = { discountApplied, paidOnTime, amount: transactionAmount };
-    await getDb().from("payments").insert({
+    // Congela no metadata o que foi PAGO: meses, membros do grupo e vencimento
+    // na geração. Sem isso, a aprovação relia o plano ATUAL — mudar o plano
+    // entre gerar e pagar o PIX aplicava meses não pagos (upgrade grátis).
+    const { data: memberRows } = await getDb().from("user_groups").select("username").eq("group_id", groupRecord.group_id);
+    const mdata = {
+      discountApplied,
+      paidOnTime,
+      amount: transactionAmount,
+      monthsToRenew: Math.max(1, Math.min(12, parseInt(plan.plan_months) || 1)),
+      groupMembers: (memberRows || []).map((m: any) => m.username),
+      expiraAtGeneration: userExists.expira || null,
+    };
+    await insertPaymentOrThrow({
       id: mpRes.id.toString(),
       username,
       status: "pending",
@@ -2399,17 +2444,21 @@ async function reapplyPaymentVpnOperations(
     const groupId = paymentRecord.group_id;
     let usersToRenew = [paymentRecord.username];
     let monthsToRenew = 1;
-    if (groupId) {
+    // Mesmo critério do approvePayment: snapshot congelado > estado atual
+    const frozenMonths = parseInt(metadata.monthsToRenew);
+    if (Number.isFinite(frozenMonths) && frozenMonths >= 1) {
+      monthsToRenew = Math.min(12, frozenMonths);
+    } else if (groupId) {
       const { data: plan } = await db.from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
       if (plan) monthsToRenew = (plan as any).plan_months;
-      const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
-      if (groupUsers && groupUsers.length > 0) {
-        // Pagante primeiro — mesmo critério do approvePayment
-        usersToRenew = groupUsers
-          .map((u: any) => u.username)
-          .sort((a: string, b: string) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
-      }
     }
+    if (Array.isArray(metadata.groupMembers) && metadata.groupMembers.length > 0) {
+      usersToRenew = metadata.groupMembers.map((u: any) => String(u));
+    } else if (groupId) {
+      const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
+      if (groupUsers && groupUsers.length > 0) usersToRenew = groupUsers.map((u: any) => u.username);
+    }
+    usersToRenew.sort((a: string, b: string) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
     for (const user of usersToRenew) {
       const already = await countSuccessfulAttempts(paymentId, "renewuser", user);
       if (already >= monthsToRenew) continue;
@@ -3912,7 +3961,7 @@ app.post("/api/reseller/pix/hire", async (req, res) => {
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
 
-    await getDb().from("payments").insert({
+    await insertPaymentOrThrow({
       id: mpRes.id.toString(),
       username,
       status: "pending",
@@ -4000,7 +4049,7 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
 
-    await getDb().from("payments").insert({
+    await insertPaymentOrThrow({
       id: mpRes.id.toString(),
       username,
       status: "pending",
@@ -4214,7 +4263,7 @@ app.post("/api/reseller/pix/logins-upgrade", requireResellerAuth, async (req: an
       throw new Error("Erro ao gerar Pix no Mercado Pago");
     }
 
-    await getDb().from("payments").insert({
+    await insertPaymentOrThrow({
       id: mpRes.id.toString(),
       username,
       status: "pending",
