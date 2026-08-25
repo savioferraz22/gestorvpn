@@ -1747,6 +1747,35 @@ app.post("/api/create-free", async (req, res) => {
       }
     }
 
+    // O bônus de indicação (+30d reais) só vale para indicador PAGANTE (ele ou
+    // alguém do grupo dele). Sem isso, correntes de testes grátis indicando uns
+    // aos outros colhiam bônus reais. O teste é criado normalmente; apenas a
+    // indicação é ignorada.
+    let referralAllowed = false;
+    if (referrer) {
+      const { data: refGroup } = await getDb().from("user_groups").select("group_id").eq("username", referrer).maybeSingle();
+      let payerCandidates = [referrer];
+      if (refGroup) {
+        const { data: refMembers } = await getDb().from("user_groups").select("username").eq("group_id", refGroup.group_id);
+        if (refMembers?.length) payerCandidates = refMembers.map((m: any) => m.username);
+      }
+      const { data: refPaid } = await getDb().from("payments")
+        .select("id")
+        .in("username", payerCandidates)
+        .in("type", REGULAR_PAYMENT_TYPES)
+        .eq("status", "approved")
+        .limit(1);
+      referralAllowed = !!refPaid && refPaid.length > 0;
+      if (!referralAllowed) {
+        logActivity("referral_skipped", {
+          username: referrer,
+          actor: "system",
+          description: `Indicação de ${referrer} para ${username} ignorada: indicador sem pagamento aprovado (provável teste grátis)`,
+          metadata: { referredUsername: username },
+        });
+      }
+    }
+
     // Also check resellers — prevent collision with reseller usernames
     const resellers = await fetchVpnResellers();
     if (Array.isArray(resellers)) {
@@ -1795,8 +1824,8 @@ app.post("/api/create-free", async (req, res) => {
     // Trust device automatically
     await getDb().from("trusted_devices").upsert({ device_id: deviceId, username });
 
-    // Save referral if exists
-    if (referrer) {
+    // Save referral if exists (indicador pagante — ver referralAllowed acima)
+    if (referrer && referralAllowed) {
       const referralId = crypto.randomUUID();
       await getDb().from("referrals").insert({ id: referralId, referrer_username: referrer, referred_username: username });
       logActivity("referral_created", {
@@ -1829,7 +1858,23 @@ app.post("/api/create-free", async (req, res) => {
 // 1. Check user and generate Pix
 app.post("/api/pix/new-device", async (req, res) => {
   try {
-    const { groupId, mainUsername, newUsername } = req.body;
+    const { groupId, mainUsername, newUsername, deviceId } = req.body;
+
+    if (!groupId || !mainUsername || !newUsername) {
+      return res.status(400).json({ error: "Dados incompletos" });
+    }
+    if (!/^[a-zA-Z0-9]{1,10}$/.test(newUsername)) {
+      return res.status(400).json({ error: "Usuário inválido. Use apenas letras e números, até 10 caracteres." });
+    }
+
+    // Cria vínculo financeiro no grupo — exigir que o pedido venha de um
+    // aparelho confiável de um membro do próprio grupo. Sem isso, qualquer um
+    // podia gerar cobrança/aparelho no grupo de terceiros.
+    const { data: ndMembership } = await getDb().from("user_groups")
+      .select("username").eq("group_id", groupId).eq("username", mainUsername).maybeSingle();
+    if (!ndMembership || !(await isTrustedDevice(mainUsername, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado. Verifique sua senha no aparelho antes de adicionar aparelhos." });
+    }
 
     // 1. Check new username not taken by a reseller
     const resellers = await fetchVpnResellers();
@@ -1843,6 +1888,11 @@ app.post("/api/pix/new-device", async (req, res) => {
 
     if (!mainUser) {
       return res.status(404).json({ error: "Usuário principal não encontrado" });
+    }
+    // Username novo não pode colidir com usuário existente no painel — na
+    // aprovação, o criaruser falharia depois de o cliente já ter pago.
+    if (users.find((u: any) => u.login === newUsername)) {
+      return res.status(409).json({ error: "Este usuário já existe. Escolha outro nome." });
     }
 
     // Calculate remaining days
@@ -1957,7 +2007,21 @@ app.post("/api/group/add-free-device", async (req, res) => {
     }
     const expirationDate = parseVpnExpira(mainUser.expira);
     if (!expirationDate) return res.status(400).json({ error: "Data de expiração inválida no painel VPN" });
-    const remainingDays = Math.max(1, Math.ceil((expirationDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    const rawRemainingDays = Math.max(0, Math.ceil((expirationDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    const remainingDays = Math.max(1, rawRemainingDays);
+
+    // O aparelho só é grátis quando a prorata do ciclo restante é ~zero.
+    // Recalcular aqui — confiar que o front só chama quando /api/pix/new-device
+    // respondeu free:true permitia ganhar de graça um aparelho pago (até R$10×meses).
+    const { data: gUsersNow } = await getDb().from("user_groups").select("username").eq("group_id", groupId);
+    const devicesNow = Math.max(1, (gUsersNow || []).length);
+    const { data: planNow } = await getDb().from("group_plans").select("plan_months").eq("group_id", groupId).maybeSingle();
+    const monthsNow = Math.max(1, parseInt(planNow?.plan_months) || 1);
+    const freeDiff = calculatePlanPrice(monthsNow, devicesNow + 1) - calculatePlanPrice(monthsNow, devicesNow);
+    const freeProrated = Number(((freeDiff / (30 * monthsNow)) * Math.min(rawRemainingDays, 30 * monthsNow)).toFixed(2));
+    if (freeProrated >= 0.01) {
+      return res.status(400).json({ error: "Este aparelho não é gratuito para o período restante do plano. Gere o PIX para adicioná-lo." });
+    }
 
     // Generate random password (digits only, same pattern as paid devices)
     const password = Math.floor(100000 + Math.random() * 900000).toString();
@@ -2549,8 +2613,15 @@ app.get("/api/admin/tickets", async (req, res) => {
 // 4. Refund and Date Change Requests
 app.post("/api/refund", async (req, res) => {
   try {
-    const { username, pixType, pixKey } = req.body;
+    const { username, pixType, pixKey, deviceId } = req.body;
     const id = crypto.randomUUID();
+
+    // Reembolso paga uma chave PIX ARBITRÁRIA enviada no body — sem esta
+    // trava, qualquer pessoa que soubesse um username podia abrir reembolso
+    // em nome da vítima com a própria chave PIX.
+    if (!username || !(await isTrustedDevice(username, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado. Verifique sua senha neste aparelho antes de solicitar reembolso." });
+    }
 
     // Check if already requested
     const { data: existing } = await getDb().from("refund_requests").select("*").eq("username", username).eq("status", "aguardando").maybeSingle();
@@ -2575,13 +2646,28 @@ app.post("/api/refund", async (req, res) => {
 
 app.post("/api/user/update-access", async (req, res) => {
   try {
-    const { username, action, newValue } = req.body;
+    const { username, action, newValue, requesterUsername, deviceId } = req.body;
 
     if (!['username', 'password', 'date', 'uuid', 'uuid_correction'].includes(action)) {
       return res.status(400).json({ error: "Ação inválida" });
     }
     if (!newValue && action !== 'uuid' && action !== 'uuid_correction') {
       return res.status(400).json({ error: "Novo valor inválido" });
+    }
+
+    // Solicitações mudam credenciais/vencimento — exigir aparelho confiável.
+    // O alvo pode ser outro aparelho do MESMO grupo (seletor de aparelhos),
+    // por isso valida-se o solicitante e o vínculo de grupo com o alvo.
+    const requester = String(requesterUsername || username || "");
+    if (!(await isTrustedDevice(requester, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado. Verifique sua senha neste aparelho antes de solicitar alterações." });
+    }
+    if (requester !== username) {
+      const { data: gReq } = await getDb().from("user_groups").select("group_id").eq("username", requester).maybeSingle();
+      const { data: gTgt } = await getDb().from("user_groups").select("group_id").eq("username", username).maybeSingle();
+      if (!gReq || !gTgt || gReq.group_id !== gTgt.group_id) {
+        return res.status(403).json({ error: "Não autorizado para este usuário." });
+      }
     }
 
     const users = await fetchVpnUsers();
@@ -2664,10 +2750,27 @@ app.post("/api/user/update-access", async (req, res) => {
   }
 });
 
+// Autoriza o cancelamento de uma solicitação: o solicitante precisa estar num
+// aparelho confiável e ser o dono da solicitação (ou membro do mesmo grupo,
+// pois solicitações podem ser abertas para outro aparelho do plano).
+async function canCancelRequest(ownerUsername: string, requester: string, deviceId: string): Promise<boolean> {
+  if (!requester || !(await isTrustedDevice(requester, deviceId))) return false;
+  if (ownerUsername === requester) return true;
+  const { data: gReq } = await getDb().from("user_groups").select("group_id").eq("username", requester).maybeSingle();
+  const { data: gOwn } = await getDb().from("user_groups").select("group_id").eq("username", ownerUsername).maybeSingle();
+  return !!gReq && !!gOwn && gReq.group_id === gOwn.group_id;
+}
+
 // Cancel change request
 app.delete("/api/user/change-requests/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const requester = String(req.query.username || "");
+    const deviceId = String(req.query.deviceId || "");
+    const { data: row } = await getDb().from("change_requests").select("username").eq("id", id).maybeSingle();
+    if (row && !(await canCancelRequest(row.username, requester, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado a cancelar esta solicitação." });
+    }
     await getDb().from("change_requests").delete().eq("id", id).eq("status", "aguardando");
     res.json({ success: true });
   } catch (error: any) {
@@ -2679,6 +2782,12 @@ app.delete("/api/user/change-requests/:id", async (req, res) => {
 app.delete("/api/user/refunds/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const requester = String(req.query.username || "");
+    const deviceId = String(req.query.deviceId || "");
+    const { data: row } = await getDb().from("refund_requests").select("username").eq("id", id).maybeSingle();
+    if (row && !(await canCancelRequest(row.username, requester, deviceId))) {
+      return res.status(403).json({ error: "Não autorizado a cancelar este reembolso." });
+    }
     await getDb().from("refund_requests").delete().eq("id", id).eq("status", "aguardando");
     res.json({ success: true });
   } catch (error: any) {
@@ -3854,12 +3963,20 @@ app.post("/api/reseller/setup", requireResellerAuth, async (req: any, res) => {
     const { logins, expiresAt } = req.body;
     if (!logins || !expiresAt) return res.status(400).json({ error: "Logins e data de vencimento são obrigatórios" });
 
-    const loginsNum = Math.max(10, parseInt(logins));
+    // Tetos de sanidade: o setup é auto-declarado (sem pagamento) e alimenta a
+    // contabilidade do app — sem limite dava para se declarar com logins e
+    // vencimento arbitrários.
+    const loginsNum = Math.max(10, Math.min(1000, parseInt(logins) || 10));
     // Treat date-only input (YYYY-MM-DD) as end of day in Brasília (UTC-3) to avoid off-by-one
     const dateStr = String(expiresAt).trim();
     const isoStr = dateStr.length === 10 ? `${dateStr}T23:59:59-03:00` : dateStr;
     const expiryDate = new Date(isoStr);
     if (isNaN(expiryDate.getTime())) return res.status(400).json({ error: "Data de vencimento inválida" });
+    const maxSetupExpiry = Date.now() + 400 * 86400000;
+    const minSetupExpiry = Date.now() - 400 * 86400000;
+    if (expiryDate.getTime() > maxSetupExpiry || expiryDate.getTime() < minSetupExpiry) {
+      return res.status(400).json({ error: "Data de vencimento fora do intervalo permitido (±13 meses)." });
+    }
 
     // Only allow setup if no prior approved payments exist
     const { data: existing } = await getDb()

@@ -1045,7 +1045,9 @@ export default function App() {
         body: JSON.stringify({
           username: targetUsername,
           action: "uuid",
-          newValue: "reset"
+          newValue: "reset",
+          requesterUsername: currentUser?.login,
+          deviceId: deviceId || localStorage.getItem("vpn_device_id") || "",
         }),
       });
       const data = await res.json();
@@ -1088,7 +1090,9 @@ export default function App() {
         body: JSON.stringify({
           username: targetUsername,
           action: "uuid_correction",
-          newValue: "fix"
+          newValue: "fix",
+          requesterUsername: currentUser?.login,
+          deviceId: deviceId || localStorage.getItem("vpn_device_id") || "",
         }),
       });
       const data = await res.json();
@@ -1399,7 +1403,8 @@ export default function App() {
         body: JSON.stringify({
           groupId: groupData?.groupId,
           mainUsername: currentUser?.login,
-          newUsername: upgradeUsername
+          newUsername: upgradeUsername,
+          deviceId: deviceId || localStorage.getItem("vpn_device_id") || "",
         })
       });
       const data = await res.json();
@@ -1488,7 +1493,7 @@ export default function App() {
       const res = await fetch("/api/user/update-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: targetUsername, action: "date", newValue: newDate }),
+        body: JSON.stringify({ username: targetUsername, action: "date", newValue: newDate, requesterUsername: currentUser?.login, deviceId: deviceId || localStorage.getItem("vpn_device_id") || "" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao solicitar alteração de data");
@@ -1514,7 +1519,7 @@ export default function App() {
       const res = await fetch("/api/user/update-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: targetUsername, action: "username", newValue: changeUsernameValue }),
+        body: JSON.stringify({ username: targetUsername, action: "username", newValue: changeUsernameValue, requesterUsername: currentUser?.login, deviceId: deviceId || localStorage.getItem("vpn_device_id") || "" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao solicitar alteração de usuário");
@@ -1544,7 +1549,7 @@ export default function App() {
       const res = await fetch("/api/user/update-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: targetUsername, action: "password", newValue: newPassword }),
+        body: JSON.stringify({ username: targetUsername, action: "password", newValue: newPassword, requesterUsername: currentUser?.login, deviceId: deviceId || localStorage.getItem("vpn_device_id") || "" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao solicitar alteração de senha");
@@ -1569,7 +1574,7 @@ export default function App() {
       const res = await fetch("/api/refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: currentUser.login, pixType, pixKey }),
+        body: JSON.stringify({ username: currentUser.login, pixType, pixKey, deviceId: deviceId || localStorage.getItem("vpn_device_id") || "" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao solicitar reembolso");
@@ -1587,7 +1592,8 @@ export default function App() {
 
   const cancelChangeRequest = async (id: string) => {
     try {
-      const res = await fetch(`/api/user/change-requests/${id}`, { method: "DELETE" });
+      const did = deviceId || localStorage.getItem("vpn_device_id") || "";
+      const res = await fetch(`/api/user/change-requests/${id}?username=${encodeURIComponent(currentUser?.login || "")}&deviceId=${encodeURIComponent(did)}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Erro ao cancelar solicitação.");
       if (currentUser) handleLogin(currentUser.login);
     } catch (err) {
@@ -1597,7 +1603,8 @@ export default function App() {
 
   const cancelRefundRequest = async (id: string) => {
     try {
-      const res = await fetch(`/api/user/refunds/${id}`, { method: "DELETE" });
+      const did = deviceId || localStorage.getItem("vpn_device_id") || "";
+      const res = await fetch(`/api/user/refunds/${id}?username=${encodeURIComponent(currentUser?.login || "")}&deviceId=${encodeURIComponent(did)}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Erro ao cancelar reembolso.");
       if (currentUser) handleLogin(currentUser.login);
     } catch (err) {
