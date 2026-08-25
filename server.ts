@@ -2233,8 +2233,23 @@ const MANUALLY_FIXED_PAYMENT_IDS = new Set([
   "175345024484", // Rodrigo27/28 — Rodrigo28 renovado manualmente em 25/08/2026
 ]);
 
+// Guarda in-process: intervalo + cron/tick podem coincidir na mesma instância.
+let retrySweepRunning = false;
+
 async function retryFailedApplications(opts: { sincePaymentId?: string } = {}): Promise<{ retried: number; succeeded: number; stillFailed: number }> {
   const db = getDb();
+  if (!opts.sincePaymentId) {
+    if (retrySweepRunning) return { retried: 0, succeeded: 0, stillFailed: 0 };
+    retrySweepRunning = true;
+  }
+  try {
+    return await runRetrySweep(db, opts);
+  } finally {
+    if (!opts.sincePaymentId) retrySweepRunning = false;
+  }
+}
+
+async function runRetrySweep(db: any, opts: { sincePaymentId?: string }): Promise<{ retried: number; succeeded: number; stillFailed: number }> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Approved payments where the last known state flagged VPN as not applied.
@@ -2262,6 +2277,21 @@ async function retryFailedApplications(opts: { sincePaymentId?: string } = {}): 
       && Number.isFinite(paidAtMs)
       && Date.now() - paidAtMs > 15 * 60 * 1000;
     if (!hasFails && !flaggedNotApplied && !diedMidFlight) continue;
+
+    // Claim atômico entre instâncias: no deploy, várias instâncias sobem juntas
+    // e os intervalos de 10min disparam em sincronia — em 25/08 três varreduras
+    // simultâneas chamaram renewuser 2x para o mesmo pagamento (o painel só não
+    // dobrou por sorte). Só uma instância consegue gravar o claim; as outras
+    // pulam. Claim expira em 10min (instância pode morrer no meio).
+    if (!opts.sincePaymentId) {
+      const claimCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const { data: claimed } = await db.from("payments")
+        .update({ metadata: { ...meta, vpnSweepClaimedAt: new Date().toISOString() } })
+        .eq("id", p.id)
+        .or(`metadata->>vpnSweepClaimedAt.is.null,metadata->>vpnSweepClaimedAt.lt."${claimCutoff}"`)
+        .select("id");
+      if (!claimed || claimed.length === 0) continue; // outra instância assumiu
+    }
 
     retried++;
     try {
@@ -4652,9 +4682,10 @@ async function syncPendingPayments(): Promise<number> {
 setInterval(() => { syncPendingPayments().catch(() => {}); }, 10 * 60 * 1000);
 
 // Varredura de reaplicação (pagamentos aprovados com aplicação incompleta no
-// painel) a cada 10 min enquanto a instância viver; no serverless o
-// /api/cron/tick diário é o gatilho garantido.
-setInterval(() => { retryFailedApplications().catch(() => {}); }, 10 * 60 * 1000);
+// painel) enquanto a instância viver; no serverless o /api/cron/tick diário é
+// o gatilho garantido. Jitter no período: instâncias sobem juntas no deploy e
+// intervalos fixos disparariam em sincronia (varreduras concorrentes).
+setInterval(() => { retryFailedApplications().catch(() => {}); }, 10 * 60 * 1000 + Math.floor(Math.random() * 4 * 60 * 1000));
 
 // ─── Cron endpoints (serverless-safe workers) ────────────────────────────────
 // setInterval/node-cron do NOT run reliably on Vercel/serverless: the process
