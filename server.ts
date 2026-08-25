@@ -559,11 +559,13 @@ async function calculateLoyaltyPoints(username: string): Promise<number> {
   }
 
   // Deduct 1 point for each approved refund
+  // Status real do fluxo de reembolso é 'realizado' ('aprovado' nunca existiu
+  // nessa tabela — a dedução era código morto e reembolsos não tiravam ponto)
   const { data: refunds } = await getDb()
     .from("refund_requests")
     .select("id")
     .eq("username", username)
-    .eq("status", "aprovado");
+    .eq("status", "realizado");
   points = Math.max(0, points - (refunds?.length || 0));
 
   return Math.min(points, 3); // Never exceed 3
@@ -593,14 +595,71 @@ async function calculateResellerLoyaltyPoints(username: string): Promise<number>
     }
   }
 
+  // Status real do fluxo de reembolso é 'realizado' ('aprovado' nunca existiu
+  // nessa tabela — a dedução era código morto e reembolsos não tiravam ponto)
   const { data: refunds } = await getDb()
     .from("refund_requests")
     .select("id")
     .eq("username", username)
-    .eq("status", "aprovado");
+    .eq("status", "realizado");
   points = Math.max(0, points - (refunds?.length || 0));
 
   return Math.min(points, 3);
+}
+
+// Cria a solicitação de correção de vencimento, se ainda não houver uma
+// pendente para o usuário (dedupe — a varredura pode repassar pelo mesmo
+// pagamento). Retorna true se criou.
+async function createDateCorrectionOnce(user: string, date: string, paymentId: string): Promise<boolean> {
+  const db = getDb();
+  const { data: existing } = await db.from("change_requests").select("id")
+    .eq("username", user).eq("type", "date_correction").eq("status", "aguardando").maybeSingle();
+  if (existing) return false;
+  const { error } = await db.from("change_requests").insert({
+    id: crypto.randomUUID(),
+    username: user,
+    type: "date_correction",
+    requested_value: date,
+    status: "aguardando",
+  });
+  if (error) {
+    console.warn(`[date_correction] insert falhou para ${user}:`, error.message);
+    return false;
+  }
+  console.log(`[date_correction] Created for ${user} → ${date}`);
+  logActivity("change_request_created", {
+    username: user,
+    actor: "system",
+    description: `Correção de vencimento criada automaticamente → ${date.split("-").reverse().join("/")}`,
+    metadata: { type: "date_correction", requestedValue: date, paymentId },
+  });
+  return true;
+}
+
+// Compensação de vencido para UM usuário. renewuser soma a partir do
+// vencimento ATUAL (mesmo no passado): sem compensar, o cliente vencido ganha
+// menos dias do que pagou. Cada 30 dias completos de déficit = 1 renewuser
+// extra; o resto (<30d) vira uma date_correction manual para o admin.
+// Calculado POR usuário — membros do mesmo grupo podem ter vencimentos
+// diferentes (ex.: um foi renovado manualmente e o outro não).
+function computeExpiryDeficit(expira: any, monthsToRenew: number): {
+  deficitDays: number; extraRenewals: number; remainderDays: number; correctExpiryDate: string;
+} {
+  const expiry = parseVpnExpira(expira);
+  const now = new Date();
+  if (!expiry || expiry >= now) return { deficitDays: 0, extraRenewals: 0, remainderDays: 0, correctExpiryDate: "" };
+  const deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / 86400000);
+  const extraRenewals = Math.min(Math.floor(deficitDays / 30), 12); // safety cap
+  const remainderDays = deficitDays - extraRenewals * 30;
+  // Data-alvo no dia local de Brasília (UTC-3) — toISOString puro pulava para
+  // o dia seguinte em pagamentos feitos à noite.
+  const target = new Date(now.getTime() - 3 * 3600 * 1000 + 30 * monthsToRenew * 86400000);
+  return {
+    deficitDays,
+    extraRenewals,
+    remainderDays,
+    correctExpiryDate: remainderDays > 0 ? target.toISOString().split("T")[0] : "",
+  };
 }
 
 // Parse VPN expira date robustly (handles "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DD")
@@ -646,15 +705,21 @@ async function applyVpnOperation(opts: {
   module: string;
   targetUsername: string;
   extraParams?: Record<string, string>;
+  /** Nome usado nos REGISTROS (payment_attempts) quando difere do módulo do
+   *  painel — ex.: bônus de indicação usa renewuser no painel mas registra
+   *  como "renewuser_referral" para não colidir com a renovação do grupo
+   *  quando o indicador é membro do mesmo grupo. */
+  recordModule?: string;
 }): Promise<{ success: boolean; response?: string; error?: string; attemptId: string }> {
   const db = getDb();
   const attemptId = crypto.randomUUID();
+  const recModule = opts.recordModule || opts.module;
 
   const { data: prior } = await db
     .from("payment_attempts")
     .select("id")
     .eq("payment_id", opts.paymentId)
-    .eq("module", opts.module)
+    .eq("module", recModule)
     .eq("target_username", opts.targetUsername);
   const attemptNumber = (prior?.length || 0) + 1;
 
@@ -662,7 +727,7 @@ async function applyVpnOperation(opts: {
     id: attemptId,
     payment_id: opts.paymentId,
     target_username: opts.targetUsername,
-    module: opts.module,
+    module: recModule,
     status: "pending",
     attempt_number: attemptNumber,
   });
@@ -706,6 +771,21 @@ async function countSuccessfulAttempts(paymentId: string, module: string, target
   return data?.length || 0;
 }
 
+// Falhas "não resolvidas": tentativas failed SEM um success posterior para o
+// mesmo (module, alvo). Antes, uma única falha histórica já corrigida por
+// retry mantinha o pagamento marcado como quebrado para sempre: nunca recebia
+// vpnApplied=true, era revarrido eternamente e o admin via "falha" permanente.
+async function hasUnresolvedFailures(paymentId: string): Promise<boolean> {
+  const { data: attempts } = await getDb()
+    .from("payment_attempts")
+    .select("module,target_username,status")
+    .eq("payment_id", paymentId);
+  const succeeded = new Set(
+    (attempts || []).filter(a => a.status === "success").map(a => `${a.module}|${a.target_username}`)
+  );
+  return (attempts || []).some(a => a.status === "failed" && !succeeded.has(`${a.module}|${a.target_username}`));
+}
+
 // Tentativa "pending" órfã = a execução morreu DURANTE a chamada ao painel, e
 // não dá para saber se ela chegou a aplicar (já vimos casos em que aplicou).
 // Reaplicar às cegas pode dobrar a renovação — nesses alvos quem decide é o admin.
@@ -747,7 +827,7 @@ async function upsertResellerPlan(username: string) {
   }, { onConflict: "username" });
 }
 
-async function approvePayment(paymentRecord: any) {
+async function approvePayment(paymentRecord: any, approveOpts: { mpAmount?: number } = {}) {
   const paymentId = paymentRecord.id;
   const db = getDb();
 
@@ -767,6 +847,23 @@ async function approvePayment(paymentRecord: any) {
   // Defends against bad data landing in JSONB that would otherwise silently
   // over- or under-apply renewals.
   const metadata = normalizeMetadata(paymentRecord.metadata);
+
+  // Confere o valor efetivamente pago no MP contra o esperado. Divergência não
+  // bloqueia (o QR tem valor fixo; mismatch aqui indica bug ou manipulação),
+  // mas o admin é alertado antes de considerar tudo certo.
+  if (approveOpts.mpAmount !== undefined && metadata.amount !== undefined) {
+    const paidAmount = Number(approveOpts.mpAmount);
+    if (Number.isFinite(paidAmount) && Math.abs(paidAmount - Number(metadata.amount)) > 0.01) {
+      sendPush("__admin__", "⚠️ Valor pago diverge do esperado",
+        `Pagamento ${paymentId} de ${paymentRecord.username}: esperado ${fmtBRL(metadata.amount)}, pago ${fmtBRL(paidAmount)}. Confira no Mercado Pago.`);
+      logActivity("payment_amount_mismatch", {
+        username: paymentRecord.username,
+        actor: "system",
+        description: `Valor pago (${fmtBRL(paidAmount)}) diverge do esperado (${fmtBRL(metadata.amount)}) no pagamento ${paymentId}`,
+        metadata: { paymentId, expected: metadata.amount, paid: paidAmount },
+      });
+    }
+  }
 
   logActivity("payment_approved", {
     username: paymentRecord.username,
@@ -963,27 +1060,25 @@ async function approvePayment(paymentRecord: any) {
         }
       }
 
-      // Add to group (ignore duplicate key — safe on retry)
-      try {
-        await db.from("user_groups").insert({ group_id: groupId, username: newUsername });
-      } catch (e: any) {
-        console.warn(`[approvePayment] user_groups insert for ${newUsername} (may be duplicate):`, e?.message);
-      }
-
-      // Update group plan to reflect the new device count
-      try {
-        const { data: currentPlan } = await db.from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
-        if (currentPlan) {
-          const newDevices = (currentPlan.plan_devices || 1) + 1;
-          const newPrice = calculatePlanPrice(currentPlan.plan_months || 1, newDevices);
-          await db.from("group_plans").update({
-            plan_devices: newDevices,
-            plan_price: newPrice,
-          }).eq("group_id", groupId);
-          console.log(`[approvePayment] Group ${groupId} plan updated: ${currentPlan.plan_devices} → ${newDevices} devices, price R$${newPrice}`);
-        }
-      } catch (e: any) {
-        console.warn(`[approvePayment] Failed to update group_plans for ${groupId}:`, e?.message);
+      // Add to group — upsert é seguro em retry, e o { error } É checado
+      // (supabase-js não lança; antes uma falha aqui deixava o aparelho pago
+      // fora do grupo em silêncio — nunca renovado junto).
+      const { error: ugErr } = await db.from("user_groups").upsert({ group_id: groupId, username: newUsername });
+      if (ugErr) {
+        recordFailure(`user_groups upsert para ${newUsername} (grupo ${groupId}) falhou. Pagamento: ${paymentId}. Erro: ${ugErr.message}`);
+      } else {
+        // Plano recontado a partir do grupo (idempotente) em vez de "+1" cego
+        const { data: allMembers } = await db.from("user_groups").select("username").eq("group_id", groupId);
+        const newDevices = Math.max(1, (allMembers || []).length);
+        const { data: planRow } = await db.from("group_plans").select("plan_months").eq("group_id", groupId).maybeSingle();
+        const planMonths = Math.max(1, parseInt(planRow?.plan_months) || 1);
+        const newPrice = calculatePlanPrice(planMonths, newDevices);
+        const { error: gpErr } = await db.from("group_plans").update({
+          plan_devices: newDevices,
+          plan_price: newPrice,
+        }).eq("group_id", groupId);
+        if (gpErr) recordFailure(`group_plans update do grupo ${groupId} falhou. Pagamento: ${paymentId}. Erro: ${gpErr.message}`);
+        else console.log(`[approvePayment] Group ${groupId} plan updated: ${newDevices} devices, price R$${newPrice}`);
       }
     }
   } else {
@@ -1012,86 +1107,62 @@ async function approvePayment(paymentRecord: any) {
     // serverless), pelo menos quem pagou já foi renovado.
     usersToRenew.sort((a, b) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
 
-    // renewuser adds 30 days to the CURRENT expiry. If the user is expired,
-    // those days start from the past date → fewer days than paid.
-    // Compensation: every full 30 days of deficit is covered automatically by
-    // an extra renewuser call. Only the remainder (<30d) needs a manual
-    // date_correction in the panel (the API has no "set date" module).
+    // renewuser soma 30 dias sobre o vencimento ATUAL de cada usuário. O
+    // déficit de vencidos é calculado POR MEMBRO — vencimentos podem divergir
+    // dentro do grupo (ex.: um renovado manualmente e o outro não). Antes, o
+    // déficit do 1º usuário era aplicado a todos: membro em dia ganhava mês a
+    // mais e membro vencido podia continuar vencido mesmo após pagar.
     const allVpnUsers = await fetchVpnUsers();
-    let needsDateCorrection = false;
-    let correctExpiryDate = "";
-    let extraRenewals = 0;
-    let remainderDays = 0;
+    const pendingCorrections: Array<{ user: string; date: string; remainderDays: number }> = [];
+    let compensatedTotal = 0;
 
-    const mainVpnUser = allVpnUsers.find((u: any) => u.login === usersToRenew[0]);
-    if (mainVpnUser?.expira) {
-      const expiry = parseVpnExpira(mainVpnUser.expira);
-      const now = new Date();
-      if (expiry && expiry < now) {
-        const deficitDays = Math.ceil((now.getTime() - expiry.getTime()) / (1000 * 60 * 60 * 24));
-        extraRenewals = Math.min(Math.floor(deficitDays / 30), 12); // safety cap
-        remainderDays = deficitDays - extraRenewals * 30;
-        if (remainderDays > 0) {
-          needsDateCorrection = true;
-          const correctDate = new Date(now);
-          correctDate.setDate(correctDate.getDate() + (30 * monthsToRenew));
-          correctExpiryDate = correctDate.toISOString().split("T")[0];
-        }
-        console.log(`[renew] ${usersToRenew[0]} expired ${deficitDays}d ago — auto-compensating ${extraRenewals} renewal(s), remainder ${remainderDays}d${needsDateCorrection ? ` → date_correction to ${correctExpiryDate}` : ""}`);
-        if (extraRenewals > 0) {
+    for (const user of usersToRenew) {
+      const vpnUser = allVpnUsers.find((u: any) => u.login === user);
+      const deficit = computeExpiryDeficit(vpnUser?.expira, monthsToRenew);
+      const totalRenewals = monthsToRenew + deficit.extraRenewals;
+
+      if (deficit.deficitDays > 0) {
+        console.log(`[renew] ${user} expired ${deficit.deficitDays}d ago — auto-compensating ${deficit.extraRenewals} renewal(s), remainder ${deficit.remainderDays}d`);
+        if (deficit.extraRenewals > 0) {
+          compensatedTotal += deficit.extraRenewals;
           logActivity("renewal_deficit_compensated", {
-            username: paymentRecord.username,
+            username: user,
             actor: "system",
-            description: `Renovação com acesso vencido há ${deficitDays} dia(s): ${extraRenewals * 30} dias compensados automaticamente${remainderDays > 0 ? `, restam ${remainderDays} dia(s) para correção manual` : ""}`,
-            metadata: { paymentId, deficitDays, extraRenewals, remainderDays },
+            description: `Renovação com acesso vencido há ${deficit.deficitDays} dia(s): ${deficit.extraRenewals * 30} dias compensados automaticamente${deficit.remainderDays > 0 ? `, restam ${deficit.remainderDays} dia(s) para correção manual` : ""}`,
+            metadata: { paymentId, deficitDays: deficit.deficitDays, extraRenewals: deficit.extraRenewals, remainderDays: deficit.remainderDays },
           });
         }
       }
-    }
 
-    // Apply renewuser N times per user (plan months + expiry-deficit compensation),
-    // with idempotency: already-successful attempts are counted and skipped so
-    // retries never double-renew.
-    const totalRenewals = monthsToRenew + extraRenewals;
-    for (const user of usersToRenew) {
+      // Idempotency: already-successful attempts are counted and skipped so
+      // retries never double-renew.
       const alreadyRenewed = await countSuccessfulAttempts(paymentId, "renewuser", user);
+      let applied = alreadyRenewed;
       for (let i = alreadyRenewed; i < totalRenewals; i++) {
         const r = await applyVpnOperation({ paymentId, module: "renewuser", targetUsername: user });
         if (!r.success) {
           recordFailure(`renewuser ${user} (${i + 1}/${totalRenewals}) falhou. Pagamento: ${paymentId}. Erro: ${r.error}`);
           break;
         }
+        applied = i + 1;
         console.log(`VPN Renew Response for ${user} (${i + 1}/${totalRenewals}):`, r.response);
+      }
+
+      if (applied >= totalRenewals && deficit.remainderDays > 0 && deficit.correctExpiryDate) {
+        pendingCorrections.push({ user, date: deficit.correctExpiryDate, remainderDays: deficit.remainderDays });
       }
     }
 
-    // Create automatic date correction request for the remainder (<30d) if users were expired
-    if (needsDateCorrection && correctExpiryDate && vpnFullyApplied) {
-      for (const user of usersToRenew) {
-        try {
-          await db.from("change_requests").insert({
-            id: crypto.randomUUID(),
-            username: user,
-            type: "date_correction",
-            requested_value: correctExpiryDate,
-            status: "aguardando",
-          });
-          console.log(`[date_correction] Created for ${user} → ${correctExpiryDate}`);
-          logActivity("change_request_created", {
-            username: user,
-            actor: "system",
-            description: `Correção de vencimento criada automaticamente → ${correctExpiryDate.split("-").reverse().join("/")}`,
-            metadata: { type: "date_correction", requestedValue: correctExpiryDate, paymentId },
-          });
-        } catch (e: any) {
-          console.warn(`[date_correction] Failed to create for ${user}:`, e.message);
-        }
+    // Correções de data (resto <30d) POR usuário, com dedupe de pendentes
+    if (pendingCorrections.length > 0) {
+      for (const c of pendingCorrections) {
+        await createDateCorrectionOnce(c.user, c.date, paymentId);
       }
       sendPush("__admin__", "📅 Correção de vencimento pendente",
-        `${paymentRecord.username} renovou com acesso vencido. ${extraRenewals > 0 ? `${extraRenewals * 30} dias já compensados automaticamente. ` : ""}Faltam ${remainderDays} dia(s): ajuste a data no painel para ${correctExpiryDate.split("-").reverse().join("/")}. Veja em Solicitações.`);
-    } else if (extraRenewals > 0 && vpnFullyApplied) {
+        `${paymentRecord.username} renovou com acesso vencido.${compensatedTotal > 0 ? ` ${compensatedTotal * 30} dia(s) já compensados automaticamente.` : ""} Ajuste no painel: ${pendingCorrections.map(c => `${c.user} → ${c.date.split("-").reverse().join("/")}`).join("; ")}. Veja em Solicitações.`);
+    } else if (compensatedTotal > 0 && vpnFullyApplied) {
       sendPush("__admin__", "✅ Vencimento compensado automaticamente",
-        `${paymentRecord.username} renovou com acesso vencido — ${extraRenewals * 30} dia(s) de déficit compensados no painel, sem ação manual.`);
+        `${paymentRecord.username} renovou com acesso vencido — ${compensatedTotal * 30} dia(s) de déficit compensados no painel, sem ação manual.`);
     }
   }
 
@@ -1149,12 +1220,16 @@ async function approvePayment(paymentRecord: any) {
 
   if (referral) {
     // Give 1 month free to referrer. Goes through applyVpnOperation so failures
-    // show up in the audit trail and can be retried.
-    const already = await countSuccessfulAttempts(paymentId, "renewuser", referral.referrer_username);
+    // show up in the audit trail and can be retried (a varredura re-tenta).
+    // recordModule separado: se o indicador for membro do MESMO grupo do
+    // indicado, o "renewuser" da renovação colidia com o do bônus e um
+    // silenciava o outro.
+    const already = await countSuccessfulAttempts(paymentId, "renewuser_referral", referral.referrer_username);
     if (already === 0) {
       const r = await applyVpnOperation({
         paymentId,
         module: "renewuser",
+        recordModule: "renewuser_referral",
         targetUsername: referral.referrer_username,
       });
       if (r.success) {
@@ -1166,7 +1241,7 @@ async function approvePayment(paymentRecord: any) {
           metadata: { referredUsername: paymentRecord.username, paymentId },
         });
       } else {
-        console.error(`Failed to award referral bonus to ${referral.referrer_username}:`, r.error);
+        recordFailure(`Bônus de indicação para ${referral.referrer_username} falhou (indicado: ${paymentRecord.username}). Pagamento: ${paymentId}. Erro: ${r.error}`);
       }
     }
   }
@@ -1206,7 +1281,7 @@ async function runPaymentCheck(paymentId: string, ctxTag: string | number): Prom
     const mpPayment = new Payment(getMpClient());
     const mpRes = await mpPayment.get({ id: paymentId });
     if (mpRes.status === "approved") {
-      await approvePayment(p);
+      await approvePayment(p, { mpAmount: mpRes.transaction_amount });
       console.log(`[auto-check] Payment ${paymentId} approved (ctx=${ctxTag})`);
     }
   } catch (e) {
@@ -2098,8 +2173,16 @@ app.post("/api/pix", async (req, res) => {
     let discountApplied = false;
 
     if (points >= 3) {
-      transactionAmount = Number((transactionAmount * 0.8).toFixed(2)); // 20% discount
-      discountApplied = true;
+      // Os pontos só são consumidos quando um pagamento COM desconto é
+      // aprovado — sem esta trava dava para gerar vários PIX com 20% off em
+      // sequência usando o mesmo ciclo de 3 pontos.
+      const { data: pendingSameGroup } = await getDb().from("payments")
+        .select("id,metadata").eq("group_id", groupRecord.group_id).eq("status", "pending");
+      const hasPendingDiscount = (pendingSameGroup || []).some((p: any) => parseMetadata(p.metadata).discountApplied === true);
+      if (!hasPendingDiscount) {
+        transactionAmount = Number((transactionAmount * 0.8).toFixed(2)); // 20% discount
+        discountApplied = true;
+      }
     }
 
     // Check if paying on time or in advance
@@ -2197,7 +2280,7 @@ app.get("/api/status/:paymentId", async (req, res) => {
     const mpRes = await payment.get({ id: paymentId });
 
     if (mpRes.status === "approved") {
-      await approvePayment(paymentRecord);
+      await approvePayment(paymentRecord, { mpAmount: mpRes.transaction_amount });
       return res.json({ status: "approved" });
     }
 
@@ -2271,7 +2354,7 @@ app.post("/api/webhook", async (req, res) => {
         const mpRes = await payment.get({ id: paymentId });
 
         if (mpRes.status === "approved") {
-          await approvePayment(paymentRecord);
+          await approvePayment(paymentRecord, { mpAmount: mpRes.transaction_amount });
         }
       }
     }
@@ -2306,7 +2389,7 @@ app.post("/api/admin/payments/reprocess-cancelled", requireAdminAuth, async (_re
       try {
         const mpRes = await paymentApi.get({ id: p.id });
         if (mpRes.status === "approved") {
-          await approvePayment(p);
+          await approvePayment(p, { mpAmount: mpRes.transaction_amount });
           recovered++;
           console.log(`[reprocess] Recovered payment ${p.id} for ${p.username} (was: ${p.status})`);
           logActivity("payment_recovered", {
@@ -2375,9 +2458,10 @@ async function runRetrySweep(db: any, opts: { sincePaymentId?: string }): Promis
     // painel e vpnApplied nunca é escrito (fica undefined) — foi o caso do
     // pagamento 175345024484 (grupo de 2, só o 1º renovado, sem nenhum erro
     // registrado). Grace de 15 min para não competir com um processamento vivo.
-    const { data: fails } = await db.from("payment_attempts")
-      .select("id").eq("payment_id", p.id).eq("status", "failed");
-    const hasFails = (fails?.length || 0) > 0;
+    // Só falhas NÃO resolvidas contam (failed sem success posterior para o
+    // mesmo alvo) — antes uma falha histórica já corrigida mantinha o
+    // pagamento em varredura eterna e como "falha" permanente no admin.
+    const hasFails = await hasUnresolvedFailures(p.id);
     const flaggedNotApplied = meta.vpnApplied === false || meta.vpnRenewFailed === true;
     const paidAtMs = Date.parse(p.paid_at || p.created_at || "");
     const diedMidFlight = meta.vpnApplied === undefined
@@ -2394,8 +2478,13 @@ async function runRetrySweep(db: any, opts: { sincePaymentId?: string }): Promis
     // pulam. Claim expira em 10min (instância pode morrer no meio).
     if (!opts.sincePaymentId) {
       const claimCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      // Metadata fresco no claim — gravar o snapshot da query de candidatos
+      // podia reverter marcações concorrentes (ex.: vpnApplied do retry manual)
+      const { data: preClaimRow } = await db.from("payments").select("metadata").eq("id", p.id).maybeSingle();
+      const preClaimMeta = parseMetadata(preClaimRow?.metadata);
+      if (preClaimMeta.vpnApplied === true && !hasFails) continue; // outro caminho já resolveu
       const { data: claimed } = await db.from("payments")
-        .update({ metadata: { ...meta, vpnSweepClaimedAt: new Date().toISOString() } })
+        .update({ metadata: { ...preClaimMeta, vpnSweepClaimedAt: new Date().toISOString() } })
         .eq("id", p.id)
         .or(`metadata->>vpnSweepClaimedAt.is.null,metadata->>vpnSweepClaimedAt.lt."${claimCutoff}"`)
         .select("id");
@@ -2408,19 +2497,22 @@ async function runRetrySweep(db: any, opts: { sincePaymentId?: string }): Promis
       // skipPendingTargets: alvos com tentativa "pending" órfã podem já ter
       // sido aplicados no painel — não reaplicar às cegas, avisar o admin.
       const { uncertainTargets } = await reapplyPaymentVpnOperations(p, { skipPendingTargets: true });
-      // Check if it's now fully applied.
-      const { data: stillFails } = await db.from("payment_attempts")
-        .select("id").eq("payment_id", p.id).eq("status", "failed");
-      if ((stillFails?.length || 0) === 0 && uncertainTargets.length === 0) {
+      // Check if it's now fully applied. Metadata é RELIDO antes de gravar:
+      // o snapshot da query de candidatos pode estar velho e sobrescrever
+      // marcações feitas por outro caminho (ex.: retry manual do admin).
+      const stillBroken = await hasUnresolvedFailures(p.id);
+      const { data: freshRow } = await db.from("payments").select("metadata").eq("id", p.id).maybeSingle();
+      const freshMeta = parseMetadata(freshRow?.metadata);
+      if (!stillBroken && uncertainTargets.length === 0) {
         succeeded++;
         await db.from("payments")
-          .update({ metadata: { ...meta, vpnApplied: true, vpnRenewFailed: false } })
+          .update({ metadata: { ...freshMeta, vpnApplied: true, vpnRenewFailed: false, vpnSweepClaimedAt: undefined } })
           .eq("id", p.id);
       } else {
         stillFailed++;
-        if (uncertainTargets.length > 0 && meta.vpnNeedsManualCheck !== true) {
+        if (uncertainTargets.length > 0 && freshMeta.vpnNeedsManualCheck !== true) {
           await db.from("payments")
-            .update({ metadata: { ...meta, vpnNeedsManualCheck: true } })
+            .update({ metadata: { ...freshMeta, vpnNeedsManualCheck: true } })
             .eq("id", p.id);
           sendPush("__admin__", "⚠️ Renovação precisa de conferência manual",
             `Pagamento de ${p.username}: não dá para confirmar se a renovação de ${uncertainTargets.join(", ")} chegou ao painel (chamada interrompida no meio). Confira o vencimento no painel; se faltar, use o reprocessar do pagamento ${p.id}.`);
@@ -2502,6 +2594,20 @@ async function reapplyPaymentVpnOperations(
           });
         }
       }
+      // Reconstrói vínculo de grupo + plano (idempotente por recontagem): a
+      // morte no meio do voo deixava o aparelho criado no painel mas fora do
+      // grupo — invisível no app e fora das renovações futuras.
+      const ndGroupId = metadata.groupId || paymentRecord.group_id;
+      if (ndGroupId && (await countSuccessfulAttempts(paymentId, "criaruser", newUsername)) > 0) {
+        const { error: ugErr } = await db.from("user_groups").upsert({ group_id: ndGroupId, username: newUsername });
+        if (!ugErr) {
+          const { data: allMembers } = await db.from("user_groups").select("username").eq("group_id", ndGroupId);
+          const devs = Math.max(1, (allMembers || []).length);
+          const { data: planRow } = await db.from("group_plans").select("plan_months").eq("group_id", ndGroupId).maybeSingle();
+          const pMonths = Math.max(1, parseInt(planRow?.plan_months) || 1);
+          await db.from("group_plans").update({ plan_devices: devs, plan_price: calculatePlanPrice(pMonths, devs) }).eq("group_id", ndGroupId);
+        }
+      }
     }
 
   } else if (paymentRecord.type === "renewal") {
@@ -2523,16 +2629,71 @@ async function reapplyPaymentVpnOperations(
       if (groupUsers && groupUsers.length > 0) usersToRenew = groupUsers.map((u: any) => u.username);
     }
     usersToRenew.sort((a: string, b: string) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
+
+    // Paridade com o fluxo vivo: déficit de vencido POR usuário + correção de
+    // data. Antes a varredura só aplicava os meses do plano — cliente vencido
+    // recuperado ficava com 30-45 dias a menos do que o fluxo vivo daria.
+    const vpnUsersNow = await fetchVpnUsers();
+    const sweepCorrections: Array<{ user: string; date: string }> = [];
     for (const user of usersToRenew) {
+      const vpnUser = vpnUsersNow.find((u: any) => u.login === user);
+      const deficit = computeExpiryDeficit(vpnUser?.expira, monthsToRenew);
+      const totalRenewals = monthsToRenew + deficit.extraRenewals;
       const already = await countSuccessfulAttempts(paymentId, "renewuser", user);
-      if (already >= monthsToRenew) continue;
+      const needsCorrection = deficit.remainderDays > 0 && deficit.correctExpiryDate;
+      if (already >= totalRenewals) {
+        if (needsCorrection) sweepCorrections.push({ user, date: deficit.correctExpiryDate });
+        continue;
+      }
       if (opts.skipPendingTargets && await hasPendingAttempt(paymentId, "renewuser", user)) {
         uncertainTargets.push(user);
         continue;
       }
-      for (let i = already; i < monthsToRenew; i++) {
+      let ok = true;
+      for (let i = already; i < totalRenewals; i++) {
         const r = await applyVpnOperation({ paymentId, module: "renewuser", targetUsername: user });
-        if (!r.success) break;
+        if (!r.success) { ok = false; break; }
+      }
+      if (ok && needsCorrection) sweepCorrections.push({ user, date: deficit.correctExpiryDate });
+    }
+    let createdCorrections = 0;
+    for (const c of sweepCorrections) {
+      if (await createDateCorrectionOnce(c.user, c.date, paymentId)) createdCorrections++;
+    }
+    if (createdCorrections > 0) {
+      sendPush("__admin__", "📅 Correção de vencimento pendente (recuperação)",
+        `Reaplicação do pagamento ${paymentId} (${paymentRecord.username}): ajuste no painel — ${sweepCorrections.map(c => `${c.user} → ${c.date.split("-").reverse().join("/")}`).join("; ")}. Veja em Solicitações.`);
+    }
+  }
+
+  // Bônus de indicação pendente: uma falha transitória do renewuser deixava o
+  // status em 'testing' para sempre (não havia nenhum retry). Registrado como
+  // "renewuser_referral" para não colidir com a renovação do grupo quando o
+  // indicador é membro do mesmo grupo do indicado.
+  if (!RESELLER_PAYMENT_TYPES.includes(paymentRecord.type)) {
+    const { data: referral } = await db.from("referrals").select("*")
+      .eq("referred_username", paymentRecord.username).eq("status", "testing").maybeSingle();
+    if (referral) {
+      const already = await countSuccessfulAttempts(paymentId, "renewuser_referral", referral.referrer_username);
+      if (already === 0 && !(opts.skipPendingTargets && await hasPendingAttempt(paymentId, "renewuser_referral", referral.referrer_username))) {
+        const r = await applyVpnOperation({
+          paymentId,
+          module: "renewuser",
+          recordModule: "renewuser_referral",
+          targetUsername: referral.referrer_username,
+        });
+        if (r.success) {
+          await db.from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
+          logActivity("referral_bonus", {
+            username: referral.referrer_username,
+            actor: "system",
+            description: `Bônus de indicação (recuperado): ${referral.referrer_username} ganhou +30 dias por indicar ${paymentRecord.username}`,
+            metadata: { referredUsername: paymentRecord.username, paymentId },
+          });
+        }
+      } else if (already > 0) {
+        // Bônus aplicado mas status não atualizado (morte entre as duas gravações)
+        await db.from("referrals").update({ status: 'bonus_received' }).eq("id", referral.id);
       }
     }
   }
@@ -2555,13 +2716,12 @@ app.post("/api/admin/payments/:paymentId/retry", requireAdminAuth, async (req, r
     if (!p) return res.status(404).json({ error: "Pagamento não encontrado" });
     if (p.status !== "approved") return res.status(400).json({ error: "Pagamento não está aprovado" });
     await reapplyPaymentVpnOperations(p);
-    const { data: stillFails } = await getDb().from("payment_attempts")
-      .select("id").eq("payment_id", p.id).eq("status", "failed");
-    const ok = (stillFails?.length || 0) === 0;
-    const meta = parseMetadata(p.metadata);
+    const ok = !(await hasUnresolvedFailures(p.id));
+    const { data: freshRow } = await getDb().from("payments").select("metadata").eq("id", p.id).maybeSingle();
+    const meta = parseMetadata(freshRow?.metadata ?? p.metadata);
     if (ok) {
       await getDb().from("payments")
-        .update({ metadata: { ...meta, vpnApplied: true, vpnRenewFailed: false } })
+        .update({ metadata: { ...meta, vpnApplied: true, vpnRenewFailed: false, vpnNeedsManualCheck: false } })
         .eq("id", p.id);
     }
     res.json({ success: ok, message: ok ? "Reaplicação concluída." : "Ainda há falhas — tente novamente em alguns minutos." });
@@ -3627,6 +3787,39 @@ app.post("/api/admin/users/:username/renew", requireAdminAuth, async (req, res) 
       description: `Admin renovou +30 dias manualmente: ${username}`,
       metadata: { vpnResponse: String(text).slice(0, 200) },
     });
+
+    // Registra o conserto manual nos pagamentos recentes ainda não aplicados
+    // deste usuário: sem isso a varredura de recuperação não enxergava a
+    // renovação manual e renovava DE NOVO (mês dobrado — caso Rodrigo28).
+    try {
+      const db = getDb();
+      const since = new Date(Date.now() - 7 * 86400000).toISOString();
+      const { data: gRec } = await db.from("user_groups").select("group_id").eq("username", username).maybeSingle();
+      let candQuery = db.from("payments").select("id,metadata").eq("status", "approved").eq("type", "renewal").gte("paid_at", since);
+      candQuery = gRec ? candQuery.eq("group_id", gRec.group_id) : candQuery.eq("username", username);
+      const { data: cands } = await candQuery;
+      for (const p of cands || []) {
+        if (parseMetadata(p.metadata).vpnApplied === true) continue;
+        const already = await countSuccessfulAttempts(p.id, "renewuser", username);
+        if (already > 0) continue;
+        const { data: prior } = await db.from("payment_attempts").select("id")
+          .eq("payment_id", p.id).eq("module", "renewuser").eq("target_username", username);
+        await db.from("payment_attempts").insert({
+          id: crypto.randomUUID(),
+          payment_id: p.id,
+          target_username: username,
+          module: "renewuser",
+          status: "success",
+          attempt_number: (prior?.length || 0) + 1,
+          response_text: "manual-admin-renew",
+          applied_at: new Date().toISOString(),
+        });
+        console.log(`[admin] renovação manual registrada no pagamento ${p.id} para ${username}`);
+      }
+    } catch (e: any) {
+      console.warn(`[admin] falha ao registrar renovação manual de ${username}:`, e?.message);
+    }
+
     res.json({ success: true, message: `Acesso de ${username} renovado com sucesso.`, vpnResponse: text });
   } catch (e: any) {
     console.error(`[admin] renewuser ${username} failed:`, e.message);
@@ -4141,8 +4334,14 @@ app.post("/api/reseller/pix/renew", requireResellerAuth, async (req: any, res) =
     let amount = calcResellerPrice(monthsNum, logins);
     let discountApplied = false;
     if (points >= 3) {
-      amount = Math.round(amount * 0.8);
-      discountApplied = true;
+      // Mesma trava do /api/pix: um PIX pendente com desconto já "reservou" os pontos
+      const { data: pendingSame } = await getDb().from("payments")
+        .select("id,metadata").eq("username", username).eq("type", "reseller_renewal").eq("status", "pending");
+      const hasPendingDiscount = (pendingSame || []).some((p: any) => parseMetadata(p.metadata).discountApplied === true);
+      if (!hasPendingDiscount) {
+        amount = Math.round(amount * 0.8);
+        discountApplied = true;
+      }
     }
 
     // paidOnTime real: só ganha ponto se renovar antes do vencimento
@@ -4209,7 +4408,7 @@ app.get("/api/reseller/status/:paymentId", async (req, res) => {
     const payment = new Payment(client);
     const mpRes = await payment.get({ id: paymentId });
     if (mpRes.status === "approved") {
-      await approvePayment(record);
+      await approvePayment(record, { mpAmount: mpRes.transaction_amount });
       return res.json({ status: "approved" });
     }
     res.json({ status: mpRes.status });
@@ -4823,7 +5022,7 @@ async function syncPendingPayments(): Promise<number> {
       try {
         const mpRes = await paymentApi.get({ id: p.id });
         if (mpRes.status === "approved") {
-          await approvePayment(p);
+          await approvePayment(p, { mpAmount: mpRes.transaction_amount });
           recovered++;
           console.log(`[bg-sync] Recovered payment ${p.id} for ${p.username}`);
           logActivity("payment_recovered", {
