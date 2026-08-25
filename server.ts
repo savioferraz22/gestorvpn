@@ -111,8 +111,9 @@ function fmtBRL(v: any): string {
 }
 
 // ─── Admin Auth ────────────────────────────────────────────────────────────
-// Tokens are stored in memory with a TTL of 24h. Never exposed in client JS.
-const ADMIN_TOKEN_TTL = 24 * 60 * 60 * 1000; // 24 hours
+// HMAC-signed stateless tokens. Sessão longa: o painel só é acessível pela
+// rota discreta /adm, então o token dura 30 dias para evitar redigitar a senha.
+const ADMIN_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000; // 30 dias
 
 // HMAC-signed tokens survive server restarts — no in-memory Map needed
 function createAdminToken(): string {

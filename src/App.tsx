@@ -1792,11 +1792,7 @@ export default function App() {
             {/* Brand */}
             <div className="p-5 border-b border-border-base/50 shrink-0">
               <div className="flex items-center gap-3">
-                <div
-                  onDoubleClick={() => { setUserSidebarOpen(false); setView("admin"); }}
-                  className="w-10 h-10 rounded-2xl bg-primary-600 flex items-center justify-center cursor-pointer select-none hover:bg-primary-700 transition-colors"
-                  title="Área Administrativa (Duplo Clique)"
-                >
+                <div className="w-10 h-10 rounded-2xl bg-primary-600 flex items-center justify-center">
                   <img src="/logo.png" alt="VS+" className="w-8 h-8 object-contain" />
                 </div>
                 <div>
@@ -2056,15 +2052,8 @@ export default function App() {
                       <ChevronRight className="w-4 h-4 shrink-0" />
                     </button>
 
+                    {/* Acesso administrativo: somente pela rota /adm */}
                     <div className="pt-2 flex items-center justify-center gap-3">
-                      <button
-                        onClick={() => { setError(""); setAdminPass(""); setIsAdminAuth(false); setView("admin"); }}
-                        className="text-text-muted hover:text-text-base inline-flex items-center justify-center text-sm font-medium transition-colors p-2"
-                      >
-                        <Lock className="w-4 h-4 mr-2 opacity-70" />
-                        Área administrativa
-                      </button>
-                      <span className="w-px h-4 bg-border-base" />
                       <button
                         onClick={toggleTheme}
                         className="text-text-muted hover:text-text-base inline-flex items-center justify-center text-sm font-medium transition-colors p-2"
@@ -2224,11 +2213,7 @@ export default function App() {
                     >
                       <Menu className="w-5 h-5" />
                     </button>
-                    <div
-                      onDoubleClick={() => { setError(""); setAdminPass(""); setIsAdminAuth(false); setView("admin"); }}
-                      className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer select-none active:scale-95 transition-transform"
-                      title="Área Administrativa (Duplo Clique)"
-                    >
+                    <div className="w-8 h-8 flex items-center justify-center shrink-0">
                       <img src="/logo.png" alt="VS+" className="w-7 h-7 object-contain" />
                     </div>
                     <h1 className="text-[15px] font-bold text-white tracking-tight truncate">Olá, {currentUser.login}</h1>
