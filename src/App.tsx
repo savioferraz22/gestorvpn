@@ -71,7 +71,12 @@ interface TicketMessage {
 }
 
 export default function App() {
-  const [view, setView] = useState<ViewState>("login");
+  // /adm abre direto a área administrativa (o rewrite do Vercel serve o SPA
+  // em qualquer caminho; a senha continua sendo exigida pelo AdminShell
+  // quando não há token salvo)
+  const [view, setView] = useState<ViewState>(() =>
+    /^\/adm\/?$/.test(window.location.pathname) ? "admin" : "login"
+  );
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -5646,7 +5651,10 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="flex-1 flex flex-col overflow-hidden"
               >
-                <AdminShell onBack={() => setView("login")} />
+                <AdminShell onBack={() => {
+                  if (window.location.pathname.startsWith("/adm")) window.history.replaceState(null, "", "/");
+                  setView("login");
+                }} />
               </motion.div>
             )}
 
