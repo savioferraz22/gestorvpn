@@ -680,6 +680,20 @@ async function countSuccessfulAttempts(paymentId: string, module: string, target
   return data?.length || 0;
 }
 
+// Tentativa "pending" órfã = a execução morreu DURANTE a chamada ao painel, e
+// não dá para saber se ela chegou a aplicar (já vimos casos em que aplicou).
+// Reaplicar às cegas pode dobrar a renovação — nesses alvos quem decide é o admin.
+async function hasPendingAttempt(paymentId: string, module: string, targetUsername: string): Promise<boolean> {
+  const { data } = await getDb()
+    .from("payment_attempts")
+    .select("id")
+    .eq("payment_id", paymentId)
+    .eq("module", module)
+    .eq("target_username", targetUsername)
+    .eq("status", "pending");
+  return (data?.length || 0) > 0;
+}
+
 // Refresh the reseller_plans cache from approved payments + successful attempts.
 // Called after every approvePayment and after admin adjustments. Reading this
 // cache is O(1) vs recomputing calcResellerInfo across full payment history.
@@ -959,7 +973,11 @@ async function approvePayment(paymentRecord: any) {
       }
       const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
       if (groupUsers && groupUsers.length > 0) {
-        usersToRenew = groupUsers.map(u => u.username);
+        // Pagante primeiro: se a execução for derrubada no meio do loop (timeout
+        // serverless), pelo menos quem pagou já foi renovado.
+        usersToRenew = groupUsers
+          .map(u => u.username)
+          .sort((a, b) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
       }
     }
 
@@ -2204,9 +2222,20 @@ app.post("/api/admin/payments/reprocess-cancelled", requireAdminAuth, async (_re
 // For every approved payment with at least one failed/missing attempt, re-run
 // approvePayment. applyVpnOperation + countSuccessfulAttempts make this safe:
 // operations that already succeeded are skipped.
+// Tipos criados pelo fluxo PIX e aprovados via approvePayment — os únicos que
+// recebem o carimbo vpnApplied no fim do processamento. Inserções manuais
+// (reseller_setup/adjustment) nunca passam por lá e ficam fora da varredura.
+const VPN_SWEEP_TYPES = ["renewal", "new_device", "reseller_hire", "reseller_renewal"];
+
+// Pagamentos meio-aplicados que o admin já corrigiu MANUALMENTE no painel antes
+// desta varredura existir — nunca reaplicar (dobraria a renovação).
+const MANUALLY_FIXED_PAYMENT_IDS = new Set([
+  "175345024484", // Rodrigo27/28 — Rodrigo28 renovado manualmente em 25/08/2026
+]);
+
 async function retryFailedApplications(opts: { sincePaymentId?: string } = {}): Promise<{ retried: number; succeeded: number; stillFailed: number }> {
   const db = getDb();
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Approved payments where the last known state flagged VPN as not applied.
   let q = db.from("payments").select("*").eq("status", "approved").gte("paid_at", since);
@@ -2216,32 +2245,53 @@ async function retryFailedApplications(opts: { sincePaymentId?: string } = {}): 
   let retried = 0, succeeded = 0, stillFailed = 0;
   for (const p of candidates || []) {
     const meta = parseMetadata(p.metadata);
-    // Only retry those explicitly flagged as not-applied, OR where we can see
-    // from payment_attempts that something failed.
+    // Retry those explicitly flagged as not-applied, OR where we can see from
+    // payment_attempts that something failed, OR where the processing died
+    // mid-flight: a execução serverless é derrubada entre as operações no
+    // painel e vpnApplied nunca é escrito (fica undefined) — foi o caso do
+    // pagamento 175345024484 (grupo de 2, só o 1º renovado, sem nenhum erro
+    // registrado). Grace de 15 min para não competir com um processamento vivo.
     const { data: fails } = await db.from("payment_attempts")
       .select("id").eq("payment_id", p.id).eq("status", "failed");
     const hasFails = (fails?.length || 0) > 0;
     const flaggedNotApplied = meta.vpnApplied === false || meta.vpnRenewFailed === true;
-    if (!hasFails && !flaggedNotApplied) continue;
+    const paidAtMs = Date.parse(p.paid_at || p.created_at || "");
+    const diedMidFlight = meta.vpnApplied === undefined
+      && VPN_SWEEP_TYPES.includes(p.type)
+      && !MANUALLY_FIXED_PAYMENT_IDS.has(p.id)
+      && Number.isFinite(paidAtMs)
+      && Date.now() - paidAtMs > 15 * 60 * 1000;
+    if (!hasFails && !flaggedNotApplied && !diedMidFlight) continue;
 
     retried++;
     try {
-      // Reset status to "approved" synthetically — approvePayment's idempotency
-      // guard won't re-fire since it's already approved, so call a "re-apply"
-      // path: re-run the VPN ops by temporarily demoting status? No — instead
-      // we call a dedicated re-application function that skips the payment
-      // status update.
-      await reapplyPaymentVpnOperations(p);
+      // Dedicated re-application path (skips the payment status update).
+      // skipPendingTargets: alvos com tentativa "pending" órfã podem já ter
+      // sido aplicados no painel — não reaplicar às cegas, avisar o admin.
+      const { uncertainTargets } = await reapplyPaymentVpnOperations(p, { skipPendingTargets: true });
       // Check if it's now fully applied.
       const { data: stillFails } = await db.from("payment_attempts")
         .select("id").eq("payment_id", p.id).eq("status", "failed");
-      if ((stillFails?.length || 0) === 0) {
+      if ((stillFails?.length || 0) === 0 && uncertainTargets.length === 0) {
         succeeded++;
         await db.from("payments")
           .update({ metadata: { ...meta, vpnApplied: true, vpnRenewFailed: false } })
           .eq("id", p.id);
       } else {
         stillFailed++;
+        if (uncertainTargets.length > 0 && meta.vpnNeedsManualCheck !== true) {
+          await db.from("payments")
+            .update({ metadata: { ...meta, vpnNeedsManualCheck: true } })
+            .eq("id", p.id);
+          sendPush("__admin__", "⚠️ Renovação precisa de conferência manual",
+            `Pagamento de ${p.username}: não dá para confirmar se a renovação de ${uncertainTargets.join(", ")} chegou ao painel (chamada interrompida no meio). Confira o vencimento no painel; se faltar, use o reprocessar do pagamento ${p.id}.`);
+          logActivity("payment_vpn_manual_check", {
+            username: p.username,
+            actor: "system",
+            description: `Renovação de ${uncertainTargets.join(", ")} interrompida no meio da chamada ao painel — conferir vencimento manualmente (pagamento ${p.id})`,
+            metadata: { paymentId: p.id, uncertainTargets },
+          });
+        }
       }
     } catch (e: any) {
       stillFailed++;
@@ -2254,14 +2304,22 @@ async function retryFailedApplications(opts: { sincePaymentId?: string } = {}): 
 // Re-runs just the VPN application phase for an already-approved payment.
 // Safe to call repeatedly — applyVpnOperation + countSuccessfulAttempts skip
 // operations that already succeeded for this payment.
-async function reapplyPaymentVpnOperations(paymentRecord: any) {
+// skipPendingTargets (varredura automática): alvos com tentativa "pending"
+// órfã são pulados e devolvidos em uncertainTargets — a chamada original pode
+// ter aplicado no painel antes de a execução morrer, e reaplicar dobraria.
+// O retry manual do admin NÃO passa a opção: ele vê o painel e decide.
+async function reapplyPaymentVpnOperations(
+  paymentRecord: any,
+  opts: { skipPendingTargets?: boolean } = {}
+): Promise<{ uncertainTargets: string[] }> {
   const paymentId = paymentRecord.id;
   const db = getDb();
   const metadata = parseMetadata(paymentRecord.metadata);
+  const uncertainTargets: string[] = [];
 
   if (paymentRecord.type === "reseller_hire") {
     const { resellerUsername: newRev, resellerPassword: newRevPass, resellerWhatsapp, resellerLogins, resellerMonths } = metadata;
-    if (!newRev) return;
+    if (!newRev) return { uncertainTargets };
     const createDone = await countSuccessfulAttempts(paymentId, "createrev", newRev);
     if (createDone === 0 && newRevPass) {
       const extra: Record<string, string> = { pass: newRevPass, userlimite: String(resellerLogins || 10) };
@@ -2280,9 +2338,13 @@ async function reapplyPaymentVpnOperations(paymentRecord: any) {
     const resellerUser = metadata.resellerUsername || paymentRecord.username;
     const months = Math.max(1, Math.min(12, Number(metadata.resellerMonths) || 1));
     const already = await countSuccessfulAttempts(paymentId, "renewrev", resellerUser);
-    for (let i = already; i < months; i++) {
-      const r = await applyVpnOperation({ paymentId, module: "renewrev", targetUsername: resellerUser });
-      if (!r.success) break;
+    if (already < months && opts.skipPendingTargets && await hasPendingAttempt(paymentId, "renewrev", resellerUser)) {
+      uncertainTargets.push(resellerUser);
+    } else {
+      for (let i = already; i < months; i++) {
+        const r = await applyVpnOperation({ paymentId, module: "renewrev", targetUsername: resellerUser });
+        if (!r.success) break;
+      }
     }
     await upsertResellerPlan(resellerUser);
 
@@ -2291,11 +2353,15 @@ async function reapplyPaymentVpnOperations(paymentRecord: any) {
     if (newUsername && remainingDays) {
       const done = await countSuccessfulAttempts(paymentId, "criaruser", newUsername);
       if (done === 0) {
-        const password = Math.floor(100000 + Math.random() * 900000).toString();
-        await applyVpnOperation({
-          paymentId, module: "criaruser", targetUsername: newUsername,
-          extraParams: { pass: password, validadeusuario: String(remainingDays), userlimite: "1", whatsapp: "" },
-        });
+        if (opts.skipPendingTargets && await hasPendingAttempt(paymentId, "criaruser", newUsername)) {
+          uncertainTargets.push(newUsername);
+        } else {
+          const password = Math.floor(100000 + Math.random() * 900000).toString();
+          await applyVpnOperation({
+            paymentId, module: "criaruser", targetUsername: newUsername,
+            extraParams: { pass: password, validadeusuario: String(remainingDays), userlimite: "1", whatsapp: "" },
+          });
+        }
       }
     }
 
@@ -2307,16 +2373,28 @@ async function reapplyPaymentVpnOperations(paymentRecord: any) {
       const { data: plan } = await db.from("group_plans").select("*").eq("group_id", groupId).maybeSingle();
       if (plan) monthsToRenew = (plan as any).plan_months;
       const { data: groupUsers } = await db.from("user_groups").select("username").eq("group_id", groupId);
-      if (groupUsers && groupUsers.length > 0) usersToRenew = groupUsers.map((u: any) => u.username);
+      if (groupUsers && groupUsers.length > 0) {
+        // Pagante primeiro — mesmo critério do approvePayment
+        usersToRenew = groupUsers
+          .map((u: any) => u.username)
+          .sort((a: string, b: string) => (a === paymentRecord.username ? -1 : b === paymentRecord.username ? 1 : 0));
+      }
     }
     for (const user of usersToRenew) {
       const already = await countSuccessfulAttempts(paymentId, "renewuser", user);
+      if (already >= monthsToRenew) continue;
+      if (opts.skipPendingTargets && await hasPendingAttempt(paymentId, "renewuser", user)) {
+        uncertainTargets.push(user);
+        continue;
+      }
       for (let i = already; i < monthsToRenew; i++) {
         const r = await applyVpnOperation({ paymentId, module: "renewuser", targetUsername: user });
         if (!r.success) break;
       }
     }
   }
+
+  return { uncertainTargets };
 }
 
 app.post("/api/admin/payments/retry-failed", requireAdminAuth, async (_req, res) => {
@@ -4572,6 +4650,11 @@ async function syncPendingPayments(): Promise<number> {
 // Persistent hosts: run every 10 minutes. (On serverless this interval rarely
 // fires — /api/cron/tick below is the reliable trigger there.)
 setInterval(() => { syncPendingPayments().catch(() => {}); }, 10 * 60 * 1000);
+
+// Varredura de reaplicação (pagamentos aprovados com aplicação incompleta no
+// painel) a cada 10 min enquanto a instância viver; no serverless o
+// /api/cron/tick diário é o gatilho garantido.
+setInterval(() => { retryFailedApplications().catch(() => {}); }, 10 * 60 * 1000);
 
 // ─── Cron endpoints (serverless-safe workers) ────────────────────────────────
 // setInterval/node-cron do NOT run reliably on Vercel/serverless: the process

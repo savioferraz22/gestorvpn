@@ -8,3 +8,6 @@ coverage/
 !.env.example
 database.sqlite
 .env
+
+# Scripts temporários de auditoria/correção (sessões do Claude)
+tmp-*.ts
